@@ -1,0 +1,25 @@
+Name:           hails
+Version:        0.0
+build-type:     Simple
+License:        GPL-2
+License-File:   LICENSE
+Author:         HAILS team
+Maintainer:     Amit Levy <levya at cs.stanford dot edu>, Deian Stefan  <deian at cs dot stanford dot edu>
+Stability:      experimental
+Synopsis:       IFC enforcing web application framework and deployment platform
+Category:       Web
+Cabal-Version:  >= 1.6
+
+Description:
+        This module exports a libraries necessary for building HAILS applications.
+
+Library
+  Build-Depends: base >= 4 && < 5,
+                 lio >= 0.0 && < 0.1,
+                 dclabel >= 0.0 && < 0.1,
+                 HTTP >= 4000.2 && < 4000.3
+  
+  ghc-options: -Wall -Werror -fno-warn-orphans
+
+  Exposed-modules:
+    Hails.Network.Http
