@@ -1,6 +1,6 @@
 module Hails.Network.Http (
      simpleLHTTP,
-     getRequest,
+     module Network.HTTP,
     ) where
 
 import Network.HTTP
