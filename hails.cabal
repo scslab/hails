@@ -17,6 +17,7 @@ Library
   Build-Depends: base >= 4 && < 5,
                  lio >= 0.0 && < 0.1,
                  dclabel >= 0.0 && < 0.1,
+                 network >= 2.3 && < 2.4,
                  HTTP >= 4000.2 && < 4000.3
   
   ghc-options: -Wall -Werror -fno-warn-orphans
