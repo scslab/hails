@@ -23,4 +23,4 @@ Library
   ghc-options: -Wall -Werror -fno-warn-orphans
 
   Exposed-modules:
-    Hails.Network.Http
+    Hails.Network.HTTP
