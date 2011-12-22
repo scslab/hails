@@ -29,7 +29,7 @@ But an 'LerrHigh' exception will be thrown by the following code:
  resp <- lSimpleHTTP $ getRequest $ gMapsBase ++ "&address=" ++ aliceLocation
 @
 -}
-module Hails.Network.Http (
+module Hails.Network.HTTP (
   module Network.HTTP,
   -- * Functions
   simpleHTTP,
