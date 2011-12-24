@@ -12,21 +12,26 @@ allow to be exported to the target domain.
 
 For example, assuming some piece of data has been labeled in the following
 way:
+
 @
- aliceLocationL = newDC ("alice" .\/. ("maps.googleapis.com" ./\. "https")) (<>)
- myLocation = label aliceLocationL "3101 24th Street, San Francisco, CA"
+  aliceLocationL = newDC (\"alice\" .\\\/. (\"maps.googleapis.com\" .\/\\. \"https\")) (\<\>)
+  myLocation = label aliceLocationL \"3101 24th Street, San Francisco, CA\"
 @
+
 Untrusted code may perform the following operation:
+
 @
- let gMapsBase = "https://maps.googleapis.com/maps/api/geocode/json?sensor=false"
- aliceLocation <- fmap urlEncode myLocation
- resp <- lSimpleHTTP $ getRequest $ gMapsBase ++ "&address=" ++ aliceLocation
+  let gMapsBase = \"https:\/\/maps.googleapis.com\/maps\/api\/geocode\/json?sensor=false\"
+  aliceLocation <- fmap urlEncode myLocation
+  resp <- lSimpleHTTP $ getRequest $ gMapsBase ++ \"&address=\" ++ aliceLocation
 @
+
 But an 'LerrHigh' exception will be thrown by the following code:
+
 @
- let gMapsBase = "https://maps.evilalternatives.org/geocode/json?sensor=false"
- aliceLocation <- fmap urlEncode myLocation
- resp <- lSimpleHTTP $ getRequest $ gMapsBase ++ "&address=" ++ aliceLocation
+  let gMapsBase = \"https:\/\/maps.evilalternatives.org\/geocode\/json?sensor=false\"
+  aliceLocation <- fmap urlEncode myLocation
+  resp <- lSimpleHTTP $ getRequest $ gMapsBase ++ \"&address=\" ++ aliceLocation
 @
 -}
 module Hails.Network.HTTP (
