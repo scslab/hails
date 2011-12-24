@@ -15,12 +15,18 @@ Description:
 
 Library
   Build-Depends: base >= 4 && < 5,
+                 base64-bytestring >= 0.1 && < 0.2,
+                 bytestring >= 0.9 && < 1,
                  lio >= 0.0 && < 0.1,
+                 iterIO >= 0.2 && < 0.3,
+                 iterio-server >= 0.1 && < 0.2,
                  dclabel >= 0.0 && < 0.1,
                  network >= 2.3 && < 2.4,
+                 mtl >= 2.0 && < 2.1,
                  HTTP >= 4000.2 && < 4000.3
   
   ghc-options: -Wall -Werror -fno-warn-orphans
 
   Exposed-modules:
     Hails.Network.HTTP
+    Hails.HttpServer
