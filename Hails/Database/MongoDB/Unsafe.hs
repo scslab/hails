@@ -22,14 +22,13 @@ class Policy p where
   colPolicy :: p -> M.Label -> M.Value -> DC Field
   rowPolicy :: p -> [Field] -> DC Document
 
-applyColPolicy :: Policy p => p -> M.Document -> DC [Field]
-applyColPolicy policy doc = go doc
-  where go (field:fields) = do
-          result <- labelField field
-          rest <- go fields
-          return (result:rest)
-        go [] = return []
-        labelField ((M.:=) l v) = colPolicy policy l v
+colPolicy' :: Policy p => p -> M.Field -> DC Field
+colPolicy' policy (l M.:= v) = colPolicy policy l v
+
+applyPolicy :: Policy p => p -> M.Document -> DC Document
+applyPolicy policy row = do
+  lfields <- mapM (colPolicy' policy) row
+  rowPolicy policy lfields
 
 newtype Action p a = Action { runAction :: p -> M.Action IO a }
 
@@ -42,11 +41,7 @@ instance Monad (Action p) where
 nextWithPolicy :: Policy p => Cursor -> p -> M.Action IO (Maybe (DC Document))
 nextWithPolicy cursor policy = do
   row <- M.next cursor
-  return $ fmap applyPolicies row
-  where applyPolicies row = do
-          lfields <- applyColPolicy policy row
-          rowPolicy policy lfields
-
+  return $ fmap (applyPolicy policy) row
 
 next :: Policy p => Cursor -> Action p (Maybe (DC Document))
 next cursor = Action $ nextWithPolicy cursor
