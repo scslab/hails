@@ -1,5 +1,3 @@
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
-
 module Hails.Database.MongoDB (
       Policy(..)
     , Value
@@ -27,9 +25,6 @@ data Field = (:=) M.Label Value
 type Document = Labeled DCLabel [Field]
 type Collection = M.Collection
 data Database = Database M.Database
-{- temporary -}
-mydb = Database $ pack "mydb"
-{- temporary -}
 
 toMongoDatabase :: Database -> M.Database
 toMongoDatabase (Database d) = d
