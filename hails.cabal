@@ -21,12 +21,18 @@ Library
                  iterIO >= 0.2 && < 0.3,
                  iterio-server >= 0.1 && < 0.2,
                  dclabel >= 0.0 && < 0.1,
+                 mongoDB >= 1.1 && < 1.2,
+                 bson >= 0.1 && < 0.2,
                  network >= 2.3 && < 2.4,
                  mtl >= 2.0 && < 2.1,
                  HTTP >= 4000.2 && < 4000.3
-  
+
   ghc-options: -Wall -Werror -fno-warn-orphans
 
   Exposed-modules:
     Hails.Network.HTTP
     Hails.HttpServer
+    Hails.Data.Lson
+    Hails.Database.MongoDB
+    Hails.Database.MongoDB.Unsafe
+

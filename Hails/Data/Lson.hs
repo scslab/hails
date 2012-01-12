@@ -44,7 +44,7 @@ exclude keys doc = filter (\(k := _) -> notElem k keys) doc
 
 merge :: Label l => [Field l] -> [Field l] -> [Field l]
 -- ^ Merge documents with preference given to first one when both have the same key. I.e. for every (k := v) in first argument, if k exists in second argument then replace its value with v, otherwise add (k := v) to second argument.
-merge es doc = foldl f doc es where
+merge es doc' = foldl f doc' es where
 	f doc (k := v) = case findIndex ((k ==) . key) doc of
 		Nothing -> doc ++ [k := v]
 		Just i -> let (x, _ : y) = splitAt i doc in x ++ [k := v] ++ y

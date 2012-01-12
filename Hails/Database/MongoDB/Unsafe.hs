@@ -1,8 +1,5 @@
 module Hails.Database.MongoDB.Unsafe where
 
-import Control.Applicative
-import Data.Either
-import Data.UString (pack)
 import qualified Database.MongoDB as M
 import Hails.Data.Lson
 import LIO.TCB
@@ -31,9 +28,9 @@ applyPolicy policy row = do
 newtype Action l s a = Action { runAction :: Policy l s -> M.Action IO a }
 
 instance Monad (Action l s) where
-  first >>= last = Action $ \policy -> do
-    res <- (runAction first policy)
-    runAction (last res) policy
+  front >>= back = Action $ \policy -> do
+    res <- (runAction front policy)
+    runAction (back res) policy
   return foo = Action $ \_ -> return foo
 
 nextWithPolicy :: Label l => Cursor -> Policy l s -> M.Action IO (Maybe (LIO l s (Document l)))
