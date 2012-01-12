@@ -13,5 +13,6 @@ module Hails.Database.MongoDB (
 ) where
 
 import Hails.Database.MongoDB.Unsafe
+import Hails.Data.Lson
 
 

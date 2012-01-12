@@ -4,13 +4,11 @@ import Control.Applicative
 import Data.Either
 import Data.UString (pack)
 import qualified Database.MongoDB as M
+import Hails.Data.Lson
 import LIO.TCB
 import LIO.DCLabel
 
 type Cursor = M.Cursor
-type Value = Labeled DCLabel M.Value
-data Field = (:=) M.Label Value
-type Document = Labeled DCLabel [Field]
 type Collection = M.Collection
 data Database = Database M.Database
 
@@ -19,13 +17,13 @@ toMongoDatabase (Database d) = d
 
 class Policy p where
   database :: p -> Database
-  colPolicy :: p -> M.Label -> M.Value -> DC Field
-  rowPolicy :: p -> [Field] -> DC Document
+  colPolicy :: p -> M.Label -> M.Value -> DC (Field DCLabel)
+  rowPolicy :: p -> [Field DCLabel] -> DC (Document DCLabel)
 
-colPolicy' :: Policy p => p -> M.Field -> DC Field
+colPolicy' :: Policy p => p -> M.Field -> DC (Field DCLabel)
 colPolicy' policy (l M.:= v) = colPolicy policy l v
 
-applyPolicy :: Policy p => p -> M.Document -> DC Document
+applyPolicy :: Policy p => p -> M.Document -> DC (Document DCLabel)
 applyPolicy policy row = do
   lfields <- mapM (colPolicy' policy) row
   rowPolicy policy lfields
@@ -38,12 +36,12 @@ instance Monad (Action p) where
     runAction (last res) policy
   return foo = Action $ \_ -> return foo
 
-nextWithPolicy :: Policy p => Cursor -> p -> M.Action IO (Maybe (DC Document))
+nextWithPolicy :: Policy p => Cursor -> p -> M.Action IO (Maybe (DC (Document DCLabel)))
 nextWithPolicy cursor policy = do
   row <- M.next cursor
   return $ fmap (applyPolicy policy) row
 
-next :: Policy p => Cursor -> Action p (Maybe (DC Document))
+next :: Policy p => Cursor -> Action p (Maybe (DC (Document DCLabel)))
 next cursor = Action $ nextWithPolicy cursor
 
 -- Utilities
