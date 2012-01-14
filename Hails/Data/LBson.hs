@@ -208,7 +208,7 @@ typed = runIdentity . cast
 
 -- | Necessary instance that just fails.
 instance Label l => Show (Labeled l a) where
-  show l = error "Instance of show for Labeled not supported"
+  show _ = error "Instance of show for Labeled not supported"
 -- | Necessary instance that just fails.
 instance Label l => Eq (Labeled l a) where
   (==)   = error "Instance of Eq for Labeled not supported"
