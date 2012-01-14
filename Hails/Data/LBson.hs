@@ -57,11 +57,10 @@ import Data.Bson ( Binary(..)
                  , MongoStamp(..)
                  , MinMaxKey(..)
                  , ObjectId(..)
-                 , timestamp
-                 , genObjectId)
+                 , timestamp)
 
 import LIO
-import LIO.TCB (labelTCB, unlabelTCB)
+import LIO.TCB (labelTCB, unlabelTCB, rtioTCB)
 
 import Data.Maybe (mapMaybe, maybeToList)
 import Data.List (find, findIndex)
@@ -151,18 +150,18 @@ k =? ma = maybeToList (fmap (k =:) ma)
 --
 
 -- | A @Value@ is either a standard BSON value, or a labeled value.
-data Value l = BSonVal Bson.Value               -- ^ Unlabeled BSON value
+data Value l = BsonVal Bson.Value               -- ^ Unlabeled BSON value
              | LabeledVal (Labeled l (Value l)) -- ^ Labeled (BSON) value
              deriving (Typeable)
 
 -- | Instance for @Show@, only showing unlabeled BSON values.
 instance Label l => Show (Value l) where
-  show (BSonVal v) = show v
+  show (BsonVal v) = show v
   show (LabeledVal lv) = show (labelOf lv) ++ "{- HIDING DATA -} "
 
 -- | Instance for @Eq@, only comparing unlabeled BSON values.
 instance Label l => Eq (Value l) where
-  (==) (BSonVal v1) (BSonVal v2) = v1 == v2
+  (==) (BsonVal v1) (BsonVal v2) = v1 == v2
   (==) _ _ = False
 
 
@@ -174,8 +173,8 @@ class (Typeable a, Show a, Eq a, Label l) => Val l a where
 -- | Every type that is an instance of BSON Val is an instance of
 -- LBSON Val.
 instance (Bson.Val a, Label l) => Val l a where
-  val   = BSonVal . Bson.val
-  cast' (BSonVal v) = Bson.cast' v
+  val   = BsonVal . Bson.val
+  cast' (BsonVal v) = Bson.cast' v
   cast' _           = Nothing
               
 
@@ -184,7 +183,7 @@ instance (Val l a, Label l) => Val l (Labeled l a) where
   val lv = let l = labelOf lv
                v = unlabelTCB lv
            in LabeledVal $ labelTCB l (val v)
-  cast' (BSonVal _ ) = Nothing
+  cast' (BsonVal _ ) = Nothing
   cast' (LabeledVal lv) = let l = labelOf lv
                               v = unlabelTCB lv
                           in cast' v >>= return . labelTCB l
@@ -212,3 +211,8 @@ instance Label l => Show (Labeled l a) where
 -- | Necessary instance that just fails.
 instance Label l => Eq (Labeled l a) where
   (==)   = error "Instance of Eq for Labeled not supported"
+
+-- | Generate fresh 'ObjectId'.
+genObjectId :: LabelState l p s => LIO l p s ObjectId
+genObjectId = rtioTCB $ Bson.genObjectId
+
