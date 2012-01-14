@@ -2,6 +2,9 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+-- TODO: remove:
+{-# LANGUAGE OverloadedStrings #-}
+--
 module Hails.Database.MongoDB.Unsafe where
 
 import Prelude hiding (lookup)
@@ -14,6 +17,39 @@ import qualified Database.MongoDB as M
 import qualified Control.Exception as E
 
 import Control.Monad (unless, forM)
+
+
+-- TODO: remove
+import LIO.DCLabel
+import LIO.TCB (ioTCB)
+import Data.Monoid (mempty)
+main :: IO ()
+main = ignore $ evalDC $ do
+  let n = "w00t" :: String
+      p = "p455w0rd" :: String
+      c = Collection { colLabel = lbot :: DCLabel
+                     , colClear = ltop
+                     , colIntern = "auth"
+                     , colPolicy = RawPolicy {
+                         rawDocPolicy = \doc -> newDC (<>) (<>)
+                       , rawFieldPolicies = [
+                            ( "password", \doc -> let name = at "name" doc :: String
+                                                  in newDC (name) (name))
+                          ]
+                       }
+                     }
+
+      x = [ "name" =: n
+          , "password" =: (pl p :: PolicyLabeled DCLabel String)
+          ] :: Document DCLabel
+  lx <- applyRawPolicyP mempty c x
+  ioTCB $ print lx
+  ioTCB $ print x
+  return ()
+
+ignore io = io >> return ()
+--
+
 
 
 --
@@ -144,8 +180,6 @@ applyRawPolicyP p' col doc = withCombinedPrivs p' $ \p -> do
                                     unless (leqp p l newl) $ throwIO LerrLow
               _ -> return ()
             guardLabeledVals ds p l c
-
-               
 
 --
 -- Exceptions

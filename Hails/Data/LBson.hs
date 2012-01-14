@@ -10,11 +10,15 @@
    'Data.Bson.Value' type or a 'Labeled' 'Value' type.
 -}
 {-# LANGUAGE Rank2Types #-}
--- {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE DeriveDataTypeable #-}
+{-# LANGUAGE OverlappingInstances #-}
+
+--TODO: remove
+#define DEBUG 1
+--
 
 module Hails.Data.LBson ( -- * UTF-8 String
                           module Data.UString
@@ -240,8 +244,13 @@ typed = runIdentity . cast
 
 
 -- | Necessary instance that just fails.
-instance Label l => Show (Labeled l a) where
+instance (Show a, Label l) => Show (Labeled l a) where
+#if DEBUG
+  show = showTCB 
+#else
   show = error "Instance of show for Labeled not supported"
+#endif
+
 -- | Necessary instance that just fails.
 instance Label l => Eq (Labeled l a) where
   (==)   = error "Instance of Eq for Labeled not supported"
@@ -267,14 +276,18 @@ data PolicyLabeled l a = PU a             -- ^ Policy was not applied
 class Label l => MkPolicyLabeled l a b where
   pl :: a -> PolicyLabeled l b
 
-instance Label l => MkPolicyLabeled l a a where
-  pl = PU 
-instance Label l => MkPolicyLabeled l (Labeled l a) a where
-  pl = PL
+instance Label l => MkPolicyLabeled l a a where pl = PU 
+instance Label l => MkPolicyLabeled l (Labeled l a) a where pl = PL
 
 -- | Necessary instance that just fails.
-instance Label l => Show (PolicyLabeled l a) where
+instance (Show a, Label l) => Show (PolicyLabeled l a) where
+#if DEBUG
+  show (PU x) = show x 
+  show (PL x) = showTCB x 
+#else
   show = error "Instance of show for PolicyLabeled not supported"
+#endif
+
 -- | Necessary instance that just fails.
 instance Label l => Eq (PolicyLabeled l a) where
   (==) = error "Instance of show for PolicyLabeled not supported"
