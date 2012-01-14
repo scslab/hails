@@ -17,7 +17,7 @@ Library
   Build-Depends: base >= 4 && < 5,
                  base64-bytestring >= 0.1 && < 0.2,
                  bytestring >= 0.9 && < 1,
-                 lio >= 0.0 && < 0.1,
+                 lio >= 0.1.2 && < 0.2,
                  iterIO >= 0.2 && < 0.3,
                  iterio-server >= 0.1 && < 0.2,
                  dclabel >= 0.0 && < 0.1,
@@ -30,9 +30,9 @@ Library
   ghc-options: -Wall -Werror -fno-warn-orphans
 
   Exposed-modules:
-    Hails.Network.HTTP
-    Hails.HttpServer
-    Hails.Data.Lson
-    Hails.Database.MongoDB
+    Hails.Data.LBson
+--    Hails.Network.HTTP
+--    Hails.HttpServer
+--    Hails.Data.Lson
+--    Hails.Database.MongoDB
     Hails.Database.MongoDB.Unsafe
-

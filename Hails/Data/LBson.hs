@@ -10,6 +10,7 @@
    'Data.Bson.Value' type or a 'Labeled' 'Value' type.
 -}
 {-# LANGUAGE Rank2Types #-}
+-- {-# LANGUAGE OverlappingInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -25,6 +26,8 @@ module Hails.Data.LBson ( -- * UTF-8 String
                         , Key
                           -- * Value
                         , Value(..), Val(..), cast, typed
+                          -- * Policy labeled values
+                        , PolicyLabeled(..), pl
                           -- * Special Bson value types
                         , Binary(..)
                         , Function(..)
@@ -61,6 +64,9 @@ import Data.Bson ( Binary(..)
 
 import LIO
 import LIO.TCB (labelTCB, unlabelTCB, rtioTCB)
+#if DEBUG
+import LIO.TCB (showTCB)
+#endif
 
 import Data.Maybe (mapMaybe, maybeToList)
 import Data.List (find, findIndex)
@@ -128,7 +134,7 @@ infix 0 :=, =:, =?
 -- | A @Field@ is a 'Key'-'Value' pair.
 data Field l = (:=) { key :: !Key
                     , value :: Value l }
-  deriving (Eq, Typeable)
+                    deriving (Eq, Typeable)
 
 instance Label l => Show (Field l) where
   showsPrec d (k := v) = showParen (d > 0) $
@@ -149,15 +155,25 @@ k =? ma = maybeToList (fmap (k =:) ma)
 -- Value related
 --
 
--- | A @Value@ is either a standard BSON value, or a labeled value.
-data Value l = BsonVal Bson.Value               -- ^ Unlabeled BSON value
-             | LabeledVal (Labeled l (Value l)) -- ^ Labeled (BSON) value
+-- | A @Value@ is either a standard BSON value, a labeled value, or
+-- a policy-labeled value.
+data Value l = BsonVal Bson.Value
+             -- ^ Unlabeled BSON value
+             | LabeledVal (Labeled l Bson.Value)
+             -- ^ Labeled (LBSON) value
+             | PolicyLabeledVal (PolicyLabeled l Bson.Value)
+             -- ^ Policy labeled (LBSON) value
              deriving (Typeable)
 
 -- | Instance for @Show@, only showing unlabeled BSON values.
 instance Label l => Show (Value l) where
   show (BsonVal v) = show v
-  show (LabeledVal lv) = show (labelOf lv) ++ "{- HIDING DATA -} "
+#if DEBUG
+  show (LabeledVal lv) = showTCB lv
+  show (PolicyLabeledVal lv) = show lv
+#else
+  show _ = "{- HIDING DATA -} "
+#endif
 
 -- | Instance for @Eq@, only comparing unlabeled BSON values.
 instance Label l => Eq (Value l) where
@@ -177,16 +193,34 @@ instance (Bson.Val a, Label l) => Val l a where
   cast' (BsonVal v) = Bson.cast' v
   cast' _           = Nothing
               
+-- | Every type that is an instance of BSON Val is an instance of
+-- LBSON Val.
+instance (Label l) => Val l (Value l) where
+  val   = id
+  cast' = Just
 
 -- | Convert between a labeled value and a labeled BSON value.
-instance (Val l a, Label l) => Val l (Labeled l a) where
+instance (Bson.Val a, Label l) => Val l (Labeled l a) where
   val lv = let l = labelOf lv
                v = unlabelTCB lv
-           in LabeledVal $ labelTCB l (val v)
-  cast' (BsonVal _ ) = Nothing
+           in LabeledVal $ labelTCB l (Bson.val v)
   cast' (LabeledVal lv) = let l = labelOf lv
                               v = unlabelTCB lv
-                          in cast' v >>= return . labelTCB l
+                          in Bson.cast' v >>= return . labelTCB l
+  cast' _ = Nothing
+
+-- | Convert between a policy-labeled value and a labeled BSON value.
+instance (Bson.Val a, Label l) => Val l (PolicyLabeled l a) where
+  val (PU x) = PolicyLabeledVal . PU . Bson.val $ x
+  val (PL lv) = let l = labelOf lv
+                    v = unlabelTCB lv
+                in PolicyLabeledVal . PL $ labelTCB l (Bson.val v)
+  cast' (PolicyLabeledVal (PU v)) = Bson.cast' v >>= return . PU
+  cast' (PolicyLabeledVal (PL lv)) = let l = labelOf lv
+                                         v = unlabelTCB lv
+                                     in Bson.cast' v >>=
+                                        return . PL . labelTCB l
+  cast' _ = Nothing
 
 
 -- | Convert Value to expected type, or fail (Nothing) if not of that type
@@ -207,7 +241,7 @@ typed = runIdentity . cast
 
 -- | Necessary instance that just fails.
 instance Label l => Show (Labeled l a) where
-  show _ = error "Instance of show for Labeled not supported"
+  show = error "Instance of show for Labeled not supported"
 -- | Necessary instance that just fails.
 instance Label l => Eq (Labeled l a) where
   (==)   = error "Instance of Eq for Labeled not supported"
@@ -216,3 +250,31 @@ instance Label l => Eq (Labeled l a) where
 genObjectId :: LabelState l p s => LIO l p s ObjectId
 genObjectId = rtioTCB $ Bson.genObjectId
 
+
+--
+-- Policy labeled values
+--
+
+-- | Simple sum type used to denote a policy-labeled type. A
+-- @PolicyLabeled@ type can be either labeled (policy applied),
+-- or unabled (policy not yet applied).
+data PolicyLabeled l a = PU a             -- ^ Policy was not applied 
+                       | PL (Labeled l a) -- ^ Policy applied
+                       deriving (Typeable)
+
+-- | Class used to convert a (possibly labeled) type to a
+-- policy-labled type.
+class Label l => MkPolicyLabeled l a b where
+  pl :: a -> PolicyLabeled l b
+
+instance Label l => MkPolicyLabeled l a a where
+  pl = PU 
+instance Label l => MkPolicyLabeled l (Labeled l a) a where
+  pl = PL
+
+-- | Necessary instance that just fails.
+instance Label l => Show (PolicyLabeled l a) where
+  show = error "Instance of show for PolicyLabeled not supported"
+-- | Necessary instance that just fails.
+instance Label l => Eq (PolicyLabeled l a) where
+  (==) = error "Instance of show for PolicyLabeled not supported"
