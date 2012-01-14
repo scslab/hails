@@ -13,17 +13,20 @@ toMongoDatabase (Database d) = d
 
 data Policy l s = Policy {
     database :: Database
-  , colPolicy :: M.Label -> M.Value -> LIO l s (Field l)
-  , rowPolicy :: [Field l] -> LIO l s (Document l)
+  , colPolicy :: M.Label -> M.Document -> l
+  , rowPolicy :: [Field l] -> l
 }
 
-colPolicy' :: Label l => Policy l s -> M.Field -> LIO l s (Field l)
-colPolicy' policy (l M.:= v) = colPolicy policy l v
+colPolicy' :: Label l => Policy l s -> M.Document -> M.Field -> LIO l s (Field l)
+colPolicy' policy row field = do
+  labelVal <- label (colPolicy policy (M.label field) row) (M.value field)
+  return $ (M.label field) := labelVal
 
 applyPolicy :: Label l => Policy l s -> M.Document -> LIO l s (Document l)
 applyPolicy policy row = do
-  lfields <- mapM (colPolicy' policy) row
-  rowPolicy policy lfields
+  lfields <- mapM (colPolicy' policy row) row
+  let rowLabel = rowPolicy policy lfields
+  label rowLabel lfields
 
 newtype Action l s a = Action { runAction :: Policy l s -> M.Action IO a }
 
