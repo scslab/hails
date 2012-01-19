@@ -20,34 +20,34 @@
 #define DEBUG 1
 --
 
-module Hails.Data.LBson ( -- * UTF-8 String
-                          module Data.UString
-                          -- * Document
-                        , Document
-                        , look, lookup, valueAt, at, include, exclude, merge
-                          -- * Field
-                        , Field(..), (=:), (=?)
-                        , Key
-                          -- * Value
-                        , Value(..), Val(..), cast, typed
-                          -- * Policy labeled values
-                        , PolicyLabeled(..), pl
-                          -- * Special Bson value types
-                        , Binary(..)
-                        , Function(..)
-                        , UUID(..)
-                        , MD5(..)
-                        , UserDefined(..)
-                        , Regex(..)
-                        , Javascript(..)
-                        , Symbol(..)
-                        , MongoStamp(..)
-                        , MinMaxKey(..)
-                          -- ** ObjectId
-                        , ObjectId(..)
-                        , timestamp
-                        , genObjectId
-                        ) where
+module Hails.Data.LBson.TCB ( -- * UTF-8 String
+                              module Data.UString
+                              -- * Document
+                            , Document
+                            , look, lookup, valueAt, at, include, exclude, merge
+                              -- * Field
+                            , Field(..), (=:), (=?)
+                            , Key
+                              -- * Value
+                            , Value(..), Val(..), cast, typed
+                              -- * Policy labeled values
+                            , PolicyLabeled(..), pu, pl
+                              -- * Special Bson value types
+                            , Binary(..)
+                            , Function(..)
+                            , UUID(..)
+                            , MD5(..)
+                            , UserDefined(..)
+                            , Regex(..)
+                            , Javascript(..)
+                            , Symbol(..)
+                            , MongoStamp(..)
+                            , MinMaxKey(..)
+                              -- ** ObjectId
+                            , ObjectId(..)
+                            , timestamp
+                            , genObjectId
+                            ) where
 
 
 import Prelude hiding (lookup,)
@@ -191,7 +191,8 @@ class (Typeable a, Show a, Eq a, Label l) => Val l a where
   cast' :: Value l -> Maybe a
 
 -- | Every type that is an instance of BSON Val is an instance of
--- LBSON Val.
+-- LBSON Val. This requires the use of @OverlappingInstances@
+-- extension.
 instance (Bson.Val a, Label l) => Val l a where
   val   = BsonVal . Bson.val
   cast' (BsonVal v) = Bson.cast' v
@@ -271,13 +272,13 @@ data PolicyLabeled l a = PU a             -- ^ Policy was not applied
                        | PL (Labeled l a) -- ^ Policy applied
                        deriving (Typeable)
 
--- | Class used to convert a (possibly labeled) type to a
--- policy-labled type.
-class Label l => MkPolicyLabeled l a b where
-  pl :: a -> PolicyLabeled l b
+-- | Wrap an unlabeled value by 'PolicyLabeled'.
+pu :: (Label l, Bson.Val a) => a -> PolicyLabeled l a
+pu = PU
 
-instance Label l => MkPolicyLabeled l a a where pl = PU 
-instance Label l => MkPolicyLabeled l (Labeled l a) a where pl = PL
+-- | Wrap an already-labeled value by 'PolicyLabeled'.
+pl :: (Label l, Bson.Val a) => Labeled l a -> PolicyLabeled l a
+pl = PL
 
 -- | Necessary instance that just fails.
 instance (Show a, Label l) => Show (PolicyLabeled l a) where
