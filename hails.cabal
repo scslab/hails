@@ -25,14 +25,20 @@ Library
                  bson >= 0.1 && < 0.2,
                  network >= 2.3 && < 2.4,
                  mtl >= 2.0 && < 2.1,
+                 compact-string-fix >= 0.3.2 && < 0.4,
+                 transformers >= 0.2.2.0 && < 0.3,
+                 cereal >= 0.3.5.1 && < 0.4,
                  HTTP >= 4000.2 && < 4000.3
 
-  ghc-options: -Wall -Werror -fno-warn-orphans
+  ghc-options: -Wall -fno-warn-orphans
 
   Exposed-modules:
     Hails.Data.LBson
+    Hails.Data.LBson.Safe
+    Hails.Data.LBson.TCB
 --    Hails.Network.HTTP
 --    Hails.HttpServer
 --    Hails.Data.Lson
 --    Hails.Database.MongoDB
-    Hails.Database.MongoDB.Unsafe
+    Hails.Database.MongoDB.TCB
+--    Hails.Database.MongoDB

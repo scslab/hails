@@ -8,19 +8,17 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 -- TODO: remove:
-{-# LANGUAGE OverloadedStrings #-}
+-- {-# LANGUAGE OverloadedStrings #-}
 --
 module Hails.Database.MongoDB.TCB where
 
-import Prelude hiding (lookup)
 import LIO
-import LIO.TCB (unlabelTCB, labelTCB)
+import LIO.TCB (unlabelTCB, labelTCB, rtioTCB)
 import LIO.MonadCatch
 import Hails.Data.LBson.TCB
 
 import Data.Typeable
 import qualified Data.List as List
-import Data.Functor (Functor)
 
 import Data.Maybe
 import Data.Serialize
@@ -29,19 +27,18 @@ import Data.CompactString.UTF8 (append, isPrefixOf)
 import Database.MongoDB.Connection
 import Database.MongoDB ( Failure(..)
                         , AccessMode(..)
-                        , MonadDB(..)
                         )
 import qualified Database.MongoDB as M
 
 import qualified Control.Exception as E
 import Control.Applicative (Applicative)
 import Control.Monad.Error hiding (liftIO)
-import Control.Monad (unless, forM, liftM)
 import Control.Monad.Reader hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
 
 
 -- TODO: remove
+{-
 import LIO.DCLabel
 import DCLabel.PrettyShow
 import LIO.TCB (ioTCB)
@@ -88,6 +85,7 @@ main =  do
     accessP noPrivs pipe M.master db act
   close pipe
   putStrLn $ show res ++ (prettyShow l)
+  -}
 --
 
 
@@ -286,7 +284,7 @@ newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
 
 -- | Instance of @MonadIO@.
 instance LabelState l p s => MonadIO (UnsafeLIO l p s) where
-  liftIO = UnsafeLIO . ioTCB
+  liftIO = UnsafeLIO . rtioTCB
 
 -- | Instance of @MonadIO@.
 instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
@@ -377,7 +375,7 @@ fromBsonDocStrict d =
 -- 'hailsInternalKeyPrefix' as a prefix
 exceptInternal :: Label l => Document l -> Document l
 exceptInternal [] = []
-exceptInternal (f@(k := v):fs) =
+exceptInternal (f@(k := _):fs) =
   let rest = exceptInternal fs
   in if hailsInternalKeyPrefix `isPrefixOf` k
        then rest
@@ -414,8 +412,8 @@ lBsonValueKey = u "value"
 
 -- | Convert 'Value' to Bson @Value@
 toBsonValue :: (Serialize l, Label l) => Value l -> M.Value
-toBsonValue v = 
-  case v of 
+toBsonValue mV = 
+  case mV of 
     (BsonVal v)            -> v
     (LabeledVal lv) -> M.val [ lBsonLabeledValKey M.=:
               [ lBsonLabelKey M.=: Binary (encode (labelOf lv))
@@ -426,8 +424,8 @@ toBsonValue v =
 
 -- | Convert Bson @Value@ to 'Value'
 fromBsonValue :: (Serialize l, Label l) => M.Value -> Maybe (Value l)
-fromBsonValue v = do
-  case v of
+fromBsonValue mV = do
+  case mV of
     x@(M.Doc d) ->
       let haveL = isJust $ M.look lBsonLabeledValKey d
           havePL = isJust $ M.look lBsonPolicyLabeledValKey d
