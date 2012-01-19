@@ -8,7 +8,7 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE StandaloneDeriving #-}
 -- TODO: remove:
--- {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 --
 module Hails.Database.MongoDB.TCB where
 
@@ -37,14 +37,11 @@ import Control.Monad.Reader hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
 
 
--- TODO: remove
-{-
+-- ## REMOVE ########################################################
 import LIO.DCLabel
 import DCLabel.PrettyShow
 import LIO.TCB (ioTCB)
 
-db :: Database DCLabel
-db = Database lbot "baseball"
 
 main :: IO ()
 main =  do
@@ -52,6 +49,7 @@ main =  do
   (res,l) <- evalDC $ do
     let n = "w00t" :: String
         p = "p455w0rd" :: String
+        db = Database lbot "baseball" :: Database DCLabel
         c = Collection { colLabel = newDC ("sweet" :: String) (<>)
                        , colClear = ltop
                        , colIntern = "auth"
@@ -85,8 +83,7 @@ main =  do
     accessP noPrivs pipe M.master db act
   close pipe
   putStrLn $ show res ++ (prettyShow l)
-  -}
---
+-- ##################################################################
 
 
 
@@ -291,7 +288,8 @@ instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
   liftLIO = UnsafeLIO
 
 -- | An LIO action with MongoDB access.
-newtype LIOAction l p s a = LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
+newtype LIOAction l p s a =
+    LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
   deriving (Functor, Applicative, Monad)
 
 newtype Action l p s a = Action (ReaderT (Database l) (LIOAction l p s) a)
@@ -303,9 +301,27 @@ instance LabelState l p s => MonadLIO (LIOAction l p s) l p s where
 instance LabelState l p s => MonadLIO (Action l p s) l p s where
   liftLIO = Action . liftLIO
 
--- TODO: make sure that exceptions are propagated properly and Failure
--- does not leak any information
+-- | Lift a MongoDB action into 'Action' monad.
+liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
+liftAction = Action . lift . LIOAction 
 
+-- | Run action against database on server at other end of pipe. Use
+-- access mode for any reads and writes. Return 'Left' on connection
+-- failure or read/write failure.
+-- The current label is raised to the the join of the database label
+-- and current label.
+--
+-- TODO: make sure that Failure does not leak any information.
+access :: LabelState l p s
+       => Pipe
+       -> AccessMode
+       -> Database l
+       -> Action l p s a
+       -> LIO l p s (Either Failure a)
+access = accessP noPrivs
+
+-- | Same as 'access', but uses privileges when raising the current
+-- label.
 accessP :: LabelState l p s
         => p 
         -> Pipe
@@ -318,12 +334,28 @@ accessP p' pipe mode db (Action act) = withCombinedPrivs p' $ \p -> do
   let lioAct = runReaderT act db
   unUnsafeLIO $ M.access pipe mode (dbIntern db) (unLIOAction lioAct)
 
--- | Lift a MongoDB action into 'Action' monad.
-liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
-liftAction = Action . lift . LIOAction 
 
--- | Insert document into collection and return its "_id" value,
+--
+-- Write 
+--
+
+-- | Insert document into collection and return its @_id@ value,
 -- which is created automatically if not supplied.
+insert :: (LabelState l p s, Serialize l)
+       => Collection l
+       -> Document l
+       -> Action l p s M.Value
+insert = insertP noPrivs
+
+-- | Same as 'insert' except it does not return @_id@
+insert_ :: (LabelState l p s, Serialize l)
+        => Collection l
+        -> Document l
+        -> Action l p s ()
+insert_ c d = insert c d >> return ()
+
+-- | Same as 'insert', but uses privileges when applying the
+-- collection policies, and doing label comparisons.
 insertP :: (LabelState l p s, Serialize l)
         => p 
         -> Collection l
@@ -340,6 +372,19 @@ insertP p' col doc = do
             applyRawPolicyP p col doc
   let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
   liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
+
+-- | Same as 'insertP' except it does not return @_id@
+insertP_ :: (LabelState l p s, Serialize l)
+         => p 
+         -> Collection l
+         -> Document l
+         -> Action l p s ()
+insertP_ p c d = insertP p c d >> return ()
+
+
+--
+-- Read
+--
 
 
 --
