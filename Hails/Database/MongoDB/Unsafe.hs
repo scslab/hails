@@ -13,6 +13,7 @@ toMongoDatabase (Database d) = d
 
 data Policy l s = Policy {
     database :: Database
+  , collection :: Collection
   , colPolicy :: M.Label -> M.Document -> l
   , rowPolicy :: [Field l] -> l
 }
@@ -57,8 +58,8 @@ run policy action = rtioTCB $ do
   M.close pipe
   return e
 
-getCollection :: Label l => Collection -> Action l s Cursor
-getCollection collection = Action $ \_ -> do
-  cursor <- M.find $ M.select [] collection
+getCollection :: Label l => Action l s Cursor
+getCollection = Action $ \policy -> do
+  cursor <- M.find $ M.select [] $ collection policy
   return $ cursor
 
