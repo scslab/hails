@@ -104,15 +104,13 @@ main =  do
 -- | Name of collection
 type CollectionName = M.Collection
 
--- | A collection is a MongoDB collection associated with
--- label and clearance and labeling policy for collection documents.
--- The label of the collection is used to enforce who can write
--- to it (i.e., current label must flow to the label of the
--- collection). The clearance of the collection is used to limit
+-- | A collection is a MongoDB collection associated with a
+-- label, clearance and labeling policy. The label
+-- specifies who can write to a collection (i.e., only priciples whos
+-- current label flows to the label of the
+-- collection). The clearance limits
 -- the sensitivity of the data written to the collection (i.e.,
--- label of data must flow to the clearance of the collection). The
--- label on the collection label and clearance is the current label,
--- i.e., they are public.
+-- the labels of all data in the collection must flow to the clearance).
 data Collection l = Collection { colLabel  :: l
                                -- ^ Collection label
                                , colClear  :: l
@@ -178,8 +176,8 @@ data Database l = Database { dbLabel  :: l      -- ^ Label of database
 --
 
 
--- | A @RawPolicy@ encodes a document/row policy, and all
--- field/column policies. It is required that all fields of type
+-- | A @RawPolicy@ encodes a document policy, and all
+-- field policies. It is required that all fields of type
 -- 'PolicyLabled' have a field/column policy -- if using only this
 -- low-level interface a runtime-error will occur if this is not
 -- satisfied.
