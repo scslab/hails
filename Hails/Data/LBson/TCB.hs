@@ -23,7 +23,7 @@
 module Hails.Data.LBson.TCB ( -- * UTF-8 String
                               module Data.UString
                               -- * Document
-                            , Document
+                            , Document, LabeledDocument
                             , look, lookup, valueAt, at, include, exclude, merge
                               -- * Field
                             , Field(..), (=:), (=?)
@@ -88,6 +88,9 @@ type Key = Bson.Label
 
 -- | A LBSON document is a list of 'Field's
 type Document l = [Field l]
+
+-- | A labeled 'Document'
+type LabeledDocument l = Labeled l (Document l)
 
 -- | Value of field in document, or fail (Nothing) if field not found
 look :: (Monad m, Label l) => Key -> Document l -> m (Value l)

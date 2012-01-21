@@ -6,28 +6,36 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE TypeFamilies #-}
 -- TODO: remove:
-{-# LANGUAGE OverloadedStrings #-}
+-- {-# LANGUAGE OverloadedStrings #-}
 --
 module Hails.Database.MongoDB.TCB where
 
 import LIO
-import LIO.TCB (unlabelTCB, labelTCB, rtioTCB)
+import LIO.TCB (LIO(..), LIOstate, unlabelTCB, labelTCB, rtioTCB)
 import LIO.MonadCatch
 import Hails.Data.LBson.TCB
 
 import Data.Typeable
 import qualified Data.List as List
 
+import Data.Word (Word32)
 import Data.Maybe
-import Data.Serialize
+import Data.Functor ((<$>))
+import Data.Serialize (Serialize, encode, decode)
 import Data.CompactString.UTF8 (append, isPrefixOf)
 
 import Database.MongoDB.Connection
 import Database.MongoDB ( Failure(..)
                         , AccessMode(..)
+                        , QueryOption(..)
+                        , Limit
+                        , BatchSize
                         )
+import Control.Monad.Base (MonadBase(..))
+import Control.Monad.Trans.Control (MonadBaseControl(..))
+import Control.Monad.State (StateT)
 import qualified Database.MongoDB as M
 
 import qualified Control.Exception as E
@@ -37,7 +45,9 @@ import Control.Monad.Reader hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
 
 
+{-
 -- ## REMOVE ########################################################
+
 import LIO.DCLabel
 import DCLabel.PrettyShow
 import LIO.TCB (ioTCB)
@@ -72,18 +82,18 @@ main =  do
     ioTCB $ print lx
     ioTCB $ print x
     -}
-    let act = do i <- insertP noPrivs c x
+    let act = do insertP noPrivs c x
     {-
                  liftLIO $ do lv <- label (newDC ("why"::String)
                                         ("me"::String)) "woo"
                               unlabel lv
                               -}
-                 return i
 
     accessP noPrivs pipe M.master db act
   close pipe
   putStrLn $ show res ++ (prettyShow l)
 -- ##################################################################
+-}
 
 
 
@@ -112,6 +122,12 @@ data Collection l = Collection { colLabel  :: l
                                , colPolicy :: RawPolicy l
                                -- ^ Collection labeling policy
                                }
+instance Label l => Show (Collection l) where
+  show c = show "Collection "
+              ++ show (colIntern c)
+              ++ "\t" ++ show (colLabel c)
+              ++ "\t" ++ show (colClear c)
+           
 
 -- | Create a collection given a collection label, clearance, name,
 -- and policy. Note that the collection label and clearance must be
@@ -155,7 +171,7 @@ type DatabaseName = M.Database
 -- MongoDB database.
 data Database l = Database { dbLabel  :: l      -- ^ Label of database
                            , dbIntern :: DatabaseName -- ^ Actual MongoDB 
-                           }
+                           } deriving (Eq, Show)
 
 --
 -- Policies 
@@ -227,7 +243,7 @@ applyRawPolicyP :: (LabelState l p s)
                 => p 
                 -> Collection l
                 -> Document l
-                -> LIO l p s (Labeled l (Document l))
+                -> LIO l p s (LabeledDocument l)
 applyRawPolicyP p' col doc = withCombinedPrivs p' $ \p -> do
   let colC = colClear col
       docP = rawDocPolicy . colPolicy $ col
@@ -279,9 +295,25 @@ instance E.Exception PolicyError
 newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
   deriving (Functor, Applicative, Monad)
 
--- | Instance of @MonadIO@.
+-- | UNSAFE: Instance of @MonadIO@.
 instance LabelState l p s => MonadIO (UnsafeLIO l p s) where
   liftIO = UnsafeLIO . rtioTCB
+
+-- | UNSAFE: Instance of @MonadBase IO@.
+instance LabelState l p s => MonadBase IO (UnsafeLIO l p s) where
+  liftBase = UnsafeLIO . rtioTCB
+
+-- | UNSAFE: Instance of @MonadBaseControl IO@.
+-- NOTE: This instance is a hack. I got this to work by tweaking Bas'
+-- Annex example, but should spend time actually understanding the
+-- details.
+instance LabelState l p s => MonadBaseControl IO (UnsafeLIO l p s) where
+  newtype StM (UnsafeLIO l p s) a = StUnsafeLIO {
+     unStUnsafeLIO :: (StM (StateT (LIOstate l p s) IO) a) }
+  liftBaseWith f = UnsafeLIO . LIO $ liftBaseWith $ \runInIO ->
+                     f $ liftM StUnsafeLIO . runInIO
+                             . (\(LIO x) -> x) .  unUnsafeLIO
+  restoreM = UnsafeLIO . LIO . restoreM . unStUnsafeLIO
 
 -- | Instance of @MonadIO@.
 instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
@@ -385,6 +417,95 @@ insertP_ p c d = insertP p c d >> return ()
 --
 -- Read
 --
+
+-- | Use select to create a basic query with defaults, then modify if
+-- desired. Example: @(select sel col) {limit = 10}@. Note that unlike
+-- MongoDB's query functionality, our queries do not allow for
+-- projections (since policies may need a field that is not projects).
+--
+-- TODO: add snapshot, hints, sorts (with correct tainting), etc.
+data Query l = Query { options :: [QueryOption]
+                     , selection :: Selection l
+                     , skip  :: Word32
+                     -- ^ Number of documents to skip, default 0.
+                     , limit :: Limit
+                     -- ^ Max number of documents to return. Default, 0,
+                     -- means no limit.
+                     , batchSize :: BatchSize
+                     -- ^ The number of document to return in each
+                     -- batch response from the server. 0 means
+                     -- Mongo default.
+                     } deriving (Show)
+
+-- | Filter for a query, analogous to the @WHERE@ clause in
+-- SQL. @[]@ matches all documents in collection. @["x" =: a,
+-- "y" =: b]@ is analogous to @WHERE x = a AND y = b@ in SQL.
+--
+-- /Note/: all labeld (including policy-labeled) values are removed
+-- from the @Selector@.
+--
+-- TODO: allow queries on labeled values.
+type Selector l = Document l 
+
+-- | Selects documents in specified collection that match the selector.
+data Selection l = Selection { selector :: Selector l -- ^ Selector
+                             , coll :: Collection l -- ^ Collection operaing on
+                             } deriving (Show)
+
+
+-- | Convert a 'Selector' to a 'Selection' or 'Query'
+class Select selectionOrQuery where
+  select :: Label l => Selector l -> Collection l -> selectionOrQuery l
+  -- ^ 'Query' or 'Selection' that selects documents in collection that match
+  -- selector. The choice of end type depends on use, for example, in 'find'
+  -- @select sel col@ is a 'Query', but in delete it is a 'Selection'.
+
+instance Select Selection where
+  select = Selection
+
+instance Select Query where
+  select s c = Query { options = []
+                     , selection = select s c
+                     , skip = 0
+                     , limit = 0 
+                     , batchSize = 0 }
+
+
+--
+-- Cursor
+--
+
+
+-- | A labeled cursor. The cursor is labeled with the join of the
+-- database and collection it reads from.
+data Cursor l = Cursor { curLabel :: l -- ^ Cursorlabel
+                       , curIntern :: M.Cursor  -- ^ Actual cursor
+                       , curCol :: Collection l -- ^ Corresponding collection
+                       }
+
+-- | Return next document in query result, or @Nothing@ if finished.
+-- The current label is raised to join of the current label and
+-- 'Cursor' label. The document is labeled according to the
+-- underlying 'Collection'\'s policies.
+next :: (LabelState l p s, Serialize l)
+     => Cursor l
+     -> Action l p s (Maybe (LabeledDocument l))
+next = nextP noPrivs
+
+-- | Same as 'next', but usess privileges when applying policies and
+-- raising the current label.
+nextP :: (LabelState l p s, Serialize l)
+      => p
+      -> Cursor l
+      -> Action l p s (Maybe (LabeledDocument l))
+nextP p' cur = do
+  liftLIO $ withCombinedPrivs p' $ \p -> taintP p (curLabel cur)
+  md <- fromBsonDoc' <$> (liftAction $ M.next (curIntern cur))
+  case md of
+    Nothing -> return Nothing
+    Just d -> liftLIO $ withCombinedPrivs p' $ \p -> do
+      Just <$> applyRawPolicyP p (curCol cur) d
+    where fromBsonDoc' = maybe Nothing fromBsonDocStrict
 
 
 --
