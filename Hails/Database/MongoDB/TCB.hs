@@ -14,6 +14,7 @@ module Hails.Database.MongoDB.TCB where
 
 import LIO
 import LIO.TCB ( LIO(..)
+               , LabeledException(..)
                , LIOstate
                , unlabelTCB
                , labelTCB
@@ -260,6 +261,24 @@ applyRawPolicyP p' col doc = withCombinedPrivs p' $ \p -> do
   -- Apply document/row policy:
   labelP p (docP doc') doc'
 
+-- | Same as 'applyRawPolicy', but ignores the current label and
+-- clearance when applying policies.
+applyRawPolicyTCB :: (LabelState l p s)
+                  => Collection l
+                  -> Document l
+                  -> LIO l p s (LabeledDocument l)
+applyRawPolicyTCB col doc = do
+  -- Save current state:
+  s0 <- getTCB
+  -- Set state to most permissive label & clearance:
+  setLabelTCB lbot
+  lowerClrTCB ltop
+  -- Apply policy to document:
+  ldoc <- applyRawPolicyP noPrivs col doc
+  -- Restore state:
+  putTCB s0
+  return ldoc
+
 --
 -- Exceptions
 --
@@ -436,48 +455,43 @@ instance Label l => Insert l (Labeled l (Document l)) where
       -- Check that the labels of all labeled values are below
       -- clearance, check that 'PolicyLabeled' values match, and check that
       -- the label of the document is policy-generated and below clearance:
-      guardAll p
+      guardAll
     let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
     liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
       where colC = colClear col
             --
             doc = unlabelTCB ldoc
             --
-            guardAll p = do
-              -- Save current state:
-              s0 <- getTCB
-              -- Set state to most permissive label & clearance:
-              setLabelTCB lbot
-              lowerClrTCB ltop
+            guardAll = do
               -- Apply policy to document:
-              ldoc' <- applyRawPolicyP p col doc
+              ldoc' <- applyRawPolicyTCB col doc
               -- Check that document labels match:
-              unless (labelOf ldoc' == labelOf ldoc) $
-                putTCB s0 >> throwIO PolicyViolation
+              unless (labelOf ldoc' == labelOf ldoc) $ throwIO PolicyViolation
               -- Check that the document label is below collection clerance:
-              unless (labelOf ldoc `leq` colC) $ 
-                putTCB s0 >> throwIO LerrClearance
+              unless (labelOf ldoc `leq` colC) $ throwIO LerrClearance
               -- Check that fields match and are below collection clearance.
               -- Fields are protected by document label, so if an
               -- exception is thrown it should have this label.
-              doc' <- unlabelP p ldoc'
-              guardFields doc' doc
-              -- Restore state:
-              putTCB s0
+              guardFields (unlabelTCB ldoc') doc
             --
             guardFields []               []               = return ()
             guardFields ((k0 := v0):ds0) ((k1 := v1):ds1) = 
-              unless (k0 == k1 && v0 `eq` v1) $ throwIO PolicyViolation
+              unless (k0 == k1 && v0 `eq` v1) $ throwViolation
+            guardFields _                _                = throwViolation
             --
             eq (BsonVal v1)           (BsonVal v2)           = v1 == v2
             eq (LabeledVal lv1)       (LabeledVal lv2)       = lv1 `eqL` lv2
             eq (PolicyLabeledVal lv1) (PolicyLabeledVal lv2) = lv1 `eqPL` lv2
+            eq _                      _                      = False
             --
             eqL lv1 lv2 = (labelOf lv1 == labelOf lv2) &&
                           (unlabelTCB lv1 == unlabelTCB lv2)
             --
             eqPL (PL lv1) (PL lv2) = lv1 `eqL` lv2
-            eqPL _ _ = False
+            eqPL _        _        = False
+            --
+            throwViolation = ioTCB $ E.throwIO $ LabeledExceptionTCB
+                                (labelOf ldoc) (E.toException PolicyViolation)
 
 --
 -- Read
@@ -502,6 +516,27 @@ data Query l = Query { options :: [QueryOption]
                      -- Mongo default.
                      } deriving (Show)
 
+-- | Convert a 'Query' to the mongoDB equivalent.
+queryToMQuery :: (Serialize l, Label l) => Query l -> M.Query
+queryToMQuery q = M.Query { M.options = options q
+                          , M.selection = selectionToMSelection $ selection q
+                          , M.project = []
+                          , M.skip = skip q
+                          , M.limit = limit q
+                          , M.batchSize = batchSize q
+                          -- Not yet handled:
+                          , M.sort = []
+                          , M.snapshot = False
+                          , M.hint = []
+                          }
+
+
+-- | A simple query is a 'Query' that retries the whole collection.
+-- In other words, with a simple query you cannot specify a predicate
+-- (@WHERE@ clause).
+newtype SimpleQuery l = SimpleQuery (Query l)
+  deriving (Show)
+
 -- | Filter for a query, analogous to the @WHERE@ clause in
 -- SQL. @[]@ matches all documents in collection. @["x" =: a,
 -- "y" =: b]@ is analogous to @WHERE x = a AND y = b@ in SQL.
@@ -517,6 +552,10 @@ data Selection l = Selection { selector :: Selector l -- ^ Selector
                              , coll :: Collection l -- ^ Collection operaing on
                              } deriving (Show)
 
+-- | Convert a 'Selection' to the mongoDB equivalent.
+selectionToMSelection :: (Serialize l, Label l) => Selection l -> M.Selection
+selectionToMSelection s = M.Select { M.selector = toBsonDoc $ selector s
+                                   , M.coll = colIntern (coll s) }
 
 -- | Convert a 'Selector' to a 'Selection' or 'Query'
 class Select selectionOrQuery where
@@ -535,10 +574,26 @@ instance Select Query where
                      , limit = 0 
                      , batchSize = 0 }
 
+instance Select SimpleQuery where
+  select _ c = SimpleQuery $ select [] c
+
 -- | Fetch documents satisfying query. A labeled 'Cursor' is returned,
 -- which can be used to retrieve the actual 'Document's.
---find :: Query l -> Action l p s (Cursor l)
---find lQuery = 
+simpleFindP :: (Serialize l, LabelState l p s)
+            => p -> SimpleQuery l -> Action l p s (SimpleCursor l)
+simpleFindP p' (SimpleQuery q) = do
+  db <- Action $ ask
+  let col = coll . selection $ q
+  liftLIO $ withCombinedPrivs p' $ \p -> do
+     -- Check that we can read from database:
+     taintP p (dbLabel db)
+     -- Check that we can read from collection:
+     taintP p (colLabel col)
+  cur <- liftAction $ M.useDb (dbIntern db) $ M.find (queryToMQuery q)
+  return . SimpleCursor $ Cursor { curLabel  = (colLabel col) `lub` (dbLabel db)
+                                 , curIntern = cur
+                                 , curCol    = col
+                                 }
 
 --
 -- Cursor
@@ -550,30 +605,32 @@ instance Select Query where
 data Cursor l = Cursor { curLabel :: l -- ^ Cursorlabel
                        , curIntern :: M.Cursor  -- ^ Actual cursor
                        , curCol :: Collection l -- ^ Corresponding collection
-                       }
+                       } 
+
+-- | A simple cursor corresponds to a 'SimpleQuery'.
+newtype SimpleCursor l = SimpleCursor (Cursor l)
 
 -- | Return next document in query result, or @Nothing@ if finished.
 -- The current label is raised to join of the current label and
 -- 'Cursor' label. The document is labeled according to the
 -- underlying 'Collection'\'s policies.
-next :: (LabelState l p s, Serialize l)
-     => Cursor l
-     -> Action l p s (Maybe (LabeledDocument l))
-next = nextP noPrivs
+simpleNext :: (LabelState l p s, Serialize l)
+           => SimpleCursor l
+           -> Action l p s (Maybe (LabeledDocument l))
+simpleNext = simpleNextP noPrivs
 
--- | Same as 'next', but usess privileges when applying policies and
--- raising the current label.
-nextP :: (LabelState l p s, Serialize l)
-      => p
-      -> Cursor l
-      -> Action l p s (Maybe (LabeledDocument l))
-nextP p' cur = do
+-- | Same as 'simpleNext', but usess privileges raising the current label.
+simpleNextP :: (LabelState l p s, Serialize l)
+            => p
+            -> SimpleCursor l
+            -> Action l p s (Maybe (LabeledDocument l))
+simpleNextP p' (SimpleCursor cur) = do
   liftLIO $ withCombinedPrivs p' $ \p -> taintP p (curLabel cur)
   md <- fromBsonDoc' <$> (liftAction $ M.next (curIntern cur))
   case md of
     Nothing -> return Nothing
     Just d -> liftLIO $ withCombinedPrivs p' $ \p -> do
-      Just <$> applyRawPolicyP p (curCol cur) d
+      Just <$> applyRawPolicyTCB (curCol cur) d
     where fromBsonDoc' = maybe Nothing fromBsonDocStrict
 
 
