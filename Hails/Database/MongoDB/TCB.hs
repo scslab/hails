@@ -8,12 +8,21 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 -- TODO: remove:
--- {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings #-}
 --
 module Hails.Database.MongoDB.TCB where
 
 import LIO
-import LIO.TCB (LIO(..), LIOstate, unlabelTCB, labelTCB, rtioTCB)
+import LIO.TCB ( LIO(..)
+               , LIOstate
+               , unlabelTCB
+               , labelTCB
+               , rtioTCB
+               , getTCB
+               , putTCB
+               , setLabelTCB
+               , lowerClrTCB
+               )
 import LIO.MonadCatch
 import Hails.Data.LBson.TCB
 
@@ -45,7 +54,6 @@ import Control.Monad.Reader hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
 
 
-{-
 -- ## REMOVE ########################################################
 
 import LIO.DCLabel
@@ -57,7 +65,7 @@ main :: IO ()
 main =  do
   pipe <- runIOE $ connect(host "127.0.0.1")
   (res,l) <- evalDC $ do
-    let n = "w00t" :: String
+    let n = "noway" :: String
         p = "p455w0rd" :: String
         db = Database lbot "baseball" :: Database DCLabel
         c = Collection { colLabel = newDC ("sweet" :: String) (<>)
@@ -82,7 +90,9 @@ main =  do
     ioTCB $ print lx
     ioTCB $ print x
     -}
-    let act = do insertP noPrivs c x
+    let act = do -- insertP noPrivs c x
+                 y <- liftLIO $ applyRawPolicyP noPrivs c x
+                 insertP noPrivs c y
     {-
                  liftLIO $ do lv <- label (newDC ("why"::String)
                                         ("me"::String)) "woo"
@@ -93,7 +103,6 @@ main =  do
   close pipe
   putStrLn $ show res ++ (prettyShow l)
 -- ##################################################################
--}
 
 
 
@@ -195,8 +204,9 @@ data RawPolicy l = RawPolicy {
 -- throws an exception. Similarly, if the policy has already been
 -- applied for this key and the label existing label does not match the
 -- newly policy-generated label, an exception is thrown.
--- It is required that the label of any 'PolicyLabeled' value be below
--- the clearnce of the collection (this is enforce in 'applyRawPolicyP').
+-- It is required that the label of any 'Labeled' and 'PolicyLabeled'
+-- values be below the clearnce of the collection (this is enforced in
+-- 'applyRawPolicyP').
 applyRawFieldPolicyP :: (LabelState l p s)
                      => p 
                      -> Collection l
@@ -233,33 +243,22 @@ applyRawFieldPoliciesP p col doc = forM doc $ \field@(k := v) ->
     _                    -> return field
 
 -- | Apply a raw field/column policy to all the fields of type
--- 'PolicyLabeled', and then apply the raw document/row policy It
+-- 'PolicyLabeled', and then apply the raw document/row policy. It
 -- must be that every labeled value in the document (including the
 -- document itself) have a label that is below the clearance of
--- the collection.
+-- the collection. However, this is not checked by @applyRawPolicyP@.
+-- Instead 'insert' (and similar operators) performs this check.
 applyRawPolicyP :: (LabelState l p s)
                 => p 
                 -> Collection l
                 -> Document l
                 -> LIO l p s (LabeledDocument l)
 applyRawPolicyP p' col doc = withCombinedPrivs p' $ \p -> do
-  let colC = colClear col
-      docP = rawDocPolicy . colPolicy $ col
-  -- Apply policies
-  withClearance colC $ do
-    -- Apply field/column policies:
-    doc' <- applyRawFieldPoliciesP p col doc
-    -- Check that 'Labeled' values have labels below clearnce:
-    guardLabeledVals doc' colC
-    -- Apply document/row policy:
-    labelP p (docP doc') doc'
-    where guardLabeledVals []            _ = return ()
-          guardLabeledVals ((_ := v):ds) c = do
-            case v of
-              (LabeledVal lv) -> unless (labelOf lv `leq` c) $
-                                   throwIO LerrClearance
-              _               -> return ()
-            guardLabeledVals ds c
+  let docP = rawDocPolicy . colPolicy $ col
+  -- Apply field/column policies:
+  doc' <- applyRawFieldPoliciesP p col doc
+  -- Apply document/row policy:
+  labelP p (docP doc') doc'
 
 --
 -- Exceptions
@@ -369,48 +368,116 @@ accessP p' pipe mode db (Action act) = withCombinedPrivs p' $ \p -> do
 -- Write 
 --
 
--- | Insert document into collection and return its @_id@ value,
--- which is created automatically if not supplied.
-insert :: (LabelState l p s, Serialize l)
-       => Collection l
-       -> Document l
-       -> Action l p s M.Value
-insert = insertP noPrivs
+-- | Class used to overload inserting labeled and unlabeled documents
+-- into a collection. Only the definition for @inserP@ is needed.
+class Label l => Insert l doc where
+  -- | Insert document into collection and return its @_id@ value,
+  -- which is created automatically if not supplied.
+  insert :: (LabelState l p s, Serialize l)
+         => Collection l
+         -> doc
+         -> Action l p s M.Value
+  insert = insertP noPrivs
+  -- | Same as 'insert' except it does not return @_id@
+  insert_ :: (LabelState l p s, Serialize l)
+          => Collection l
+          -> doc
+          -> Action l p s ()
+  insert_ c d = insert c d >> return ()
+  -- | Same as 'insert', but uses privileges when applying the
+  -- collection policies, and doing label comparisons.
+  insertP :: (LabelState l p s, Serialize l)
+          => p 
+          -> Collection l
+          -> doc
+          -> Action l p s M.Value
+  -- | Same as 'insertP' except it does not return @_id@
+  insertP_ :: (LabelState l p s, Serialize l)
+           => p 
+           -> Collection l
+           -> doc
+           -> Action l p s ()
+  insertP_ p c d = insertP p c d >> return ()
 
--- | Same as 'insert' except it does not return @_id@
-insert_ :: (LabelState l p s, Serialize l)
-        => Collection l
-        -> Document l
-        -> Action l p s ()
-insert_ c d = insert c d >> return ()
 
--- | Same as 'insert', but uses privileges when applying the
--- collection policies, and doing label comparisons.
-insertP :: (LabelState l p s, Serialize l)
-        => p 
-        -> Collection l
-        -> Document l
-        -> Action l p s M.Value
-insertP p' col doc = do
-  db <- Action $ ask
-  ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
-            -- Check that we can write to database:
-            wguardP p (dbLabel db)
-            -- Check that we can write to collection:
-            wguardP p (colLabel col)
-            -- Apply policies:
-            applyRawPolicyP p col doc
-  let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
-  liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
+instance Label l => Insert l (Document l) where
+  insertP p' col doc = do
+    let colC = colClear col
+    db <- Action $ ask
+    ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
+              -- Check that we can write to database:
+              wguardP p (dbLabel db)
+              -- Check that we can write to collection:
+              wguardP p (colLabel col)
+              -- Apply policies (data should not be labeled with a label
+              -- that is above the collection clearance):
+              ldoc <- withClearance colC $ applyRawPolicyP p col doc
+              -- Check that 'Labeled' values have labels below clearnce:
+              guardLabeledVals (unlabelTCB ldoc) colC
+              -- Policies applied & labels are below clearance:
+              return ldoc
+    let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
+    liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
+      where guardLabeledVals []            _ = return ()
+            guardLabeledVals ((_ := v):ds) c = do
+              case v of
+                (LabeledVal lv) -> unless (labelOf lv `leq` c) $
+                                     throwIO LerrClearance
+                _               -> return ()
 
--- | Same as 'insertP' except it does not return @_id@
-insertP_ :: (LabelState l p s, Serialize l)
-         => p 
-         -> Collection l
-         -> Document l
-         -> Action l p s ()
-insertP_ p c d = insertP p c d >> return ()
-
+instance Label l => Insert l (Labeled l (Document l)) where
+  insertP p' col ldoc = do
+    db <- Action $ ask
+    liftLIO $ withCombinedPrivs p' $ \p -> do
+      -- Check that we can write to database:
+      wguardP p (dbLabel db)
+      -- Check that we can write to collection:
+      wguardP p (colLabel col)
+      -- Check that the labels of all labeled values are below
+      -- clearance, check that 'PolicyLabeled' values match, and check that
+      -- the label of the document is policy-generated and below clearance:
+      guardAll p
+    let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
+    liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
+      where colC = colClear col
+            --
+            doc = unlabelTCB ldoc
+            --
+            guardAll p = do
+              -- Save current state:
+              s0 <- getTCB
+              -- Set state to most permissive label & clearance:
+              setLabelTCB lbot
+              lowerClrTCB ltop
+              -- Apply policy to document:
+              ldoc' <- applyRawPolicyP p col doc
+              -- Check that document labels match:
+              unless (labelOf ldoc' == labelOf ldoc) $
+                putTCB s0 >> throwIO PolicyViolation
+              -- Check that the document label is below collection clerance:
+              unless (labelOf ldoc `leq` colC) $ 
+                putTCB s0 >> throwIO LerrClearance
+              -- Check that fields match and are below collection clearance.
+              -- Fields are protected by document label, so if an
+              -- exception is thrown it should have this label.
+              doc' <- unlabelP p ldoc'
+              guardFields doc' doc
+              -- Restore state:
+              putTCB s0
+            --
+            guardFields []               []               = return ()
+            guardFields ((k0 := v0):ds0) ((k1 := v1):ds1) = 
+              unless (k0 == k1 && v0 `eq` v1) $ throwIO PolicyViolation
+            --
+            eq (BsonVal v1)           (BsonVal v2)           = v1 == v2
+            eq (LabeledVal lv1)       (LabeledVal lv2)       = lv1 `eqL` lv2
+            eq (PolicyLabeledVal lv1) (PolicyLabeledVal lv2) = lv1 `eqPL` lv2
+            --
+            eqL lv1 lv2 = (labelOf lv1 == labelOf lv2) &&
+                          (unlabelTCB lv1 == unlabelTCB lv2)
+            --
+            eqPL (PL lv1) (PL lv2) = lv1 `eqL` lv2
+            eqPL _ _ = False
 
 --
 -- Read
@@ -468,6 +535,10 @@ instance Select Query where
                      , limit = 0 
                      , batchSize = 0 }
 
+-- | Fetch documents satisfying query. A labeled 'Cursor' is returned,
+-- which can be used to retrieve the actual 'Document's.
+--find :: Query l -> Action l p s (Cursor l)
+--find lQuery = 
 
 --
 -- Cursor
