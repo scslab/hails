@@ -443,6 +443,7 @@ instance Label l => Insert l (Document l) where
                 (LabeledVal lv) -> unless (labelOf lv `leq` c) $
                                      throwIO LerrClearance
                 _               -> return ()
+              guardLabeledVals ds c
 
 instance Label l => Insert l (Labeled l (Document l)) where
   insertP p' col ldoc = do
@@ -475,8 +476,9 @@ instance Label l => Insert l (Labeled l (Document l)) where
               guardFields (unlabelTCB ldoc') doc
             --
             guardFields []               []               = return ()
-            guardFields ((k0 := v0):ds0) ((k1 := v1):ds1) = 
+            guardFields ((k0 := v0):ds0) ((k1 := v1):ds1) = do
               unless (k0 == k1 && v0 `eq` v1) $ throwViolation
+              guardFields ds0 ds1
             guardFields _                _                = throwViolation
             --
             eq (BsonVal v1)           (BsonVal v2)           = v1 == v2
@@ -629,8 +631,7 @@ simpleNextP p' (SimpleCursor cur) = do
   md <- fromBsonDoc' <$> (liftAction $ M.next (curIntern cur))
   case md of
     Nothing -> return Nothing
-    Just d -> liftLIO $ withCombinedPrivs p' $ \p -> do
-      Just <$> applyRawPolicyTCB (curCol cur) d
+    Just d -> Just <$> (liftLIO $ applyRawPolicyTCB (curCol cur) d)
     where fromBsonDoc' = maybe Nothing fromBsonDocStrict
 
 
