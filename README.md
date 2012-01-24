@@ -4,18 +4,17 @@ Hails is a platform and web framework that leverages Information Flow Control (I
 
 ## Resources ##
 
- - Wiki: [Private](https://hails.scs.stanford.edu/)
  - Source: [GitHub](https://github.com/alevy/hails) (git clone git://github.com/alevy/hails.git)
 
 ## Requirements ##
 
 ### Haskell Packages ###
 
-Hails requires a version of the `iterio-server` package that's more up to date than on Hackage. To install the latest version
+Hails requires a version of the `lio` package that's more up to date than on Hackage. To install the latest version
 from the Git repository:
 
-    $ git clone http://github.com/alevy/iterio-server.git
-    $ cd iterio-server
+    $ git clone http://www.scs.stanford.edu/~deian/lio.git
+    $ cd lio
     $ cabal configure
     (resolve any cabal dependancies)
     $ cabal install
@@ -24,5 +23,6 @@ from the Git repository:
 
 You can compile Hails as usual with `cabal`:
 
+    $ cabal configure
     $ cabal build
 
