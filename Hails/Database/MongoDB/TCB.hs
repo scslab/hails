@@ -7,16 +7,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
--- TODO: remove:
-{-# LANGUAGE OverloadedStrings #-}
---
+
 module Hails.Database.MongoDB.TCB where
 
 import LIO
-import LIO.TCB ( LIO(..)
-               , LabeledException(..)
-               , LIOstate
-               , unlabelTCB
+import LIO.TCB ( unlabelTCB
                , labelTCB
                , rtioTCB
                , getTCB
@@ -26,26 +21,17 @@ import LIO.TCB ( LIO(..)
                )
 import LIO.MonadCatch
 import Hails.Data.LBson.TCB
+import Hails.Database.MongoDB.TCB.Types
 
 import Data.Typeable
 import qualified Data.List as List
 
-import Data.Word (Word32)
 import Data.Maybe
-import Data.Functor ((<$>))
 import Data.Serialize (Serialize, encode, decode)
 import Data.CompactString.UTF8 (append, isPrefixOf)
 
 import Database.MongoDB.Connection
-import Database.MongoDB ( Failure(..)
-                        , AccessMode(..)
-                        , QueryOption(..)
-                        , Limit
-                        , BatchSize
-                        )
-import Control.Monad.Base (MonadBase(..))
-import Control.Monad.Trans.Control (MonadBaseControl(..))
-import Control.Monad.State (StateT)
+
 import qualified Database.MongoDB as M
 
 import qualified Control.Exception as E
@@ -54,99 +40,17 @@ import Control.Monad.Error hiding (liftIO)
 import Control.Monad.Reader hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
 
-
--- ## REMOVE ########################################################
-
-import LIO.DCLabel
-import DCLabel.PrettyShow
-import LIO.TCB (ioTCB)
-
-
-main :: IO ()
-main =  do
-  pipe <- runIOE $ connect(host "127.0.0.1")
-  (res,l) <- evalDC $ do
-    let n = "noway" :: String
-        p = "p455w0rd" :: String
-        db = Database lbot "baseball" :: Database DCLabel
-        c = Collection { colLabel = newDC ("sweet" :: String) (<>)
-                       , colClear = ltop
-                       , colIntern = "auth"
-                       , colPolicy = RawPolicy {
-                           rawDocPolicy = \_ -> newDC ("sweet" :: String) (<>)
-                         , rawFieldPolicies = [
-                         {-
-                              ( "password", \doc -> let n' = at "name" doc :: String
-                                                    in newDC n' n')
-                              -}
-                            ]
-                         }
-                       }
-
-        x = [ "name" =: n
-            , "password" =: p --(pu p :: PolicyLabeled DCLabel String)
-            ] :: Document DCLabel
-    {-
-    lx <- applyRawPolicyP noPrivs c x
-    ioTCB $ print lx
-    ioTCB $ print x
-    -}
-    let act = do -- insertP noPrivs c x
-                 y <- liftLIO $ applyRawPolicyP noPrivs c x
-                 insertP noPrivs c y
-    {-
-                 liftLIO $ do lv <- label (newDC ("why"::String)
-                                        ("me"::String)) "woo"
-                              unlabel lv
-                              -}
-
-    accessP noPrivs pipe M.master db act
-  close pipe
-  putStrLn $ show res ++ (prettyShow l)
--- ##################################################################
-
-
-
---
--- Collections
---
-
--- | Name of collection
-type CollectionName = M.Collection
-
--- | A collection is a MongoDB collection associated with a
--- label, clearance and labeling policy. The label
--- specifies who can write to a collection (i.e., only priciples whos
--- current label flows to the label of the
--- collection). The clearance limits
--- the sensitivity of the data written to the collection (i.e.,
--- the labels of all data in the collection must flow to the clearance).
-data Collection l = Collection { colLabel  :: l
-                               -- ^ Collection label
-                               , colClear  :: l
-                               -- ^ Collection clearance
-                               , colIntern :: CollectionName
-                               -- ^ Actual MongoDB collection
-                               , colPolicy :: RawPolicy l
-                               -- ^ Collection labeling policy
-                               }
-instance Label l => Show (Collection l) where
-  show c = show "Collection "
-              ++ show (colIntern c)
-              ++ "\t" ++ show (colLabel c)
-              ++ "\t" ++ show (colClear c)
-           
-
 -- | Create a collection given a collection label, clearance, name,
 -- and policy. Note that the collection label and clearance must be
 -- above the current label and below the current clearance.
 collection :: LabelState l p s
            => l               -- ^ Collection label
            -> l               -- ^ Collection clearance
+					 -> DDatabase l
            -> CollectionName  -- ^ Collection name
            -> RawPolicy l     -- ^ Collection policy
            -> LIO l p s (Collection l)
-collection l c n pol = collectionP noPrivs l c n pol
+collection l c db n pol = collectionP noPrivs l c db n pol
 
 -- | Same as 'collection', but uses privileges when comparing the
 -- collection label and clearance with the current label and clearance.
@@ -154,51 +58,19 @@ collectionP :: LabelState l p s
            => p               -- ^ Privileges
            -> l               -- ^ Collection label
            -> l               -- ^ Collection clearance
+					 -> DDatabase l
            -> CollectionName  -- ^ Collection name
            -> RawPolicy l     -- ^ Collection policy
            -> LIO l p s (Collection l)
-collectionP p' l c n pol = withCombinedPrivs p' $ \p -> do
+collectionP p' l c db n pol = withCombinedPrivs p' $ \p -> do
   aguardP p l
   aguardP p c
   return $ Collection { colLabel  = l
                       , colClear  = c
+											, colDatabase = db
                       , colIntern = n
                       , colPolicy = pol
                       }
-
---
--- Databases
---
-
-
--- | Name of database
-type DatabaseName = M.Database
-
--- | A database has a label, which is used to enforce who can write to
--- the database, and an internal identifier corresponding to the underlying
--- MongoDB database.
-data Database l = Database { dbLabel  :: l      -- ^ Label of database
-                           , dbIntern :: DatabaseName -- ^ Actual MongoDB 
-                           } deriving (Eq, Show)
-
---
--- Policies 
---
-
-
--- | A @RawPolicy@ encodes a document policy, and all
--- field policies. It is required that all fields of type
--- 'PolicyLabled' have a field/column policy -- if using only this
--- low-level interface a runtime-error will occur if this is not
--- satisfied.
-data RawPolicy l = RawPolicy {
-      rawDocPolicy     :: Document l -> l
-    -- ^ A row (document) policy is a function from a 'Document' to a 'Label'.
-    , rawFieldPolicies :: [(Key, Document l -> l)]
-    -- ^ A column (field) policy is a function from a 'Document' to a
-    -- 'Label', for each field of type 'PolicyLabeled'.
-  }
-
 
 -- | Apply a raw field/column policy to the field corresponding to the
 -- key. If the policy has not been specified for this key, the function
@@ -285,7 +157,7 @@ applyRawPolicyTCB col doc = do
 
 -- | Field/column policies are required for every 'PolicyLabled' value
 -- in a document.
-data PolicyError = NoFieldPolicy   -- ^ Policy for field no specified
+data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
                  | InvalidPolicy   -- ^ Policy application invalid
                  | PolicyViolation -- ^ Policy has been violated
   deriving (Typeable)
@@ -315,43 +187,13 @@ newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
 instance LabelState l p s => MonadIO (UnsafeLIO l p s) where
   liftIO = UnsafeLIO . rtioTCB
 
--- | UNSAFE: Instance of @MonadBase IO@.
-instance LabelState l p s => MonadBase IO (UnsafeLIO l p s) where
-  liftBase = UnsafeLIO . rtioTCB
-
--- | UNSAFE: Instance of @MonadBaseControl IO@.
--- NOTE: This instance is a hack. I got this to work by tweaking Bas'
--- Annex example, but should spend time actually understanding the
--- details.
-instance LabelState l p s => MonadBaseControl IO (UnsafeLIO l p s) where
-  newtype StM (UnsafeLIO l p s) a = StUnsafeLIO {
-     unStUnsafeLIO :: (StM (StateT (LIOstate l p s) IO) a) }
-  liftBaseWith f = UnsafeLIO . LIO $ liftBaseWith $ \runInIO ->
-                     f $ liftM StUnsafeLIO . runInIO
-                             . (\(LIO x) -> x) .  unUnsafeLIO
-  restoreM = UnsafeLIO . LIO . restoreM . unStUnsafeLIO
-
--- | Instance of @MonadIO@.
-instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
-  liftLIO = UnsafeLIO
-
 -- | An LIO action with MongoDB access.
 newtype LIOAction l p s a =
     LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
   deriving (Functor, Applicative, Monad)
 
-newtype Action l p s a = Action (ReaderT (Database l) (LIOAction l p s) a)
+newtype Action l p s a = Action (ReaderT (Collection l) (LIOAction l p s) a)
   deriving (Functor, Applicative, Monad)
-
-instance LabelState l p s => MonadLIO (LIOAction l p s) l p s where
-  liftLIO = LIOAction . liftLIO
-
-instance LabelState l p s => MonadLIO (Action l p s) l p s where
-  liftLIO = Action . liftLIO
-
--- | Lift a MongoDB action into 'Action' monad.
-liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
-liftAction = Action . lift . LIOAction 
 
 -- | Run action against database on server at other end of pipe. Use
 -- access mode for any reads and writes. Return 'Left' on connection
@@ -362,10 +204,10 @@ liftAction = Action . lift . LIOAction
 -- TODO: make sure that Failure does not leak any information.
 access :: LabelState l p s
        => Pipe
-       -> AccessMode
-       -> Database l
+       -> M.AccessMode
+       -> Collection l
        -> Action l p s a
-       -> LIO l p s (Either Failure a)
+       -> LIO l p s (Either M.Failure a)
 access = accessP noPrivs
 
 -- | Same as 'access', but uses privileges when raising the current
@@ -373,267 +215,15 @@ access = accessP noPrivs
 accessP :: LabelState l p s
         => p 
         -> Pipe
-        -> AccessMode
-        -> Database l
+        -> M.AccessMode
+        -> Collection l
         -> Action l p s a
-        -> LIO l p s (Either Failure a)
-accessP p' pipe mode db (Action act) = withCombinedPrivs p' $ \p -> do 
+        -> LIO l p s (Either M.Failure a)
+accessP p' pipe mode col (Action act) = withCombinedPrivs p' $ \p -> do 
   taintP p (dbLabel db)
-  let lioAct = runReaderT act db
+  let lioAct = runReaderT act col
   unUnsafeLIO $ M.access pipe mode (dbIntern db) (unLIOAction lioAct)
-
-
---
--- Write 
---
-
--- | Class used to overload inserting labeled and unlabeled documents
--- into a collection. Only the definition for @inserP@ is needed.
-class Label l => Insert l doc where
-  -- | Insert document into collection and return its @_id@ value,
-  -- which is created automatically if not supplied.
-  insert :: (LabelState l p s, Serialize l)
-         => Collection l
-         -> doc
-         -> Action l p s M.Value
-  insert = insertP noPrivs
-  -- | Same as 'insert' except it does not return @_id@
-  insert_ :: (LabelState l p s, Serialize l)
-          => Collection l
-          -> doc
-          -> Action l p s ()
-  insert_ c d = insert c d >> return ()
-  -- | Same as 'insert', but uses privileges when applying the
-  -- collection policies, and doing label comparisons.
-  insertP :: (LabelState l p s, Serialize l)
-          => p 
-          -> Collection l
-          -> doc
-          -> Action l p s M.Value
-  -- | Same as 'insertP' except it does not return @_id@
-  insertP_ :: (LabelState l p s, Serialize l)
-           => p 
-           -> Collection l
-           -> doc
-           -> Action l p s ()
-  insertP_ p c d = insertP p c d >> return ()
-
-
-instance Label l => Insert l (Document l) where
-  insertP p' col doc = do
-    let colC = colClear col
-    db <- Action $ ask
-    ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
-              -- Check that we can write to database:
-              wguardP p (dbLabel db)
-              -- Check that we can write to collection:
-              wguardP p (colLabel col)
-              -- Apply policies (data should not be labeled with a label
-              -- that is above the collection clearance):
-              ldoc <- withClearance colC $ applyRawPolicyP p col doc
-              -- Check that 'Labeled' values have labels below clearnce:
-              guardLabeledVals (unlabelTCB ldoc) colC
-              -- Policies applied & labels are below clearance:
-              return ldoc
-    let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
-    liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
-      where guardLabeledVals []            _ = return ()
-            guardLabeledVals ((_ := v):ds) c = do
-              case v of
-                (LabeledVal lv) -> unless (labelOf lv `leq` c) $
-                                     throwIO LerrClearance
-                _               -> return ()
-              guardLabeledVals ds c
-
-instance Label l => Insert l (Labeled l (Document l)) where
-  insertP p' col ldoc = do
-    db <- Action $ ask
-    liftLIO $ withCombinedPrivs p' $ \p -> do
-      -- Check that we can write to database:
-      wguardP p (dbLabel db)
-      -- Check that we can write to collection:
-      wguardP p (colLabel col)
-      -- Check that the labels of all labeled values are below
-      -- clearance, check that 'PolicyLabeled' values match, and check that
-      -- the label of the document is policy-generated and below clearance:
-      guardAll
-    let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
-    liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
-      where colC = colClear col
-            --
-            doc = unlabelTCB ldoc
-            --
-            guardAll = do
-              -- Apply policy to document:
-              ldoc' <- applyRawPolicyTCB col doc
-              -- Check that document labels match:
-              unless (labelOf ldoc' == labelOf ldoc) $ throwIO PolicyViolation
-              -- Check that the document label is below collection clerance:
-              unless (labelOf ldoc `leq` colC) $ throwIO LerrClearance
-              -- Check that fields match and are below collection clearance.
-              -- Fields are protected by document label, so if an
-              -- exception is thrown it should have this label.
-              guardFields (unlabelTCB ldoc') doc
-            --
-            guardFields []               []               = return ()
-            guardFields ((k0 := v0):ds0) ((k1 := v1):ds1) = do
-              unless (k0 == k1 && v0 `eq` v1) $ throwViolation
-              guardFields ds0 ds1
-            guardFields _                _                = throwViolation
-            --
-            eq (BsonVal v1)           (BsonVal v2)           = v1 == v2
-            eq (LabeledVal lv1)       (LabeledVal lv2)       = lv1 `eqL` lv2
-            eq (PolicyLabeledVal lv1) (PolicyLabeledVal lv2) = lv1 `eqPL` lv2
-            eq _                      _                      = False
-            --
-            eqL lv1 lv2 = (labelOf lv1 == labelOf lv2) &&
-                          (unlabelTCB lv1 == unlabelTCB lv2)
-            --
-            eqPL (PL lv1) (PL lv2) = lv1 `eqL` lv2
-            eqPL _        _        = False
-            --
-            throwViolation = ioTCB $ E.throwIO $ LabeledExceptionTCB
-                                (labelOf ldoc) (E.toException PolicyViolation)
-
---
--- Read
---
-
--- | Use select to create a basic query with defaults, then modify if
--- desired. Example: @(select sel col) {limit = 10}@. Note that unlike
--- MongoDB's query functionality, our queries do not allow for
--- projections (since policies may need a field that is not projects).
---
--- TODO: add snapshot, hints, sorts (with correct tainting), etc.
-data Query l = Query { options :: [QueryOption]
-                     , selection :: Selection l
-                     , skip  :: Word32
-                     -- ^ Number of documents to skip, default 0.
-                     , limit :: Limit
-                     -- ^ Max number of documents to return. Default, 0,
-                     -- means no limit.
-                     , batchSize :: BatchSize
-                     -- ^ The number of document to return in each
-                     -- batch response from the server. 0 means
-                     -- Mongo default.
-                     } deriving (Show)
-
--- | Convert a 'Query' to the mongoDB equivalent.
-queryToMQuery :: (Serialize l, Label l) => Query l -> M.Query
-queryToMQuery q = M.Query { M.options = options q
-                          , M.selection = selectionToMSelection $ selection q
-                          , M.project = []
-                          , M.skip = skip q
-                          , M.limit = limit q
-                          , M.batchSize = batchSize q
-                          -- Not yet handled:
-                          , M.sort = []
-                          , M.snapshot = False
-                          , M.hint = []
-                          }
-
-
--- | A simple query is a 'Query' that retries the whole collection.
--- In other words, with a simple query you cannot specify a predicate
--- (@WHERE@ clause).
-newtype SimpleQuery l = SimpleQuery (Query l)
-  deriving (Show)
-
--- | Filter for a query, analogous to the @WHERE@ clause in
--- SQL. @[]@ matches all documents in collection. @["x" =: a,
--- "y" =: b]@ is analogous to @WHERE x = a AND y = b@ in SQL.
---
--- /Note/: all labeld (including policy-labeled) values are removed
--- from the @Selector@.
---
--- TODO: allow queries on labeled values.
-type Selector l = Document l 
-
--- | Selects documents in specified collection that match the selector.
-data Selection l = Selection { selector :: Selector l -- ^ Selector
-                             , coll :: Collection l -- ^ Collection operaing on
-                             } deriving (Show)
-
--- | Convert a 'Selection' to the mongoDB equivalent.
-selectionToMSelection :: (Serialize l, Label l) => Selection l -> M.Selection
-selectionToMSelection s = M.Select { M.selector = toBsonDoc $ selector s
-                                   , M.coll = colIntern (coll s) }
-
--- | Convert a 'Selector' to a 'Selection' or 'Query'
-class Select selectionOrQuery where
-  select :: Label l => Selector l -> Collection l -> selectionOrQuery l
-  -- ^ 'Query' or 'Selection' that selects documents in collection that match
-  -- selector. The choice of end type depends on use, for example, in 'find'
-  -- @select sel col@ is a 'Query', but in delete it is a 'Selection'.
-
-instance Select Selection where
-  select = Selection
-
-instance Select Query where
-  select s c = Query { options = []
-                     , selection = select s c
-                     , skip = 0
-                     , limit = 0 
-                     , batchSize = 0 }
-
-instance Select SimpleQuery where
-  select _ c = SimpleQuery $ select [] c
-
--- | Fetch documents satisfying query. A labeled 'Cursor' is returned,
--- which can be used to retrieve the actual 'Document's.
-simpleFindP :: (Serialize l, LabelState l p s)
-            => p -> SimpleQuery l -> Action l p s (SimpleCursor l)
-simpleFindP p' (SimpleQuery q) = do
-  db <- Action $ ask
-  let col = coll . selection $ q
-  liftLIO $ withCombinedPrivs p' $ \p -> do
-     -- Check that we can read from database:
-     taintP p (dbLabel db)
-     -- Check that we can read from collection:
-     taintP p (colLabel col)
-  cur <- liftAction $ M.useDb (dbIntern db) $ M.find (queryToMQuery q)
-  return . SimpleCursor $ Cursor { curLabel  = (colLabel col) `lub` (dbLabel db)
-                                 , curIntern = cur
-                                 , curCol    = col
-                                 }
-
---
--- Cursor
---
-
-
--- | A labeled cursor. The cursor is labeled with the join of the
--- database and collection it reads from.
-data Cursor l = Cursor { curLabel :: l -- ^ Cursorlabel
-                       , curIntern :: M.Cursor  -- ^ Actual cursor
-                       , curCol :: Collection l -- ^ Corresponding collection
-                       } 
-
--- | A simple cursor corresponds to a 'SimpleQuery'.
-newtype SimpleCursor l = SimpleCursor (Cursor l)
-
--- | Return next document in query result, or @Nothing@ if finished.
--- The current label is raised to join of the current label and
--- 'Cursor' label. The document is labeled according to the
--- underlying 'Collection'\'s policies.
-simpleNext :: (LabelState l p s, Serialize l)
-           => SimpleCursor l
-           -> Action l p s (Maybe (LabeledDocument l))
-simpleNext = simpleNextP noPrivs
-
--- | Same as 'simpleNext', but usess privileges raising the current label.
-simpleNextP :: (LabelState l p s, Serialize l)
-            => p
-            -> SimpleCursor l
-            -> Action l p s (Maybe (LabeledDocument l))
-simpleNextP p' (SimpleCursor cur) = do
-  liftLIO $ withCombinedPrivs p' $ \p -> taintP p (curLabel cur)
-  md <- fromBsonDoc' <$> (liftAction $ M.next (curIntern cur))
-  case md of
-    Nothing -> return Nothing
-    Just d -> Just <$> (liftLIO $ applyRawPolicyTCB (curCol cur) d)
-    where fromBsonDoc' = maybe Nothing fromBsonDocStrict
-
+	where db = colDatabase col
 
 --
 -- Serializing 'Value's
