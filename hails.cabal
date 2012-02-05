@@ -13,10 +13,15 @@ Cabal-Version:  >= 1.6
 Description:
         This module exports a libraries necessary for building HAILS applications.
 
+Executable hails
+  Main-is: Hails.hs
+  ghc-options: -package ghc -Wall -fno-warn-orphans
+
 Library
   Build-Depends: base >= 4 && < 5,
                  base64-bytestring >= 0.1 && < 0.2,
                  bytestring >= 0.9 && < 1,
+                 ghc-paths >= 0.1 && < 0.2,
                  lio >= 0.1.2 && < 0.2,
                  iterIO >= 0.2 && < 0.3,
                  iterio-server >= 0.1 && < 0.2,
@@ -29,7 +34,8 @@ Library
                  compact-string-fix >= 0.3.2 && < 0.4,
                  transformers >= 0.2.2.0 && < 0.3,
                  cereal >= 0.3.5.1 && < 0.4,
-                 HTTP >= 4000.2 && < 4000.3
+                 HTTP >= 4000.2 && < 4000.3,
+                 unix >= 2.5 && < 3
 
   ghc-options: -Wall -fno-warn-orphans
 
@@ -39,5 +45,7 @@ Library
     Hails.Data.LBson.TCB
 --    Hails.Network.HTTP
     Hails.HttpServer
+    Hails.IterIO.Conversions
+    Hails.IterIO.HailsRoute
     Hails.Database.MongoDB
     Hails.Database.MongoDB.TCB

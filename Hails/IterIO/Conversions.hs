@@ -1,21 +1,20 @@
-module Hails.IterIO.Conversions (iterIOtoIterDC, onumIOtoOnumDC) where
+module Hails.IterIO.Conversions (iterIOtoIterLIO, onumIOtoOnumLIO) where
 
 import qualified Data.ByteString.Lazy.Char8 as L
 import Data.IterIO
-import qualified LIO.TCB as LIO
-import LIO.DCLabel
+import LIO.TCB
 
 type L = L.ByteString
 
-iterIOtoIterDC :: ChunkData a => Iter a IO b -> Iter a DC b
-iterIOtoIterDC iterIn = Iter $ \c -> go $ (runIter iterIn) c
+iterIOtoIterLIO :: (LabelState l p s, ChunkData a) => Iter a IO b -> Iter a (LIO l p s) b
+iterIOtoIterLIO iterIn = Iter $ \c -> go $ (runIter iterIn) c
   where go (Done a (Chunk b c)) = Done a (Chunk b c)
         go (IterM m) = do
-          let m1 = fmap go $ LIO.ioTCB m
+          let m1 = fmap go $ ioTCB m
           IterM m1
-        go (IterF next) = IterF $ iterIOtoIterDC next
+        go (IterF next) = IterF $ iterIOtoIterLIO next
         go (Fail itf ma mb) = Fail itf ma mb
         go _ = undefined -- TODO: complete implementation
 
-onumIOtoOnumDC :: Onum L IO L -> Onum L DC a
-onumIOtoOnumDC inO = mkInum $ iterIOtoIterDC (inO .|$ dataI)
+onumIOtoOnumLIO :: LabelState l p s => Onum L IO L -> Onum L (LIO l p s) a
+onumIOtoOnumLIO inO = mkInum $ iterIOtoIterLIO (inO .|$ dataI)

@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Hails.HttpServer where
+module Hails.HttpServer ( secureHttpServer
+												, module Hails.IterIO.HailsRoute
+												) where
 
 import Data.ByteString.Base64
 import qualified Data.ByteString.Lazy.Char8 as L
@@ -10,6 +12,7 @@ import Data.IterIO.Http
 import Data.IterIO.Server.TCPServer
 import DCLabel.TCB
 import Hails.IterIO.Conversions
+import Hails.IterIO.HailsRoute
 import LIO.DCLabel
 import LIO.MonadLIO hiding (liftIO)
 import LIO.TCB
@@ -55,4 +58,4 @@ secureHttpServer port lrh = TCPServer port (httpApp lrh) dcServerAcceptor (\m ->
 dcServerAcceptor :: Net.Socket -> DC (Iter L.ByteString DC (), Onum L.ByteString DC ())
 dcServerAcceptor sock = do
   (iterIO, onumIO) <- ioTCB $ defaultServerAcceptor sock
-  return (iterIOtoIterDC iterIO, onumIOtoOnumDC onumIO)
+  return (iterIOtoIterLIO iterIO, onumIOtoOnumLIO onumIO)
