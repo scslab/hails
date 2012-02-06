@@ -1,7 +1,11 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 704
+{-# LANGUAGE Unsafe #-}
+#endif
+
 {-# LANGUAGE OverloadedStrings #-}
 
 module Hails.HttpServer ( secureHttpServer
-												, module Hails.IterIO.HailsRoute
 												) where
 
 import Data.ByteString.Base64
@@ -12,7 +16,6 @@ import Data.IterIO.Http
 import Data.IterIO.Server.TCPServer
 import DCLabel.TCB
 import Hails.IterIO.Conversions
-import Hails.IterIO.HailsRoute
 import LIO.DCLabel
 import LIO.MonadLIO hiding (liftIO)
 import LIO.TCB

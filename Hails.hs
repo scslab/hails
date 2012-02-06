@@ -1,5 +1,6 @@
 import GHC
 import GHC.Paths
+import DynFlags
 import Unsafe.Coerce
 
 import Hails.HttpServer
@@ -19,7 +20,7 @@ main = do
 loadApp :: String -> IO (DCPrivTCB -> HttpRequestHandler DC ())
 loadApp appName = runGhc (Just libdir) $ do
 	dflags <- getSessionDynFlags
-	_ <- setSessionDynFlags dflags
+	_ <- setSessionDynFlags $ dflags { safeHaskell = Sf_Safe }
 	target <- guessTarget appName Nothing
 	addTarget target
 	r <- load LoadAllTargets

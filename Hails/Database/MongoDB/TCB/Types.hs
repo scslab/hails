@@ -1,12 +1,26 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 704
+{-# LANGUAGE Unsafe #-}
+#endif
+{-# LANGUAGE DeriveDataTypeable, GeneralizedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses #-}
 module Hails.Database.MongoDB.TCB.Types where
 
 import LIO
-import LIO.TCB ( unlabelTCB, labelTCB)
+import LIO.TCB ( unlabelTCB
+							 , labelTCB
+							 , rtioTCB)
 import qualified Database.MongoDB as M
 import Hails.Data.LBson.TCB
+import qualified Control.Exception as E
 import Data.Maybe
+import Data.Typeable
 import Data.CompactString.UTF8 (append, isPrefixOf)
 import Data.Serialize (Serialize, encode, decode)
+
+import Control.Applicative (Applicative)
+import Control.Monad.Error hiding (liftIO)
+import Control.Monad.Reader hiding (liftIO)
+import qualified Control.Monad.IO.Class as IO
 
 --
 -- Collections
@@ -26,7 +40,7 @@ data Collection l = Collection { colLabel  :: l
                                -- ^ Collection label
                                , colClear  :: l
                                -- ^ Collection clearance
-															 , colDatabase :: DDatabase l
+															 , colDatabase :: Database l
 															 -- ^ Database to which collection belongs
                                , colIntern :: CollectionName
                                -- ^ Actual MongoDB collection
@@ -50,7 +64,7 @@ type DatabaseName = M.Database
 -- | A database has a label, which is used to enforce who can write to
 -- the database, and an internal identifier corresponding to the underlying
 -- MongoDB database.
-data DDatabase l = DDatabase { dbLabel  :: l      -- ^ Label of database
+data Database l = Database { dbLabel  :: l      -- ^ Label of database
                            , dbIntern :: DatabaseName -- ^ Actual MongoDB 
                            } deriving (Eq, Show)
 
@@ -71,6 +85,62 @@ data RawPolicy l = RawPolicy {
     -- ^ A column (field) policy is a function from a 'Document' to a
     -- 'Label', for each field of type 'PolicyLabeled'.
   }
+
+--
+-- Exceptions
+--
+
+-- | Field/column policies are required for every 'PolicyLabled' value
+-- in a document.
+data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
+                 | InvalidPolicy   -- ^ Policy application invalid
+                 | PolicyViolation -- ^ Policy has been violated
+  deriving (Typeable)
+
+instance Show PolicyError where
+  show NoFieldPolicy   = "NoFieldPolicy: Field policy not found"
+  show InvalidPolicy   = "InvalidPolicy: Invalid policy application"
+  show PolicyViolation = "PolicyViolation: Policy has been violated"
+
+instance E.Exception PolicyError
+
+--
+-- Monad
+--
+
+-- | Since it would be a security violation to make 'LIO' an instance
+-- of @MonadIO@, we create a Mongo-specific, non-exported,  wrapper for
+-- 'LIO' that is instance of @MonadIO@.
+--
+-- NOTE: IT IS IMPORTANT THAT @UnsafeLIO@ REMAINS HIDDEN AND NO
+-- EXPORTED WRAPPER BE MADE AN INSTATNCE OF @MonadLIO@.
+newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
+  deriving (Functor, Applicative, Monad)
+
+-- | UNSAFE: Instance of @MonadIO@.
+instance LabelState l p s => MonadIO (UnsafeLIO l p s) where
+  liftIO = UnsafeLIO . rtioTCB
+
+-- | An LIO action with MongoDB access.
+newtype LIOAction l p s a =
+    LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
+  deriving (Functor, Applicative, Monad)
+
+newtype Action l p s a = Action (ReaderT (Collection l) (LIOAction l p s) a)
+  deriving (Functor, Applicative, Monad)
+
+instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
+  liftLIO = UnsafeLIO
+
+instance LabelState l p s => MonadLIO (LIOAction l p s) l p s where
+  liftLIO = LIOAction . liftLIO
+
+instance LabelState l p s => MonadLIO (Action l p s) l p s where
+  liftLIO = Action . liftLIO
+
+-- | Lift a MongoDB action into 'Action' monad.
+liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
+liftAction = Action . lift . LIOAction
 
 --
 -- Serializing 'Value's

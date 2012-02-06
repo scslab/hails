@@ -35,6 +35,6 @@ module Hails.Data.LBson.Safe ( -- * UTF-8 String
                              , timestamp
                              , genObjectId
                              ) where
-import Prelude hiding (lookup)
+import Prelude ()
 import Hails.Data.LBson.TCB
 import Data.UString

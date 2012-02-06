@@ -8,11 +8,10 @@
 {-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE TypeFamilies #-}
 
-module Hails.Database.MongoDB.TCB where
+module Hails.Database.MongoDB.TCB.Access where
 
 import LIO
-import LIO.TCB ( rtioTCB
-               , getTCB
+import LIO.TCB ( getTCB
                , putTCB
 							 , setLabelTCB
                , lowerClrTCB
@@ -21,20 +20,12 @@ import LIO.MonadCatch
 import Hails.Data.LBson.TCB
 import Hails.Database.MongoDB.TCB.Types
 
-import Data.Typeable
 import qualified Data.List as List
-
 import Data.Maybe
-
 import Database.MongoDB.Connection
-
 import qualified Database.MongoDB as M
-
-import qualified Control.Exception as E
-import Control.Applicative (Applicative)
 import Control.Monad.Error hiding (liftIO)
 import Control.Monad.Reader hiding (liftIO)
-import qualified Control.Monad.IO.Class as IO
 
 -- | Create a collection given a collection label, clearance, name,
 -- and policy. Note that the collection label and clearance must be
@@ -42,7 +33,7 @@ import qualified Control.Monad.IO.Class as IO
 collection :: LabelState l p s
            => l               -- ^ Collection label
            -> l               -- ^ Collection clearance
-					 -> DDatabase l
+					 -> Database l
            -> CollectionName  -- ^ Collection name
            -> RawPolicy l     -- ^ Collection policy
            -> LIO l p s (Collection l)
@@ -54,7 +45,7 @@ collectionP :: LabelState l p s
            => p               -- ^ Privileges
            -> l               -- ^ Collection label
            -> l               -- ^ Collection clearance
-					 -> DDatabase l
+					 -> Database l
            -> CollectionName  -- ^ Collection name
            -> RawPolicy l     -- ^ Collection policy
            -> LIO l p s (Collection l)
@@ -146,50 +137,6 @@ applyRawPolicyTCB col doc = do
   -- Restore state:
   putTCB s0
   return ldoc
-
---
--- Exceptions
---
-
--- | Field/column policies are required for every 'PolicyLabled' value
--- in a document.
-data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
-                 | InvalidPolicy   -- ^ Policy application invalid
-                 | PolicyViolation -- ^ Policy has been violated
-  deriving (Typeable)
-
-instance Show PolicyError where
-  show NoFieldPolicy   = "NoFieldPolicy: Field policy not found"
-  show InvalidPolicy   = "InvalidPolicy: Invalid policy application"
-  show PolicyViolation = "PolicyViolation: Policy has been violated"
-
-instance E.Exception PolicyError
-
-
---
--- Monad
---
-
--- | Since it would be a security violation to make 'LIO' an instance
--- of @MonadIO@, we create a Mongo-specific, non-exported,  wrapper for
--- 'LIO' that is instance of @MonadIO@.
---
--- NOTE: IT IS IMPORTANT THAT @UnsafeLIO@ REMAINS HIDDEN AND NO
--- EXPORTED WRAPPER BE MADE AN INSTATNCE OF @MonadLIO@.
-newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
-  deriving (Functor, Applicative, Monad)
-
--- | UNSAFE: Instance of @MonadIO@.
-instance LabelState l p s => MonadIO (UnsafeLIO l p s) where
-  liftIO = UnsafeLIO . rtioTCB
-
--- | An LIO action with MongoDB access.
-newtype LIOAction l p s a =
-    LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
-  deriving (Functor, Applicative, Monad)
-
-newtype Action l p s a = Action (ReaderT (Collection l) (LIOAction l p s) a)
-  deriving (Functor, Applicative, Monad)
 
 -- | Run action against database on server at other end of pipe. Use
 -- access mode for any reads and writes. Return 'Left' on connection
