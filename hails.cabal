@@ -48,5 +48,6 @@ Library
     Hails.IterIO.Conversions
     Hails.IterIO.HailsRoute
     Hails.Database.MongoDB
+    Hails.Database.MongoDB.TCB.Access
     Hails.Database.MongoDB.TCB.Types
     Hails.Database.MongoDB.TCB.Query
