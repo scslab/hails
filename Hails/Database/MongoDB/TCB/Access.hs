@@ -27,38 +27,6 @@ import qualified Database.MongoDB as M
 import Control.Monad.Error hiding (liftIO)
 import Control.Monad.Reader hiding (liftIO)
 
--- | Create a collection given a collection label, clearance, name,
--- and policy. Note that the collection label and clearance must be
--- above the current label and below the current clearance.
-collection :: LabelState l p s
-           => l               -- ^ Collection label
-           -> l               -- ^ Collection clearance
-					 -> Database l
-           -> CollectionName  -- ^ Collection name
-           -> RawPolicy l     -- ^ Collection policy
-           -> LIO l p s (Collection l)
-collection l c db n pol = collectionP noPrivs l c db n pol
-
--- | Same as 'collection', but uses privileges when comparing the
--- collection label and clearance with the current label and clearance.
-collectionP :: LabelState l p s
-           => p               -- ^ Privileges
-           -> l               -- ^ Collection label
-           -> l               -- ^ Collection clearance
-					 -> Database l
-           -> CollectionName  -- ^ Collection name
-           -> RawPolicy l     -- ^ Collection policy
-           -> LIO l p s (Collection l)
-collectionP p' l c db n pol = withCombinedPrivs p' $ \p -> do
-  aguardP p l
-  aguardP p c
-  return $ Collection { colLabel  = l
-                      , colClear  = c
-											, colDatabase = db
-                      , colIntern = n
-                      , colPolicy = pol
-                      }
-
 -- | Apply a raw field/column policy to the field corresponding to the
 -- key. If the policy has not been specified for this key, the function
 -- throws an exception. Similarly, if the policy has already been
@@ -78,7 +46,7 @@ applyRawFieldPolicyP p col doc k = do
   -- Get the 'PolicyLabeled' value corresponding to k:
   plv <- getPolicyLabeledVal
   -- Find policy corresponding to key k:
-  f <- maybe (throwIO NoFieldPolicy) return $ List.lookup k policies 
+  f <- maybe (throwIO NoFieldPolicy) return $ List.lookup k policies
   -- Apply policy, or check matching labels:
   lv <- case plv of
          (PU v)  -> labelP p (f doc) v
@@ -148,7 +116,7 @@ applyRawPolicyTCB col doc = do
 access :: LabelState l p s
        => Pipe
        -> M.AccessMode
-       -> Collection l
+       -> Database l
        -> Action l p s a
        -> LIO l p s (Either M.Failure a)
 access = accessP noPrivs
@@ -159,13 +127,12 @@ accessP :: LabelState l p s
         => p 
         -> Pipe
         -> M.AccessMode
-        -> Collection l
+        -> Database l
         -> Action l p s a
         -> LIO l p s (Either M.Failure a)
-accessP p' pipe mode col (Action act) = withCombinedPrivs p' $ \p -> do 
+accessP p' pipe mode db (Action act) = withCombinedPrivs p' $ \p -> do 
   taintP p (dbLabel db)
-  let lioAct = runReaderT act col
+  let lioAct = runReaderT act db
   unUnsafeLIO $ M.access pipe mode (dbIntern db) (unLIOAction lioAct)
-	where db = colDatabase col
 
 

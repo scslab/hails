@@ -40,18 +40,9 @@ data Collection l = Collection { colLabel  :: l
                                -- ^ Collection label
                                , colClear  :: l
                                -- ^ Collection clearance
-															 , colDatabase :: Database l
-															 -- ^ Database to which collection belongs
-                               , colIntern :: CollectionName
-                               -- ^ Actual MongoDB collection
                                , colPolicy :: RawPolicy l
                                -- ^ Collection labeling policy
                                }
-instance Label l => Show (Collection l) where
-  show c = show "Collection "
-              ++ show (colIntern c)
-              ++ "\t" ++ show (colLabel c)
-              ++ "\t" ++ show (colClear c)
 
 --
 -- Databases
@@ -64,12 +55,15 @@ type DatabaseName = M.Database
 -- | A database has a label, which is used to enforce who can write to
 -- the database, and an internal identifier corresponding to the underlying
 -- MongoDB database.
-data Database l = Database { dbLabel  :: l      -- ^ Label of database
-                           , dbIntern :: DatabaseName -- ^ Actual MongoDB 
-                           } deriving (Eq, Show)
+data Database l = Database { dbLabel  :: l
+                           -- ^ Label of database
+                           , dbIntern :: DatabaseName
+                           -- ^ Actual MongoDB
+                           , dbColPolicies :: [(CollectionName, Collection l)]
+                           }
 
 --
--- Policies 
+-- Policies
 --
 
 
@@ -94,13 +88,15 @@ data RawPolicy l = RawPolicy {
 -- in a document.
 data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
                  | InvalidPolicy   -- ^ Policy application invalid
+                 | NoColPolicy     -- ^ Policy for Collection not specified
                  | PolicyViolation -- ^ Policy has been violated
   deriving (Typeable)
 
 instance Show PolicyError where
-  show NoFieldPolicy   = "NoFieldPolicy: Field policy not found"
-  show InvalidPolicy   = "InvalidPolicy: Invalid policy application"
-  show PolicyViolation = "PolicyViolation: Policy has been violated"
+  show NoFieldPolicy    = "NoFieldPolicy: Field policy not found"
+  show NoColPolicy      = "NoColPolicy: Collection policy not found"
+  show InvalidPolicy    = "InvalidPolicy: Invalid policy application"
+  show PolicyViolation  = "PolicyViolation: Policy has been violated"
 
 instance E.Exception PolicyError
 
@@ -126,7 +122,7 @@ newtype LIOAction l p s a =
     LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
   deriving (Functor, Applicative, Monad)
 
-newtype Action l p s a = Action (ReaderT (Collection l) (LIOAction l p s) a)
+newtype Action l p s a = Action (ReaderT (Database l) (LIOAction l p s) a)
   deriving (Functor, Applicative, Monad)
 
 instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where

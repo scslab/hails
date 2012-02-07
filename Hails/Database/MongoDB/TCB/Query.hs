@@ -11,7 +11,7 @@ import Hails.Database.MongoDB.TCB.Types
 import LIO
 import LIO.TCB
 import Control.Monad.Reader hiding (liftIO)
-import Hails.Data.LBson.TCB
+import Hails.Data.LBson.TCB hiding (lookup)
 import Data.Serialize (Serialize)
 import qualified Database.MongoDB as M
 
@@ -27,13 +27,13 @@ class Label l => Insert l doc where
   -- | Insert document into collection and return its @_id@ value,
   -- which is created automatically if not supplied.
   insert :: (LabelState l p s, Serialize l)
-         => Collection l
+         => CollectionName
          -> doc
          -> Action l p s M.Value
   insert = insertP noPrivs
   -- | Same as 'insert' except it does not return @_id@
   insert_ :: (LabelState l p s, Serialize l)
-          => Collection l
+          => CollectionName
           -> doc
           -> Action l p s ()
   insert_ c d = insert c d >> return ()
@@ -41,22 +41,25 @@ class Label l => Insert l doc where
   -- collection policies, and doing label comparisons.
   insertP :: (LabelState l p s, Serialize l)
           => p 
-          -> Collection l
+          -> CollectionName
           -> doc
           -> Action l p s M.Value
   -- | Same as 'insertP' except it does not return @_id@
   insertP_ :: (LabelState l p s, Serialize l)
            => p 
-           -> Collection l
+           -> CollectionName
            -> doc
            -> Action l p s ()
   insertP_ p c d = insertP p c d >> return ()
 
 
 instance Label l => Insert l (Document l) where
-  insertP p' col doc = do
+  insertP p' colname doc = do
+    db <- Action $ ask
+    let colPolicies = dbColPolicies db
+    col <- liftLIO $ maybe (throwIO NoColPolicy) return $
+                      lookup colname colPolicies
     let clearance = colClear col
-    db <- fmap colDatabase $ Action $ ask
     ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
               -- Check that we can write to database:
               wguardP p (dbLabel db)
@@ -70,7 +73,7 @@ instance Label l => Insert l (Document l) where
               -- Policies applied & labels are below clearance:
               return ldoc
     let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
-    liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
+    liftAction $ M.useDb (dbIntern db) $ M.insert colname bsonDoc
       where guardLabeledVals []            _ = return ()
             guardLabeledVals ((_ := v):ds) c = do
               case v of
@@ -80,8 +83,11 @@ instance Label l => Insert l (Document l) where
               guardLabeledVals ds c
 
 instance Label l => Insert l (Labeled l (Document l)) where
-  insertP p' col ldoc = do
-    db <- fmap colDatabase $ Action $ ask
+  insertP p' colname ldoc = do
+    db <- Action $ ask
+    let colPolicies = dbColPolicies db
+    col <- liftLIO $ maybe (throwIO NoColPolicy) return $
+                      lookup colname colPolicies
     liftLIO $ withCombinedPrivs p' $ \p -> do
       -- Check that we can write to database:
       wguardP p (dbLabel db)
@@ -90,20 +96,18 @@ instance Label l => Insert l (Labeled l (Document l)) where
       -- Check that the labels of all labeled values are below
       -- clearance, check that 'PolicyLabeled' values match, and check that
       -- the label of the document is policy-generated and below clearance:
-      guardAll
+      guardAll col
     let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
-    liftAction $ M.useDb (dbIntern db) $ M.insert (colIntern col) bsonDoc
-      where colC = colClear col
+    liftAction $ M.useDb (dbIntern db) $ M.insert colname bsonDoc
+      where doc = unlabelTCB ldoc
             --
-            doc = unlabelTCB ldoc
-            --
-            guardAll = do
+            guardAll col = do
               -- Apply policy to document:
               ldoc' <- applyRawPolicyTCB col doc
               -- Check that document labels match:
               unless (labelOf ldoc' == labelOf ldoc) $ throwIO PolicyViolation
               -- Check that the document label is below collection clerance:
-              unless (labelOf ldoc `leq` colC) $ throwIO LerrClearance
+              unless (labelOf ldoc `leq` colClear col) $ throwIO LerrClearance
               -- Check that fields match and are below collection clearance.
               -- Fields are protected by document label, so if an
               -- exception is thrown it should have this label.
