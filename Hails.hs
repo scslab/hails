@@ -27,7 +27,7 @@ loadApp appName = runGhc (Just libdir) $ do
 	case r of
 	  Failed -> error "Compilation failed"
 	  Succeeded -> do
-	    setContext [] [simpleImportDecl (mkModuleName appName)]
+	    setContext [IIDecl $ simpleImportDecl (mkModuleName appName)]
 	    value <- compileExpr (appName ++ ".server")
 	    do let value' = (unsafeCoerce value) :: DCPrivTCB -> HttpRequestHandler DC ()
 	       return value'
