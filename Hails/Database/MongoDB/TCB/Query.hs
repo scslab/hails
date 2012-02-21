@@ -4,7 +4,7 @@
 #endif
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 
-module Hails.Database.MongoDB.TCB.Query where
+module Hails.Database.MongoDB.TCB.Query ( Insert(..)) where
 
 import Hails.Database.MongoDB.TCB.Access
 import Hails.Database.MongoDB.TCB.Types

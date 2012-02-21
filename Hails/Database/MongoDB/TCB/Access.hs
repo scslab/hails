@@ -2,18 +2,18 @@
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE Unsafe #-}
 #endif
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FlexibleInstances #-}
-{-# LANGUAGE FlexibleContexts #-}
-{-# LANGUAGE DeriveDataTypeable, DeriveFunctor, GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE TypeFamilies #-}
 
-module Hails.Database.MongoDB.TCB.Access where
+module Hails.Database.MongoDB.TCB.Access ( -- * Policy application
+                                           applyRawPolicyP
+                                         , applyRawPolicyTCB
+                                           -- * Running actions against DB
+                                         , access, accessP
+                                         ) where
 
 import LIO
 import LIO.TCB ( getTCB
                , putTCB
-							 , setLabelTCB
+               , setLabelTCB
                , lowerClrTCB
                )
 import LIO.MonadCatch
@@ -21,7 +21,6 @@ import Hails.Data.LBson.TCB
 import Hails.Database.MongoDB.TCB.Types
 
 import qualified Data.List as List
-import Data.Maybe
 import Database.MongoDB.Connection
 import qualified Database.MongoDB as M
 import Control.Monad.Error hiding (liftIO)

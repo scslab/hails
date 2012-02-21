@@ -2,17 +2,38 @@
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE Unsafe #-}
 #endif
-{-# LANGUAGE DeriveDataTypeable, GeneralizedNewtypeDeriving, FlexibleInstances, MultiParamTypeClasses #-}
-module Hails.Database.MongoDB.TCB.Types where
+{-# LANGUAGE DeriveDataTypeable,
+             GeneralizedNewtypeDeriving,
+             FlexibleInstances,
+             MultiParamTypeClasses #-}
+module Hails.Database.MongoDB.TCB.Types ( -- * Collection
+                                          CollectionName
+                                        , Collection(..)
+                                          -- * Database
+                                        , DatabaseName
+                                        , Database(..)
+                                          -- * Policies
+                                        , RawPolicy(..)
+                                        , PolicyError(..)
+                                          -- * Monad
+                                        , UnsafeLIO(..)
+                                        , LIOAction(..)
+                                        , Action(..)
+                                        , liftAction
+                                        -- * Serializing Value
+                                        , toBsonDoc
+                                        , fromBsonDoc, fromBsonDocStrict
+                                        ) where
 
 import LIO
 import LIO.TCB ( unlabelTCB
-							 , labelTCB
-							 , rtioTCB)
+               , labelTCB
+               , rtioTCB )
 import qualified Database.MongoDB as M
 import Hails.Data.LBson.TCB
 import qualified Control.Exception as E
 import Data.Maybe
+import Data.List (intercalate)
 import Data.Typeable
 import Data.CompactString.UTF8 (append, isPrefixOf)
 import Data.Serialize (Serialize, encode, decode)
@@ -29,13 +50,15 @@ import qualified Control.Monad.IO.Class as IO
 -- | Name of collection
 type CollectionName = M.Collection
 
--- | A collection is a MongoDB collection associated with a
--- label, clearance and labeling policy. The label
--- specifies who can write to a collection (i.e., only priciples whos
--- current label flows to the label of the
--- collection). The clearance limits
--- the sensitivity of the data written to the collection (i.e.,
--- the labels of all data in the collection must flow to the clearance).
+-- | A collection is a MongoDB collection associated with a label,
+-- clearance and labeling policy. The label specifies who can write to a
+-- collection (i.e., only computatoin whose current label flows to the
+-- label of the collection). The clearance limits the sensitivity of the
+-- data written to the collection (i.e., the labels of all data in the
+-- collection must flow to the clearance). Note that the collection label
+-- does /not/ impose a restriction on the data (i.e., data can have
+-- high integrity). The collection policy specifies the policies for
+-- labeling documents and fields of documents.
 data Collection l = Collection { colLabel  :: l
                                -- ^ Collection label
                                , colClear  :: l
@@ -55,12 +78,19 @@ type DatabaseName = M.Database
 -- | A database has a label, which is used to enforce who can write to
 -- the database, and an internal identifier corresponding to the underlying
 -- MongoDB database.
-data Database l = Database { dbLabel  :: l
-                           -- ^ Label of database
-                           , dbIntern :: DatabaseName
+data Database l = Database { dbIntern :: DatabaseName
                            -- ^ Actual MongoDB
+                           , dbLabel  :: l
+                           -- ^ Label of database
                            , dbColPolicies :: [(CollectionName, Collection l)]
                            }
+instance Show l => Show (Database l) where
+  show db = show $ "Database " ++ show (dbIntern db) ++ " "
+                               ++ show (dbLabel db)  ++ " "
+                               ++ "[" ++ (intercalate ", " $
+                                          map showCol (dbColPolicies db)) ++ "]"
+    where showCol (n,c) = show n ++ " " ++ show (colLabel c)
+                                 ++ " " ++ show (colClear c)
 
 --
 -- Policies
@@ -105,11 +135,11 @@ instance E.Exception PolicyError
 --
 
 -- | Since it would be a security violation to make 'LIO' an instance
--- of @MonadIO@, we create a Mongo-specific, non-exported,  wrapper for
+-- of @MonadIO@, we create a Mongo-specific,  wrapper for
 -- 'LIO' that is instance of @MonadIO@.
 --
--- NOTE: IT IS IMPORTANT THAT @UnsafeLIO@ REMAINS HIDDEN AND NO
--- EXPORTED WRAPPER BE MADE AN INSTATNCE OF @MonadLIO@.
+-- NOTE: IT IS IMPORTANT THAT @UnsafeLIO@ NEVER BE EXPOSED BY MODULES
+-- THAT ARE NOT Unsafe.
 newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
   deriving (Functor, Applicative, Monad)
 
@@ -176,8 +206,6 @@ exceptInternal (f@(k := _):fs) =
   in if hailsInternalKeyPrefix `isPrefixOf` k
        then rest
        else f:rest
-
-
 
 -- | This prefix is reserved for HAILS keys. It should not be used by
 -- arbitrary code.
