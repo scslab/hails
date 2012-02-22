@@ -24,7 +24,7 @@ import qualified Data.List as List
 import Database.MongoDB.Connection
 import qualified Database.MongoDB as M
 import Control.Monad.Error hiding (liftIO)
-import Control.Monad.Reader hiding (liftIO)
+import Control.Monad.State.Strict hiding (liftIO)
 
 -- | Apply a raw field/column policy to the field corresponding to the
 -- key. If the policy has not been specified for this key, the function
@@ -36,7 +36,7 @@ import Control.Monad.Reader hiding (liftIO)
 -- 'applyRawPolicyP').
 applyRawFieldPolicyP :: (LabelState l p s)
                      => p 
-                     -> Collection l
+                     -> CollectionPolicy l
                      -> Document l
                      -> Key
                      -> LIO l p s (Field l)
@@ -61,7 +61,7 @@ applyRawFieldPolicyP p col doc k = do
 -- 'PolicyLabeled'.
 applyRawFieldPoliciesP :: (LabelState l p s)
                        => p 
-                       -> Collection l
+                       -> CollectionPolicy l
                        -> Document l
                        -> LIO l p s (Document l)
 applyRawFieldPoliciesP p col doc = forM doc $ \field@(k := v) ->
@@ -77,7 +77,7 @@ applyRawFieldPoliciesP p col doc = forM doc $ \field@(k := v) ->
 -- Instead 'insert' (and similar operators) performs this check.
 applyRawPolicyP :: (LabelState l p s)
                 => p 
-                -> Collection l
+                -> CollectionPolicy l
                 -> Document l
                 -> LIO l p s (LabeledDocument l)
 applyRawPolicyP p' col doc = withCombinedPrivs p' $ \p -> do
@@ -90,7 +90,7 @@ applyRawPolicyP p' col doc = withCombinedPrivs p' $ \p -> do
 -- | Same as 'applyRawPolicy', but ignores the current label and
 -- clearance when applying policies.
 applyRawPolicyTCB :: (LabelState l p s)
-                  => Collection l
+                  => CollectionPolicy l
                   -> Document l
                   -> LIO l p s (LabeledDocument l)
 applyRawPolicyTCB col doc = do
@@ -111,7 +111,7 @@ applyRawPolicyTCB col doc = do
 -- The current label is raised to the the join of the database label
 -- and current label.
 --
--- TODO: make sure that Failure does not leak any information.
+-- TODO: Make sure that Failure does not leak sensitive information.
 access :: LabelState l p s
        => Pipe
        -> M.AccessMode
@@ -131,7 +131,7 @@ accessP :: LabelState l p s
         -> LIO l p s (Either M.Failure a)
 accessP p' pipe mode db (Action act) = withCombinedPrivs p' $ \p -> do 
   taintP p (dbLabel db)
-  let lioAct = runReaderT act db
+  let lioAct = evalStateT act db
   unUnsafeLIO $ M.access pipe mode (dbIntern db) (unLIOAction lioAct)
 
 

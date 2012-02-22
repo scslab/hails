@@ -8,10 +8,16 @@
              MultiParamTypeClasses #-}
 module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                           CollectionName
+                                        , CollectionMap
+                                        , CollectionPolicy(..)
                                         , Collection(..)
+                                        , collection, collectionP, collectionTCB
                                           -- * Database
                                         , DatabaseName
                                         , Database(..)
+                                        , database, databaseP, databaseTCB
+                                        , assocCollection, assocCollectionP
+                                        , assocCollectionTCB 
                                           -- * Policies
                                         , RawPolicy(..)
                                         , PolicyError(..)
@@ -20,6 +26,7 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , LIOAction(..)
                                         , Action(..)
                                         , liftAction
+                                        , getDatabase, putDatabase
                                         -- * Serializing Value
                                         , toBsonDoc
                                         , fromBsonDoc, fromBsonDocStrict
@@ -31,26 +38,25 @@ import LIO.TCB ( unlabelTCB
                , rtioTCB )
 import qualified Database.MongoDB as M
 import Hails.Data.LBson.TCB
-import qualified Control.Exception as E
 import Data.Maybe
 import Data.List (intercalate)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Typeable
 import Data.CompactString.UTF8 (append, isPrefixOf)
 import Data.Serialize (Serialize, encode, decode)
 
 import Control.Applicative (Applicative)
 import Control.Monad.Error hiding (liftIO)
-import Control.Monad.Reader hiding (liftIO)
+import Control.Monad.State.Strict hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
+import qualified Control.Exception as E
 
 --
 -- Collections
 --
 
--- | Name of collection
-type CollectionName = M.Collection
-
--- | A collection is a MongoDB collection associated with a label,
+-- | A collection policy is is a label,
 -- clearance and labeling policy. The label specifies who can write to a
 -- collection (i.e., only computatoin whose current label flows to the
 -- label of the collection). The clearance limits the sensitivity of the
@@ -59,13 +65,65 @@ type CollectionName = M.Collection
 -- does /not/ impose a restriction on the data (i.e., data can have
 -- high integrity). The collection policy specifies the policies for
 -- labeling documents and fields of documents.
-data Collection l = Collection { colLabel  :: l
-                               -- ^ Collection label
-                               , colClear  :: l
-                               -- ^ Collection clearance
-                               , colPolicy :: RawPolicy l
-                               -- ^ Collection labeling policy
+data Collection l = Collection { colIntern :: CollectionName
+                               -- ^ Collection name
+                               , colSec    :: CollectionPolicy l
+                               -- ^ Collection secutiry policies: access control
+                               -- and labeling policies
                                }
+
+-- | Labels and policies associated with a collection. See 'Collection'.
+data CollectionPolicy l = CollectionPolicy { colLabel   :: l
+                                           -- ^ Collection label
+                                           , colClear  :: l
+                                           -- ^ Collection clearance
+                                           , colPolicy :: RawPolicy l
+                                           -- ^ Collection labeling policy
+                                           }
+
+-- | Name of collection
+type CollectionName = M.Collection
+
+-- | Create a collection given a collection name, label, clearance, 
+-- and policy. Note that the collection label and clearance must be
+-- above the current label and below the current clearance.
+collection :: LabelState l p s
+           => CollectionName  -- ^ Collection name
+           -> l               -- ^ Collection label
+           -> l               -- ^ Collection clearance
+           -> RawPolicy l     -- ^ Collection policy
+           -> LIO l p s (Collection l)
+collection = collectionP noPrivs
+
+-- | Same as 'collection', but uses privileges when comparing the
+-- collection label and clearance with the current label and clearance.
+collectionP :: LabelState l p s
+           => p               -- ^ Privileges
+           -> CollectionName  -- ^ Collection name
+           -> l               -- ^ Collection label
+           -> l               -- ^ Collection clearance
+           -> RawPolicy l     -- ^ Collection policy
+           -> LIO l p s (Collection l)
+collectionP p' n l c pol = withCombinedPrivs p' $ \p -> do
+  aguardP p l
+  aguardP p c
+  collectionTCB n l c pol
+
+-- | Same as 'collection', but ignores IFC.
+collectionTCB :: LabelState l p s
+              => CollectionName  -- ^ Collection name
+              -> l               -- ^ Collection label
+              -> l               -- ^ Collection clearance
+              -> RawPolicy l     -- ^ Collection policy
+              -> LIO l p s (Collection l)
+collectionTCB n l c pol = 
+  return $ Collection { colIntern = n
+                      , colSec    = CollectionPolicy { colLabel = l
+                                                     , colClear = c
+                                                     , colPolicy = pol }
+                      }
+
+  
 
 --
 -- Databases
@@ -75,22 +133,91 @@ data Collection l = Collection { colLabel  :: l
 -- | Name of database
 type DatabaseName = M.Database
 
--- | A database has a label, which is used to enforce who can write to
--- the database, and an internal identifier corresponding to the underlying
--- MongoDB database.
-data Database l = Database { dbIntern :: DatabaseName
-                           -- ^ Actual MongoDB
-                           , dbLabel  :: l
-                           -- ^ Label of database
-                           , dbColPolicies :: [(CollectionName, Collection l)]
-                           }
-instance Show l => Show (Database l) where
-  show db = show $ "Database " ++ show (dbIntern db) ++ " "
-                               ++ show (dbLabel db)  ++ " "
-                               ++ "[" ++ (intercalate ", " $
-                                          map showCol (dbColPolicies db)) ++ "]"
-    where showCol (n,c) = show n ++ " " ++ show (colLabel c)
-                                 ++ " " ++ show (colClear c)
+-- | A labeled 'Collection' map.
+type CollectionMap l = Labeled l (Map CollectionName (CollectionPolicy l))
+
+-- | A database has a label, which is used for controlling access to
+-- the database, an internal identifier corresponding to the underlying
+-- MongoDB database, and a set of 'Collection's protected by a label.
+data Database l = Database
+  { dbIntern :: DatabaseName
+    -- ^ Actual MongoDB
+  , dbLabel  :: l
+    -- ^ Label of database
+  , dbColPolicies :: CollectionMap l
+    -- ^ Collections associated with databsae
+  }
+
+
+-- | Create a 'Database'. Given a set of privileges, the name of the
+-- database, the database label, and set of collections, create a
+-- database. Note that this does not restrict an application from
+-- creating arbitrary databases and collections---this should be
+-- handled by a shim layer.
+databaseP :: LabelState l p s
+          => p                    -- ^ Privileges
+          -> DatabaseName         -- ^ Name of database
+          -> l                    -- ^ Label of database
+          -> CollectionMap l      -- ^ Labeled colleciton map
+          -> LIO l p s (Database l)
+databaseP p' n l cs = withCombinedPrivs p' $ \p -> do
+  aguardP p l
+  databaseTCB n l cs
+
+-- | Sameas 'databaseP', but ignores IFC checks.
+databaseTCB :: LabelState l p s
+            => DatabaseName
+            -> l
+            -> CollectionMap l
+            -> LIO l p s (Database l)
+databaseTCB n l cs = return $ Database { dbIntern      = n
+                                       , dbLabel       = l
+                                       , dbColPolicies = cs
+                                       }
+
+-- | Same as 'databaseP', but does not use privileges when comparing
+-- the current label (and clearance) with the supplied database label.
+database :: LabelState l p s
+         => DatabaseName
+         -> l
+         -> CollectionMap l
+         -> LIO l p s (Database l)
+database = databaseP noPrivs
+
+
+-- | Associate a collection with the underlying database.
+assocCollectionP :: LabelState l p s
+                 => p
+                 -> Collection l
+                 -> Action l p s ()
+assocCollectionP p' (Collection n cp) = do
+  db <- getDatabase
+  (l, colMap) <- liftLIO $ withCombinedPrivs p' $ \p -> do
+    let colMap = unlabelTCB $ dbColPolicies db
+        l = labelOf $ dbColPolicies db
+    wguardP p l
+    return (l, colMap)
+  let dCPs = Map.insert n cp colMap
+  putDatabase $ db { dbColPolicies = labelTCB l dCPs }
+
+-- | Same as 'assocCollectionP', but does not use privileges when
+-- writing to database collection map.
+assocCollection :: LabelState l p s
+                => Collection l
+                -> Action l p s ()
+assocCollection = assocCollectionP noPrivs
+
+-- | Same as 'assocCollectionP', but ignores IFC.
+assocCollectionTCB :: LabelState l p s
+                   => Collection l
+                   -> Action l p s ()
+assocCollectionTCB (Collection n cp) = do
+  db <- getDatabase
+  let colMap = unlabelTCB $ dbColPolicies db
+      l = labelOf $ dbColPolicies db
+  let dCPs = Map.insert n cp colMap
+  putDatabase $ db { dbColPolicies = labelTCB l dCPs }
+
 
 --
 -- Policies
@@ -152,7 +279,7 @@ newtype LIOAction l p s a =
     LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
   deriving (Functor, Applicative, Monad)
 
-newtype Action l p s a = Action (ReaderT (Database l) (LIOAction l p s) a)
+newtype Action l p s a = Action (StateT (Database l) (LIOAction l p s) a)
   deriving (Functor, Applicative, Monad)
 
 instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
@@ -163,6 +290,14 @@ instance LabelState l p s => MonadLIO (LIOAction l p s) l p s where
 
 instance LabelState l p s => MonadLIO (Action l p s) l p s where
   liftLIO = Action . liftLIO
+
+-- | Get underlying database.
+getDatabase :: Action l p s (Database l)
+getDatabase = Action $ get
+
+-- | Replace underlying databse
+putDatabase :: Database l -> Action l p s ()
+putDatabase db = Action $ put db
 
 -- | Lift a MongoDB action into 'Action' monad.
 liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
