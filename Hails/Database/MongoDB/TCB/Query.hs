@@ -4,17 +4,22 @@
 #endif
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 
-module Hails.Database.MongoDB.TCB.Query where
+module Hails.Database.MongoDB.TCB.Query ( Insert(..)) where
 
 import Hails.Database.MongoDB.TCB.Access
 import Hails.Database.MongoDB.TCB.Types
+
 import LIO
 import LIO.TCB
-import Control.Monad.Reader hiding (liftIO)
+
+
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Hails.Data.LBson.TCB hiding (lookup)
 import Data.Serialize (Serialize)
 import qualified Database.MongoDB as M
 
+import Control.Monad.Reader hiding (liftIO)
 import qualified Control.Exception as E
 
 --
@@ -55,10 +60,11 @@ class Label l => Insert l doc where
 
 instance Label l => Insert l (Document l) where
   insertP p' colname doc = do
-    db <- Action $ ask
-    let colPolicies = dbColPolicies db
-    col <- liftLIO $ maybe (throwIO NoColPolicy) return $
-                      lookup colname colPolicies
+    db <- getDatabase
+    col <- liftLIO $  withCombinedPrivs p' $ \p -> do
+      -- Check that we can read collection names associated with database:
+      colMap <- unlabelP p $ dbColPolicies db
+      maybe (throwIO NoColPolicy) return $ Map.lookup colname colMap
     let clearance = colClear col
     ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
               -- Check that we can write to database:
@@ -84,11 +90,11 @@ instance Label l => Insert l (Document l) where
 
 instance Label l => Insert l (Labeled l (Document l)) where
   insertP p' colname ldoc = do
-    db <- Action $ ask
-    let colPolicies = dbColPolicies db
-    col <- liftLIO $ maybe (throwIO NoColPolicy) return $
-                      lookup colname colPolicies
+    db <- getDatabase
     liftLIO $ withCombinedPrivs p' $ \p -> do
+      -- Check that we can read collection names associated with database:
+      colMap <- unlabelP p $ dbColPolicies db
+      col <- maybe (throwIO NoColPolicy) return $ Map.lookup colname colMap
       -- Check that we can write to database:
       wguardP p (dbLabel db)
       -- Check that we can write to collection:
