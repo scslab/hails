@@ -22,11 +22,12 @@ Library
                  containers >= 0.4.2 && < 0.5,
                  base64-bytestring >= 0.1 && < 0.2,
                  bytestring >= 0.9 && < 1,
+                 containers >= 0.4.2 && < 0.5,
                  ghc-paths >= 0.1 && < 0.2,
                  lio >= 0.1.2 && < 0.2,
-                 iterIO >= 0.2 && < 0.3,
-                 iterio-server >= 0.1 && < 0.3,
-                 dclabel >= 0.0 && < 0.1,
+                 iterIO >= 0.2.1 && < 0.3,
+                 iterio-server >= 0.2 && < 0.3,
+                 dclabel >= 0.0.4 && < 0.1,
                  mongoDB >= 1.1.2 && < 1.3,
                  transformers-base >= 0.4.1 && < 0.5,
                  monad-control >= 0.3.1 && < 0.4,
@@ -37,9 +38,10 @@ Library
                  transformers >= 0.2.2.0 && < 0.3,
                  cereal >= 0.3.5.1 && < 0.4,
                  HTTP >= 4000.2 && < 4000.3,
-                 unix >= 2.5 && < 3
+                 unix >= 2.5 && < 3,
+                 MissingH >= 1.1.1 && < 2
 
-  ghc-options: -Wall -Werror -fno-warn-orphans
+  ghc-options: -Wall -package ghc -fno-warn-orphans
 
   Exposed-modules:
     Hails.Data.LBson
@@ -49,6 +51,8 @@ Library
     Hails.HttpServer
     Hails.IterIO.Conversions
     Hails.IterIO.HailsRoute
+    Hails.Utils.TCB
+    Hails.Database
     Hails.Database.MongoDB
     Hails.Database.MongoDB.TCB.Access
     Hails.Database.MongoDB.TCB.Types

@@ -1,12 +1,6 @@
-import GHC
-import GHC.Paths
-import DynFlags
-import Unsafe.Coerce
-
+import Hails.Utils.TCB
 import Hails.HttpServer
-import Data.IterIO.Http
 import Data.IterIO.Server.TCPServer
-import LIO.DCLabel
 import System.Environment
 
 main :: IO ()
@@ -17,17 +11,3 @@ main = do
 	func <- loadApp appName
 	runTCPServer $ secureHttpServer (fromInteger port) func
 
-loadApp :: String -> IO (DCPrivTCB -> HttpRequestHandler DC ())
-loadApp appName = runGhc (Just libdir) $ do
-	dflags <- getSessionDynFlags
-	_ <- setSessionDynFlags $ dflags { safeHaskell = Sf_Safe }
-	target <- guessTarget appName Nothing
-	addTarget target
-	r <- load LoadAllTargets
-	case r of
-	  Failed -> error "Compilation failed"
-	  Succeeded -> do
-	    setContext [IIDecl $ simpleImportDecl (mkModuleName appName)]
-	    value <- compileExpr (appName ++ ".server")
-	    do let value' = (unsafeCoerce value) :: DCPrivTCB -> HttpRequestHandler DC ()
-	       return value'
