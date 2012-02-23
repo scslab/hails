@@ -1,9 +1,11 @@
+{-# LANGUAGE FlexibleContexts #-}
 module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , DCAction
                                            , dcAccess
                                            , labelDatabase
                                            ) where
 
+import qualified Data.Bson as Bson
 import Hails.Database.MongoDB
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Access
@@ -13,6 +15,7 @@ import Database.MongoDB ( runIOE
                         , close
                         , master
                         , slaveOk
+                        , GetLastError
                         , AccessMode(..) )
 import LIO
 import LIO.TCB ( rtioTCB )
@@ -23,6 +26,8 @@ import qualified Data.Map as Map
 import qualified Data.List as List
 
 import Text.Parsec
+import Text.Parsec.Char
+import Text.Parsec.String
 
 -- | Database configuration, used to invoke @withDB@
 data DBConf = DBConf { dbConfName :: DatabaseName
@@ -41,32 +46,6 @@ dcAccess db act = do
   pipe <- rtioTCB $ runIOE $ connect (host hostName)
   accessTCB pipe mode db act
 
--- | Parse the access mode.
---
---  > slaveOk                : slaveOk
---  > unconfirmedWrites      : UnconfirmedWrites
---  > onfirmWrites <options> : ConfirmWrites [corresponding-options]
---  > _                      : master
---
--- where @options@ can be:
---
---  > fsync | journal | wait=<N>
---
--- separated by \';\', and @N@ is an integer.
--- Example: 
---
--- > HAILS_MONGODB_MODE = "confirmWrites wait=3;journal"
--- > HAILS_MONGODB_MODE = "master"
---
--- TODO (DS): add support for confirmWrites with getLastError.
---            The latter options:
---               fsync:true (wait for files to sync, when no journaling)
---               j:true     (wait for journal commit)
---               w:N        (wait for N writes)
-parseMode :: String -> AccessMode
-parseMode "slaveOk"           = slaveOk
-parseMode "unconfirmedWrites" = UnconfirmedWrites
-parseMode _                   = master
 
 -- | The @withDB@ functions should use this function to label
 -- their databases.
@@ -80,4 +59,59 @@ labelDatabase conf lcoll lacc = do
   initColl <- labelP p lcoll Map.empty
   databaseP p name lacc initColl
 
+--
+-- Parser for getLastError
+--
+
+
+-- | Parse the access mode.
+--
+--  > slaveOk                : slaveOk
+--  > unconfirmedWrites      : UnconfirmedWrites
+--  > onfirmWrites <options> : ConfirmWrites [corresponding-options]
+--  > _                      : master
+--
+-- where @options@ can be:
+--
+--  > fsync | journal | wait=<N>
+--
+-- separated by \',\', and @N@ is an integer.
+-- Example: 
+--
+-- > HAILS_MONGODB_MODE = "confirmWrites wait=3;journal"
+-- > HAILS_MONGODB_MODE = "master"
+--
+parseMode :: String -> AccessMode
+parseMode "slaveOk"           = slaveOk
+parseMode "unconfirmedWrites" = UnconfirmedWrites
+parseMode xs = case parse wParser "" xs of
+                 Right le -> ConfirmWrites le
+                 Left _ -> master
+  where wParser = do string "confirmWrites" 
+                     spaces
+                     char ':'
+                     spaces
+                     gle_opts
+
+gle_opts :: Stream s m Char => ParsecT s u m GetLastError
+gle_opts = do opt_first <- gle_opt
+              opt_rest  <- gle_opts'
+              return $ opt_first ++ opt_rest
+    where gle_opt = gle_opt_fsync <|> gle_opt_journal <|> gle_opt_write   
+          gle_opts' :: Stream s m Char => ParsecT s u m GetLastError
+          gle_opts' = (spaces >> char ',' >> spaces >> gle_opts) <|> (return [])
+
+gle_opt_fsync :: Stream s m Char => ParsecT s u m GetLastError
+gle_opt_fsync = string "fsync" >> return [ (u "fsync") Bson.=: True ]
+
+gle_opt_journal :: Stream s m Char => ParsecT s u m GetLastError
+gle_opt_journal = string "journal" >> return [ (u "j") Bson.=: True ]
+
+gle_opt_write :: Stream s m Char => ParsecT s u m GetLastError
+gle_opt_write   = do string "write"
+                     spaces
+                     char '='
+                     spaces
+                     dgt <- many1 digit
+                     return [ (u "w") Bson.=: (read dgt :: Integer) ]
 
