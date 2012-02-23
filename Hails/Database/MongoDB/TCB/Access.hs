@@ -7,7 +7,7 @@ module Hails.Database.MongoDB.TCB.Access ( -- * Policy application
                                            applyRawPolicyP
                                          , applyRawPolicyTCB
                                            -- * Running actions against DB
-                                         , access, accessP
+                                         , accessTCB
                                          ) where
 
 import LIO
@@ -24,7 +24,7 @@ import qualified Data.List as List
 import Database.MongoDB.Connection
 import qualified Database.MongoDB as M
 import Control.Monad.Error hiding (liftIO)
-import Control.Monad.State.Strict hiding (liftIO)
+import Control.Monad.Reader hiding (liftIO)
 
 -- | Apply a raw field/column policy to the field corresponding to the
 -- key. If the policy has not been specified for this key, the function
@@ -110,28 +110,12 @@ applyRawPolicyTCB col doc = do
 -- failure or read/write failure.
 -- The current label is raised to the the join of the database label
 -- and current label.
---
--- TODO: Make sure that Failure does not leak sensitive information.
-access :: LabelState l p s
-       => Pipe
-       -> M.AccessMode
-       -> Database l
-       -> Action l p s a
-       -> LIO l p s (Either M.Failure a)
-access = accessP noPrivs
-
--- | Same as 'access', but uses privileges when raising the current
--- label.
-accessP :: LabelState l p s
-        => p 
-        -> Pipe
+accessTCB :: LabelState l p s
+        => Pipe
         -> M.AccessMode
         -> Database l
         -> Action l p s a
         -> LIO l p s (Either M.Failure a)
-accessP p' pipe mode db (Action act) = withCombinedPrivs p' $ \p -> do 
-  taintP p (dbLabel db)
-  let lioAct = evalStateT act db
-  unUnsafeLIO $ M.access pipe mode (dbIntern db) (unLIOAction lioAct)
-
-
+accessTCB pipe mode db (Action act) = 
+  let lioAct = runReaderT act db
+  in unUnsafeLIO $ M.access pipe mode (dbIntern db) (unLIOAction lioAct)
