@@ -22,6 +22,7 @@ import System.Environment
 import qualified Data.Map as Map
 import qualified Data.List as List
 
+import Text.Parsec
 
 -- | Database configuration, used to invoke @withDB@
 data DBConf = DBConf { dbConfName :: DatabaseName
