@@ -35,9 +35,10 @@ Library
                  transformers >= 0.2.2.0 && < 0.3,
                  cereal >= 0.3.5.1 && < 0.4,
                  HTTP >= 4000.2 && < 4000.3,
-                 unix >= 2.5 && < 3
+                 unix >= 2.5 && < 3,
+                 MissingH >= 1.1.1 && < 2
 
-  ghc-options: -Wall -fno-warn-orphans
+  ghc-options: -Wall -package ghc -fno-warn-orphans
 
   Exposed-modules:
     Hails.Data.LBson
@@ -47,6 +48,8 @@ Library
     Hails.HttpServer
     Hails.IterIO.Conversions
     Hails.IterIO.HailsRoute
+    Hails.Utils.TCB
+    Hails.Database
     Hails.Database.MongoDB
     Hails.Database.MongoDB.TCB.Access
     Hails.Database.MongoDB.TCB.Types
