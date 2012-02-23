@@ -5,7 +5,8 @@
 {-# LANGUAGE DeriveDataTypeable,
              GeneralizedNewtypeDeriving,
              FlexibleInstances,
-             MultiParamTypeClasses #-}
+             MultiParamTypeClasses,
+             TypeFamilies #-}
 module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                           CollectionName
                                         , CollectionMap
@@ -26,30 +27,40 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , LIOAction(..)
                                         , Action(..)
                                         , liftAction
-                                        , getDatabase, putDatabase
-                                        -- * Serializing Value
-                                        , toBsonDoc
-                                        , fromBsonDoc, fromBsonDocStrict
+                                        , getDatabase
+                                        -- * Query
+                                        , Query(..)
+                                        , toMongoQuery
+                                        -- * Cursor
+                                        , Cursor(..)
                                         ) where
 
 import LIO
-import LIO.TCB ( unlabelTCB
+import LIO.TCB ( LIO(..)
+               , LIOstate
+               , unlabelTCB
                , labelTCB
                , rtioTCB )
+
 import qualified Database.MongoDB as M
+import Database.MongoDB ( QueryOption(..)
+                        , Limit
+                        , BatchSize
+                        )
+
 import Hails.Data.LBson.TCB
-import Data.Maybe
-import Data.List (intercalate)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Typeable
-import Data.CompactString.UTF8 (append, isPrefixOf)
-import Data.Serialize (Serialize, encode, decode)
+import Data.Word (Word32)
 
 import Control.Applicative (Applicative)
 import Control.Monad.Error hiding (liftIO)
-import Control.Monad.State.Strict hiding (liftIO)
+import Control.Monad.Reader hiding (liftIO)
+import Control.Monad.State hiding (liftIO)
 import qualified Control.Monad.IO.Class as IO
+import Control.Monad.Base (MonadBase(..))
+import Control.Monad.Trans.Control (MonadBaseControl(..))
 import qualified Control.Exception as E
 
 --
@@ -123,8 +134,6 @@ collectionTCB n l c pol =
                                                      , colPolicy = pol }
                       }
 
-  
-
 --
 -- Databases
 --
@@ -189,34 +198,35 @@ database = databaseP noPrivs
 assocCollectionP :: LabelState l p s
                  => p
                  -> Collection l
-                 -> Action l p s ()
-assocCollectionP p' (Collection n cp) = do
-  db <- getDatabase
+                 -> Database l
+                 -> LIO l p s (Database l)
+assocCollectionP p' (Collection n cp) db = do
   (l, colMap) <- liftLIO $ withCombinedPrivs p' $ \p -> do
     let colMap = unlabelTCB $ dbColPolicies db
         l = labelOf $ dbColPolicies db
     wguardP p l
     return (l, colMap)
   let dCPs = Map.insert n cp colMap
-  putDatabase $ db { dbColPolicies = labelTCB l dCPs }
+  return $ db { dbColPolicies = labelTCB l dCPs }
 
 -- | Same as 'assocCollectionP', but does not use privileges when
 -- writing to database collection map.
 assocCollection :: LabelState l p s
                 => Collection l
-                -> Action l p s ()
+                -> Database l
+                -> LIO l p s (Database l)
 assocCollection = assocCollectionP noPrivs
 
 -- | Same as 'assocCollectionP', but ignores IFC.
 assocCollectionTCB :: LabelState l p s
                    => Collection l
-                   -> Action l p s ()
-assocCollectionTCB (Collection n cp) = do
-  db <- getDatabase
+                   -> Database l
+                   -> LIO l p s (Database l)
+assocCollectionTCB (Collection n cp) db = do
   let colMap = unlabelTCB $ dbColPolicies db
       l = labelOf $ dbColPolicies db
   let dCPs = Map.insert n cp colMap
-  putDatabase $ db { dbColPolicies = labelTCB l dCPs }
+  return $ db { dbColPolicies = labelTCB l dCPs }
 
 
 --
@@ -274,12 +284,28 @@ newtype UnsafeLIO l p s a = UnsafeLIO { unUnsafeLIO :: LIO l p s a }
 instance LabelState l p s => MonadIO (UnsafeLIO l p s) where
   liftIO = UnsafeLIO . rtioTCB
 
+-- | UNSAFE: Instance of @MonadBase IO@.
+instance LabelState l p s => MonadBase IO (UnsafeLIO l p s) where
+  liftBase = UnsafeLIO . rtioTCB
+
+-- | UNSAFE: Instance of @MonadBaseControl IO@.
+-- NOTE: This instance is a hack. I got this to work by tweaking Bas'
+-- Annex example, but should spend time actually understanding the
+-- details.
+instance LabelState l p s => MonadBaseControl IO (UnsafeLIO l p s) where
+  newtype StM (UnsafeLIO l p s) a = StUnsafeLIO {
+     unStUnsafeLIO :: (StM (StateT (LIOstate l p s) IO) a) }
+  liftBaseWith f = UnsafeLIO . LIO $ liftBaseWith $ \runInIO ->
+                     f $ liftM StUnsafeLIO . runInIO
+                             . (\(LIO x) -> x) .  unUnsafeLIO
+  restoreM = UnsafeLIO . LIO . restoreM . unStUnsafeLIO
+
 -- | An LIO action with MongoDB access.
 newtype LIOAction l p s a =
     LIOAction { unLIOAction :: M.Action (UnsafeLIO l p s) a }
   deriving (Functor, Applicative, Monad)
 
-newtype Action l p s a = Action (StateT (Database l) (LIOAction l p s) a)
+newtype Action l p s a = Action (ReaderT (Database l) (LIOAction l p s) a)
   deriving (Functor, Applicative, Monad)
 
 instance LabelState l p s => MonadLIO (UnsafeLIO l p s) l p s where
@@ -293,118 +319,52 @@ instance LabelState l p s => MonadLIO (Action l p s) l p s where
 
 -- | Get underlying database.
 getDatabase :: Action l p s (Database l)
-getDatabase = Action $ get
+getDatabase = Action $ ask
 
--- | Replace underlying databse
-putDatabase :: Database l -> Action l p s ()
-putDatabase db = Action $ put db
 
 -- | Lift a MongoDB action into 'Action' monad.
 liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
 liftAction = Action . lift . LIOAction
 
 --
--- Serializing 'Value's
+-- Query
 --
 
--- | Convert a 'Document' to a Bson @Document@. It is an error to call
--- this function with malformed 'Document's (i.e., those for which
--- a policy has not been applied.
-toBsonDoc :: (Serialize l, Label l) => Document l -> M.Document
-toBsonDoc = map (\(k := v) -> (k M.:= toBsonValue v)) . exceptInternal
+-- | Subset of MongoDB's query support. We currently do not allow
+-- projections (as policies may depend on fields that are not
+-- projected) or selections (i.e., @WHERE@ clauses) as they require
+-- policy application to reflect observations when performing
+-- comparisons.
+data Query = Query { options :: [QueryOption]
+                   -- ^ Query options, default @[]@
+                   , selCollection :: CollectionName
+                   -- ^ Actual selection
+                   , skip  :: Word32
+                   -- ^ Number of documents to skip, default 0.
+                   , limit :: Limit
+                   -- ^ Max number of documents to return. Default, 0,
+                   -- means no limit.
+                   , batchSize :: BatchSize
+                   -- ^ The number of document to return in each
+                   -- batch response from the server. 0 means
+                   -- Mongo default.
+                   } 
 
--- | Convert a Bson @Document@ to a 'Document'. This implementation is
--- relaxed and omits any fields that were not converted. Use the
--- 'fromBsonDocStrict' for a strict conversion. 
-fromBsonDoc :: (Serialize l, Label l) => M.Document -> Document l
-fromBsonDoc d = 
-  let cs' = map (\(k M.:= v) -> (k, fromBsonValue v)) d
-      cs  = map (\(k, Just v) -> k := v) $ filter (isJust . snd) cs'
-  in exceptInternal $ cs
+-- | Convert a 'Query' to the mongoDB query.
+toMongoQuery :: Query -> M.Query
+toMongoQuery q = (M.select [] (selCollection q)) { M.options = options q
+                                                 , M.skip = skip q
+                                                 , M.limit = limit q
+                                                 , M.batchSize = batchSize q }
 
--- | Same as 'fromBsonDoc', but fails (returns @Nothing@) if any of
--- the field  values failed to be serialized.
-fromBsonDocStrict :: (Serialize l, Label l) => M.Document -> Maybe (Document l)
-fromBsonDocStrict d = 
-  let cs' = map (\(k M.:= v) -> (k, fromBsonValue v)) d
-      cs  = map (\(k, Just v) -> k := v) $ filter (isJust . snd) cs'
-      ok  = all (isJust .snd) cs'
-  in if ok then Just . exceptInternal $ cs else Nothing
+--
+-- Cursor
+--
 
+-- | A labeled cursor. The cursor is labeled with the join of the
+-- database and collection it reads from.
+data Cursor l = Cursor { curLabel  :: l                  -- ^ Cursorlabel
+                       , curIntern :: M.Cursor           -- ^ Actual cursor
+                       , curPolicy :: CollectionPolicy l -- ^ Collection policy
+                       } 
 
--- | Remove any fields from the document that have
--- 'hailsInternalKeyPrefix' as a prefix
-exceptInternal :: Label l => Document l -> Document l
-exceptInternal [] = []
-exceptInternal (f@(k := _):fs) =
-  let rest = exceptInternal fs
-  in if hailsInternalKeyPrefix `isPrefixOf` k
-       then rest
-       else f:rest
-
--- | This prefix is reserved for HAILS keys. It should not be used by
--- arbitrary code.
-hailsInternalKeyPrefix :: M.Label
-hailsInternalKeyPrefix = u "__hails_internal_"
-
--- | Serializing a 'Labeled' to a BSON @Document@ with key 
--- @lBsonLabeledValKey@.
-lBsonLabeledValKey :: M.Label
-lBsonLabeledValKey = hailsInternalKeyPrefix `append` u "Labeled"
-
--- | Serializing a 'PolicyLabeled' to a BSON @Document@ with key 
--- @lBsonPolicyLabeledValKey@.
-lBsonPolicyLabeledValKey :: M.Label
-lBsonPolicyLabeledValKey = hailsInternalKeyPrefix `append` u "PolicyLabeled"
-
--- | When serializing a 'Labeled' we serialize it to a document
--- containing the label and value, the key for the label is
--- @lBsonLabelKey@.
-lBsonLabelKey :: M.Label
-lBsonLabelKey = u "label"
-
--- | When serializing a 'Labeled' (or 'PolicyLabeled') we serialize
--- it to a document containing the value, the key for the value
--- is @lBsonValueKey@.
-lBsonValueKey :: M.Label
-lBsonValueKey = u "value"
-
--- | Convert 'Value' to Bson @Value@
-toBsonValue :: (Serialize l, Label l) => Value l -> M.Value
-toBsonValue mV = 
-  case mV of 
-    (BsonVal v)            -> v
-    (LabeledVal lv) -> M.val [ lBsonLabeledValKey M.=:
-              [ lBsonLabelKey M.=: Binary (encode (labelOf lv))
-              , lBsonValueKey M.:= unlabelTCB lv ] ]
-    (PolicyLabeledVal (PL lv)) -> M.val [ lBsonPolicyLabeledValKey M.=:
-              [ lBsonValueKey M.:= unlabelTCB lv ] ]
-    (PolicyLabeledVal (PU _)) -> error "bsonValue2lbsonValue: Invalid use."
-
--- | Convert Bson @Value@ to 'Value'
-fromBsonValue :: (Serialize l, Label l) => M.Value -> Maybe (Value l)
-fromBsonValue mV = do
-  case mV of
-    x@(M.Doc d) ->
-      let haveL = isJust $ M.look lBsonLabeledValKey d
-          havePL = isJust $ M.look lBsonPolicyLabeledValKey d
-      in if haveL || havePL
-           then getLabeled d `orMaybe` getPolicyLabeled d
-           else Just (BsonVal x)
-    x         -> Just (BsonVal x)
-  where getLabeled :: (Serialize l, Label l) => M.Document -> Maybe (Value l)
-        getLabeled d = do
-          (M.Doc lv) <- M.look lBsonLabeledValKey d
-          (Binary b) <- M.lookup lBsonLabelKey lv
-          l <- either (const Nothing) return (decode b)
-          v <- M.look lBsonValueKey lv
-          return . LabeledVal $ labelTCB l v
-        --
-        getPolicyLabeled :: (Serialize l, Label l) => M.Document -> Maybe (Value l)
-        getPolicyLabeled d = do
-          (M.Doc lv) <- M.look lBsonPolicyLabeledValKey d
-          v <- M.look lBsonValueKey lv
-          return . PolicyLabeledVal . PU $ v
-        --
-        orMaybe :: Maybe a -> Maybe a -> Maybe a
-        orMaybe x y = if isJust x then x else y

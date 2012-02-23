@@ -47,6 +47,9 @@ module Hails.Data.LBson.TCB ( -- * UTF-8 String
                             , ObjectId(..)
                             , timestamp
                             , genObjectId
+                            -- * Serializing Value
+                            , toBsonDoc
+                            , fromBsonDoc, fromBsonDocStrict
                             ) where
 
 
@@ -65,18 +68,19 @@ import Data.Bson ( Binary(..)
                  , MinMaxKey(..)
                  , ObjectId(..)
                  , timestamp)
+import Data.Maybe (mapMaybe, maybeToList, isJust)
+import Data.List (find, findIndex)
+import Data.Typeable hiding (cast)
+import Data.CompactString.UTF8 (append, isPrefixOf)
+import Data.Serialize (Serialize, encode, decode)
+
+import Control.Monad.Identity (runIdentity)
 
 import LIO
 import LIO.TCB (labelTCB, unlabelTCB, rtioTCB)
 #if DEBUG
 import LIO.TCB (showTCB)
 #endif
-
-import Data.Maybe (mapMaybe, maybeToList)
-import Data.List (find, findIndex)
-import Data.Typeable hiding (cast)
-
-import Control.Monad.Identity (runIdentity)
 
 --
 -- Document related
@@ -295,3 +299,109 @@ instance (Show a, Label l) => Show (PolicyLabeled l a) where
 -- | Necessary instance that just fails.
 instance Label l => Eq (PolicyLabeled l a) where
   (==) = error "Instance of show for PolicyLabeled not supported"
+
+--
+-- Serializing 'Value's
+--
+
+-- | Convert a 'Document' to a Bson @Document@. It is an error to call
+-- this function with malformed 'Document's (i.e., those for which
+-- a policy has not been applied.
+toBsonDoc :: (Serialize l, Label l) => Document l -> Bson.Document
+toBsonDoc = map (\(k := v) -> (k Bson.:= toBsonValue v)) . exceptInternal
+
+-- | Convert a Bson @Document@ to a 'Document'. This implementation is
+-- relaxed and omits any fields that were not converted. Use the
+-- 'fromBsonDocStrict' for a strict conversion. 
+fromBsonDoc :: (Serialize l, Label l) => Bson.Document -> Document l
+fromBsonDoc d = 
+  let cs' = map (\(k Bson.:= v) -> (k, fromBsonValue v)) d
+      cs  = map (\(k, Just v) -> k := v) $ filter (isJust . snd) cs'
+  in exceptInternal $ cs
+
+-- | Same as 'fromBsonDoc', but fails (returns @Nothing@) if any of
+-- the field  values failed to be serialized.
+fromBsonDocStrict :: (Serialize l, Label l) => Bson.Document -> Maybe (Document l)
+fromBsonDocStrict d = 
+  let cs' = map (\(k Bson.:= v) -> (k, fromBsonValue v)) d
+      cs  = map (\(k, Just v) -> k := v) $ filter (isJust . snd) cs'
+      ok  = all (isJust .snd) cs'
+  in if ok then Just . exceptInternal $ cs else Nothing
+
+
+-- | Remove any fields from the document that have
+-- 'hailsInternalKeyPrefix' as a prefix
+exceptInternal :: Label l => Document l -> Document l
+exceptInternal [] = []
+exceptInternal (f@(k := _):fs) =
+  let rest = exceptInternal fs
+  in if hailsInternalKeyPrefix `isPrefixOf` k
+       then rest
+       else f:rest
+
+-- | This prefix is reserved for HAILS keys. It should not be used by
+-- arbitrary code.
+hailsInternalKeyPrefix :: Bson.Label
+hailsInternalKeyPrefix = u "__hails_internal_"
+
+-- | Serializing a 'Labeled' to a BSON @Document@ with key 
+-- @lBsonLabeledValKey@.
+lBsonLabeledValKey :: Bson.Label
+lBsonLabeledValKey = hailsInternalKeyPrefix `append` u "Labeled"
+
+-- | Serializing a 'PolicyLabeled' to a BSON @Document@ with key 
+-- @lBsonPolicyLabeledValKey@.
+lBsonPolicyLabeledValKey :: Bson.Label
+lBsonPolicyLabeledValKey = hailsInternalKeyPrefix `append` u "PolicyLabeled"
+
+-- | When serializing a 'Labeled' we serialize it to a document
+-- containing the label and value, the key for the label is
+-- @lBsonLabelKey@.
+lBsonLabelKey :: Bson.Label
+lBsonLabelKey = u "label"
+
+-- | When serializing a 'Labeled' (or 'PolicyLabeled') we serialize
+-- it to a document containing the value, the key for the value
+-- is @lBsonValueKey@.
+lBsonValueKey :: Bson.Label
+lBsonValueKey = u "value"
+
+-- | Convert 'Value' to Bson @Value@
+toBsonValue :: (Serialize l, Label l) => Value l -> Bson.Value
+toBsonValue mV = 
+  case mV of 
+    (BsonVal v)            -> v
+    (LabeledVal lv) -> Bson.val [ lBsonLabeledValKey Bson.=:
+              [ lBsonLabelKey Bson.=: Binary (encode (labelOf lv))
+              , lBsonValueKey Bson.:= unlabelTCB lv ] ]
+    (PolicyLabeledVal (PL lv)) -> Bson.val [ lBsonPolicyLabeledValKey Bson.=:
+              [ lBsonValueKey Bson.:= unlabelTCB lv ] ]
+    (PolicyLabeledVal (PU _)) -> error "bsonValue2lbsonValue: Invalid use."
+
+-- | Convert Bson @Value@ to 'Value'
+fromBsonValue :: (Serialize l, Label l) => Bson.Value -> Maybe (Value l)
+fromBsonValue mV = do
+  case mV of
+    x@(Bson.Doc d) ->
+      let haveL = isJust $ Bson.look lBsonLabeledValKey d
+          havePL = isJust $ Bson.look lBsonPolicyLabeledValKey d
+      in if haveL || havePL
+           then getLabeled d `orMaybe` getPolicyLabeled d
+           else Just (BsonVal x)
+    x         -> Just (BsonVal x)
+  where getLabeled :: (Serialize l, Label l) => Bson.Document -> Maybe (Value l)
+        getLabeled d = do
+          (Bson.Doc lv) <- Bson.look lBsonLabeledValKey d
+          (Binary b) <- Bson.lookup lBsonLabelKey lv
+          l <- either (const Nothing) return (decode b)
+          v <- Bson.look lBsonValueKey lv
+          return . LabeledVal $ labelTCB l v
+        --
+        getPolicyLabeled :: (Serialize l, Label l) => Bson.Document -> Maybe (Value l)
+        getPolicyLabeled d = do
+          (Bson.Doc lv) <- Bson.look lBsonPolicyLabeledValKey d
+          v <- Bson.look lBsonValueKey lv
+          return . PolicyLabeledVal . PU $ v
+        --
+        orMaybe :: Maybe a -> Maybe a -> Maybe a
+        orMaybe x y = if isJust x then x else y
