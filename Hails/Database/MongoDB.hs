@@ -11,7 +11,6 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , collection, collectionP
                               , DatabaseName
                               , Database
-                              , database, databaseP
                               , assocCollection, assocCollectionP
                               , RawPolicy(..)
                               , PolicyError(..)
