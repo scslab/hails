@@ -38,7 +38,7 @@ httpApp lrh = mkInumM $ do
       liftLIO $ taint $ newDC (<>) (<>)
       let l = newDC user (<>)
       liftLIO $ lowerClr l
-      let pathPrefix = takeWhile (/= '/') $ dropWhile (== '/') $ S.unpack $ reqPath req
+      let pathPrefix = takeWhile (/= '.') $ S.unpack $ reqHost req
       let privilege = createPrivTCB $ newPriv pathPrefix
       let resultReq = req {
         reqHeaders = replace ((== "authorization") . fst) ("authorization", S.pack user) $
