@@ -35,6 +35,7 @@ httpApp lrh = mkInumM $ do
   req <- httpReqI
   case userFromAuthCode (fmap (S.drop 6) $ Prelude.lookup "authorization" (reqHeaders req)) of
     Just user -> do
+      liftLIO $ taint $ newDC (<>) (<>)
       let l = newDC user (<>)
       liftLIO $ lowerClr l
       let pathPrefix = takeWhile (/= '/') $ dropWhile (== '/') $ S.unpack $ reqPath req
@@ -56,7 +57,8 @@ httpApp lrh = mkInumM $ do
         Nothing
 
 secureHttpServer :: PortNumber -> (DCPrivTCB -> HttpRequestHandler DC ()) -> TCPServer L.ByteString DC
-secureHttpServer port lrh = TCPServer port (httpApp lrh) dcServerAcceptor (\m -> fmap fst $ evalDC m)
+secureHttpServer port lrh = TCPServer port (httpApp lrh) dcServerAcceptor
+  (\m -> fmap fst $ evalDC m)
 
 dcServerAcceptor :: Net.Socket -> DC (Iter L.ByteString DC (), Onum L.ByteString DC ())
 dcServerAcceptor sock = do
