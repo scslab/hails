@@ -2,23 +2,26 @@
 
 module Hails.Database where
 
-import LIO
+import LIO.MonadCatch
+import LIO.DCLabel
 import Data.String.Utils
 import Hails.Utils.TCB
-import Hails.Database.MongoDB (Action)
+import Hails.Database.MongoDB (DCAction)
+import Hails.Database.MongoDB.TCB.Types
+import Hails.Database.MongoDB.TCB.DCAccess (dcAccess)
+import Database.MongoDB.Query (Failure)
+import qualified Data.UString as U
 import System.Environment
 import System.IO.Unsafe
 
-confLineToDBPair :: LabelState l p s
-                 => String
-                 -> IO (String, (Action l p s a -> Action l p s a))
+confLineToDBPair :: String
+                 -> IO (String, DC (Database DCLabel))
 confLineToDBPair line = do
-  let (name:policyMod:file:[]) = split ":" line
-  db <- loadDatabase name policyMod file
-  return (name, db)
+  let (petName:dbName:policyMod:file:[]) = split ":" line
+  db <- loadDatabase petName (U.pack dbName) policyMod file
+  return (petName, db)
 
-databases :: LabelState l p s
-          => [(String, (Action l p s a -> Action l p s a))]
+databases :: [(String, DC (Database DCLabel))]
 databases = unsafePerformIO $ do
   env <- getEnvironment
   let configFile = maybe "/etc/share/hails/conf/databases.conf" id
@@ -27,9 +30,13 @@ databases = unsafePerformIO $ do
   mapM confLineToDBPair $ filter ((> 0) . length) confLines
 
 
-withExternalDB :: LabelState l p s
-               => String
-               -> (Action l p s a -> Action l p s a)
-withExternalDB name = let (Just result) = lookup name databases
-  in result
+withDB :: String
+       -> DCAction a
+       -> DC (Either Failure a)
+withDB dbName act = do
+  case lookup dbName databases of
+    Just db' -> do
+      db <- db'
+      dcAccess db act
+    Nothing -> throwIO NoSuchDatabase
 

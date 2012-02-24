@@ -9,6 +9,7 @@ import qualified Data.Bson as Bson
 import Hails.Database.MongoDB
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Access
+import Database.MongoDB.Query (Failure)
 import Database.MongoDB ( runIOE 
                         , connect
                         , host

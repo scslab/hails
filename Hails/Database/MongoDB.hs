@@ -17,6 +17,10 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , Action, getDatabase
                               , Query(..)
                               , Cursor
+                              , DBConf(..)
+                              , DCAction
+                              , dcAccess
+                              , labelDatabase
                               -- * Query
                               , insert, insert_, insertP, insertP_
                               , defaultQuery
@@ -29,5 +33,6 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
 import Hails.Database.MongoDB.TCB.Access
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Query
+import Hails.Database.MongoDB.TCB.DCAccess
 import Hails.Data.LBson
 import Database.MongoDB.Query (Failure)

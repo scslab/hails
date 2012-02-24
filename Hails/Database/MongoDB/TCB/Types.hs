@@ -22,6 +22,7 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                           -- * Policies
                                         , RawPolicy(..)
                                         , PolicyError(..)
+                                        , NoSuchDatabaseError(..)
                                           -- * Monad
                                         , UnsafeLIO(..)
                                         , LIOAction(..)
@@ -271,6 +272,14 @@ instance Show PolicyError where
                                 "Expected \'PolicyLabeled\' type"
 
 instance E.Exception PolicyError
+
+data NoSuchDatabaseError = NoSuchDatabase
+  deriving (Typeable)
+
+instance Show NoSuchDatabaseError where
+  show NoSuchDatabase = "NoSuchDatabase: No such database exists"
+
+instance E.Exception (NoSuchDatabaseError)
 
 --
 -- Monad
