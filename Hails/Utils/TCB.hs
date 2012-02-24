@@ -20,7 +20,7 @@ loadDatabase privName dbName policyMod policyFile =
     let policyPriv = createPrivTCB $ newPriv privName
     let dbConf = DBConf dbName policyPriv
     dflags <- getSessionDynFlags
-    _ <- setSessionDynFlags $ dflags-- { safeHaskell = Sf_Safe }
+    _ <- setSessionDynFlags $ dflags { safeHaskell = Sf_Safe }
     let target = Target (TargetFile policyFile Nothing) False Nothing
     addTarget target
     r <- load LoadAllTargets
