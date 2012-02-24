@@ -36,6 +36,8 @@ data DBConf = DBConf { dbConfName :: DatabaseName
 
 type DCAction = Action DCLabel DCPrivTCB ()
 
+-- | Open a pipe to a supplied server, or @localhost@.
+-- TODO: add support for connecting to replicas.
 dcAccess :: Database DCLabel
          -> DCAction a
          -> DC (Either Failure a)
