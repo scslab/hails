@@ -13,7 +13,6 @@ import Database.MongoDB.Query (Failure)
 import Database.MongoDB ( runIOE
                         , connect
                         , host
-                        , close
                         , master
                         , slaveOk
                         , GetLastError
@@ -27,8 +26,6 @@ import qualified Data.Map as Map
 import qualified Data.List as List
 
 import Text.Parsec
-import Text.Parsec.Char
-import Text.Parsec.String
 
 -- | Database configuration, used to invoke @withDB@
 data DBConf = DBConf { dbConfName :: DatabaseName
@@ -57,10 +54,10 @@ labelDatabase :: DBConf  -- ^ Database configuratoin
               -> DCLabel -- ^ Database label
               -> DC (Database DCLabel)
 labelDatabase conf lcoll lacc = do
-  let name = dbConfName conf
+  let dbName = dbConfName conf
       p    = dbConfPriv conf
   initColl <- labelP p lcoll Map.empty
-  databaseP p name lacc initColl
+  databaseP p dbName lacc initColl
 
 --
 -- Parser for getLastError
@@ -91,9 +88,9 @@ parseMode "unconfirmedWrites" = UnconfirmedWrites
 parseMode xs = case parse wParser "" xs of
                  Right le -> ConfirmWrites le
                  Left _ -> master
-  where wParser = do string "confirmWrites" 
+  where wParser = do _ <- string "confirmWrites" 
                      spaces
-                     char ':'
+                     _ <- char ':'
                      spaces
                      gle_opts
 
@@ -112,9 +109,9 @@ gle_opt_journal :: Stream s m Char => ParsecT s u m GetLastError
 gle_opt_journal = string "journal" >> return [ (u "j") Bson.=: True ]
 
 gle_opt_write :: Stream s m Char => ParsecT s u m GetLastError
-gle_opt_write   = do string "write"
+gle_opt_write   = do _ <- string "write"
                      spaces
-                     char '='
+                     _ <- char '='
                      spaces
                      dgt <- many1 digit
                      return [ (u "w") Bson.=: (read dgt :: Integer) ]

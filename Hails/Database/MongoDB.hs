@@ -31,7 +31,6 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , Failure
                               ) where
 
-import Hails.Database.MongoDB.TCB.Access
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Query
 import Hails.Database.MongoDB.TCB.DCAccess
