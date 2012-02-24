@@ -7,6 +7,7 @@
 module Hails.Database.MongoDB.TCB.Query ( Insert(..)
                                         , defaultQuery
                                         , findP
+                                        , findOneP
                                         , next, nextP
                                         ) where
 
@@ -171,6 +172,12 @@ findP p' q = do
   return $ Cursor { curLabel  = (colLabel col) `lub` (dbLabel db)
                   , curIntern = cur 
                   , curPolicy = col }
+
+-- | Fetch the first document satisfying query, or @Nothing@ if not
+-- documents matched the query.
+findOneP :: (LabelState l p s, Serialize l)
+         => p -> Query -> Action l p s (Maybe (LabeledDocument l))
+findOneP p q = findP p q >>= next
 
 -- | Return next document in query result, or @Nothing@ if finished.
 -- The current label is raised to join of the current label and
