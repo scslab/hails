@@ -67,7 +67,9 @@ applyRawFieldPoliciesP :: (LabelState l p s)
 applyRawFieldPoliciesP p col doc = forM doc $ \field@(k := v) ->
   case v of
     (PolicyLabeledVal _) -> applyRawFieldPolicyP p col doc k
-    _                    -> return field
+    _   -> if k `elem` ((map fst) . rawFieldPolicies .  colPolicy $ col)
+             then throwIO InvalidFieldPolicyType
+             else return field
 
 -- | Apply a raw field/column policy to all the fields of type
 -- 'PolicyLabeled', and then apply the raw document/row policy. It
