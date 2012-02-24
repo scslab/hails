@@ -256,14 +256,19 @@ data RawPolicy l = RawPolicy {
 data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
                  | InvalidPolicy   -- ^ Policy application invalid
                  | NoColPolicy     -- ^ Policy for Collection not specified
+                 | InvalidFieldPolicyType
+                 -- ^ Field with associated policy is not of 'PolicyLabeled' type
+                 -- Policy has been violated
                  | PolicyViolation -- ^ Policy has been violated
   deriving (Typeable)
 
 instance Show PolicyError where
-  show NoFieldPolicy    = "NoFieldPolicy: Field policy not found"
-  show NoColPolicy      = "NoColPolicy: Collection policy not found"
-  show InvalidPolicy    = "InvalidPolicy: Invalid policy application"
-  show PolicyViolation  = "PolicyViolation: Policy has been violated"
+  show NoFieldPolicy          = "NoFieldPolicy: Field policy not found"
+  show NoColPolicy            = "NoColPolicy: Collection policy not found"
+  show InvalidPolicy          = "InvalidPolicy: Invalid policy application"
+  show PolicyViolation        = "PolicyViolation: Policy has been violated"
+  show InvalidFieldPolicyType = "InvalidFieldPolicyType: " ++
+                                "Expected \'PolicyLabeled\' type"
 
 instance E.Exception PolicyError
 
