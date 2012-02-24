@@ -28,7 +28,7 @@ Library
                  iterIO >= 0.2.1 && < 0.3,
                  iterio-server >= 0.2 && < 0.3,
                  dclabel >= 0.0.4 && < 0.1,
-                 mongoDB >= 1.1.2 && < 1.3,
+                 mongoDB >= 1.2.0 && < 1.3,
                  transformers-base >= 0.4.1 && < 0.5,
                  monad-control >= 0.3.1 && < 0.4,
                  bson >= 0.1 && < 0.2,
