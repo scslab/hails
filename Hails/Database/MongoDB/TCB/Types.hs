@@ -21,6 +21,8 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , assocCollectionTCB 
                                           -- * Policies
                                         , RawPolicy(..)
+                                        , FieldPolicy(..)
+                                        , isSearchableField
                                         , PolicyError(..)
                                         , NoSuchDatabaseError(..)
                                           -- * Monad
@@ -243,10 +245,22 @@ assocCollectionTCB (Collection n cp) db = do
 data RawPolicy l = RawPolicy {
       rawDocPolicy     :: Document l -> l
     -- ^ A row (document) policy is a function from a 'Document' to a 'Label'.
-    , rawFieldPolicies :: [(Key, Document l -> l)]
+    , rawFieldPolicies :: [(Key, FieldPolicy l)]
     -- ^ A column (field) policy is a function from a 'Document' to a
     -- 'Label', for each field of type 'PolicyLabeled'.
   }
+
+-- | A @FieldPolicy@ specifies the policy-generated label of
+-- a field. @SearchabelField@ specifies that the field can be
+-- referenced in the selection clause of a @Query@, and therefore
+-- the document label does not apply to it.
+data FieldPolicy l = SearchableField
+                   | FieldPolicy (Document l -> l)
+
+-- | Returns True if the policy is for a searchable field
+isSearchableField :: FieldPolicy l -> Bool
+isSearchableField SearchableField = True
+isSearchableField _ = False
 
 --
 -- Exceptions
