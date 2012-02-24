@@ -42,20 +42,27 @@ applyRawFieldPolicyP :: (LabelState l p s)
                      -> LIO l p s (Field l)
 applyRawFieldPolicyP p col doc k = do
   let policies = rawFieldPolicies . colPolicy $ col
-  -- Get the 'PolicyLabeled' value corresponding to k:
-  plv <- getPolicyLabeledVal
   -- Find policy corresponding to key k:
   f <- maybe (throwIO NoFieldPolicy) return $ List.lookup k policies
-  -- Apply policy, or check matching labels:
-  lv <- case plv of
-         (PU v)  -> labelP p (f doc) v
-         (PL lv) -> do unless (labelOf lv == f doc) $ throwIO PolicyViolation
-                       return lv
-  -- Return new field, with policy applied value
-  return (k := (PolicyLabeledVal . PL $ lv))
-    where getPolicyLabeledVal = case look k doc of
-            (Just (PolicyLabeledVal x)) -> return  x
-            _                           -> throwIO InvalidPolicy
+  -- Ensure field is not searchable
+  if isSearchableField f then
+    throwIO InvalidPolicy
+    else do
+    let (FieldPolicy fp) = f
+    -- Get the 'PolicyLabeled' value corresponding to k:
+    plv <- getPolicyLabeledVal
+    -- Apply policy, or check matching labels:
+    lv <- case plv of
+           (PU v)  -> labelP p (fp doc) v
+           (PL lv) -> do unless (labelOf lv == fp doc) $
+                           throwIO PolicyViolation
+                         return lv
+    -- Return new field, with policy applied value
+    return (k := (PolicyLabeledVal . PL $ lv))
+      where getPolicyLabeledVal = case look k doc of
+              (Just (PolicyLabeledVal x)) -> return  x
+              _                           -> throwIO InvalidPolicy
+-- | Return True if the field
 
 -- | Apply a raw field/column policy to all the fields of type
 -- 'PolicyLabeled'.
@@ -67,9 +74,9 @@ applyRawFieldPoliciesP :: (LabelState l p s)
 applyRawFieldPoliciesP p col doc = forM doc $ \field@(k := v) ->
   case v of
     (PolicyLabeledVal _) -> applyRawFieldPolicyP p col doc k
-    _   -> if k `elem` ((map fst) . rawFieldPolicies .  colPolicy $ col)
-             then throwIO InvalidFieldPolicyType
-             else return field
+    _   -> case List.lookup k (rawFieldPolicies . colPolicy $ col) of
+             Just (FieldPolicy _) -> throwIO InvalidFieldPolicyType
+             _ -> return field
 
 -- | Apply a raw field/column policy to all the fields of type
 -- 'PolicyLabeled', and then apply the raw document/row policy. It

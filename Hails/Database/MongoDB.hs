@@ -13,6 +13,8 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , Database
                               , assocCollection, assocCollectionP
                               , RawPolicy(..)
+                              , FieldPolicy(..)
+                              , isSearchableField
                               , PolicyError(..)
                               , Action, getDatabase
                               , Query(..)
