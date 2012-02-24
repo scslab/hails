@@ -75,12 +75,13 @@ labelDatabase conf lcoll lacc = do
 --
 -- where @options@ can be:
 --
---  > fsync | journal | wait=<N>
+--  > fsync | journal | writes=<N>
 --
 -- separated by \',\', and @N@ is an integer.
 -- Example: 
 --
--- > HAILS_MONGODB_MODE = "confirmWrites wait=3;journal"
+-- > HAILS_MONGODB_MODE = "slaveOk"
+-- > HAILS_MONGODB_MODE = "confirmWrites: writes=3, journal"
 -- > HAILS_MONGODB_MODE = "master"
 --
 parseMode :: String -> AccessMode
