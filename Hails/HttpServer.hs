@@ -5,8 +5,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Hails.HttpServer ( secureHttpServer
-												) where
+module Hails.HttpServer ( secureHttpServer ) where
 
 import Data.ByteString.Base64
 import qualified Data.ByteString.Lazy.Char8 as L
@@ -30,7 +29,8 @@ replace f a (x:xs) | f x = a:(replace f a xs)
                  | otherwise = x:(replace f a xs)
 replace _ _ [] = []
 
-httpApp :: (DCPrivTCB -> HttpRequestHandler DC ()) -> Inum L.ByteString L.ByteString DC ()
+httpApp :: (DCPrivTCB -> HttpRequestHandler DC ())
+        -> Inum L.ByteString L.ByteString DC ()
 httpApp lrh = mkInumM $ do
   req <- httpReqI
   case userFromAuthCode (fmap (S.drop 6) $ Prelude.lookup "authorization" (reqHeaders req)) of
