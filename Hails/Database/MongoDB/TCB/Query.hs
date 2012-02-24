@@ -173,6 +173,8 @@ findP p' q = do
                   , curIntern = cur 
                   , curPolicy = col }
 
+-- | Fetch the first document satisfying query, or @Nothing@ if not
+-- documents matched the query.
 findOneP :: (LabelState l p s, Serialize l)
          => p -> Query -> Action l p s (Maybe (LabeledDocument l))
 findOneP p q = findP p q >>= next
