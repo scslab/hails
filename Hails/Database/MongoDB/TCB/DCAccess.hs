@@ -1,3 +1,7 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 704
+{-# LANGUAGE Unsafe #-}
+#endif
 {-# LANGUAGE FlexibleContexts #-}
 module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , DCAction
@@ -49,6 +53,7 @@ dcAccess db act = do
 
 -- | The @withDB@ functions should use this function to label
 -- their databases.
+-- TODO (DS/AL(: make every searchable field indexable.
 labelDatabase :: DBConf  -- ^ Database configuratoin
               -> DCLabel -- ^ Label of collection policies
               -> DCLabel -- ^ Database label
