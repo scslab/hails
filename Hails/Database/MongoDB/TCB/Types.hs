@@ -32,8 +32,8 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , liftAction
                                         , getDatabase
                                         -- * Query
-                                        , Query(..)
-                                        , toMongoQuery
+                                        , M.Query(..)
+                                        , M.select
                                         -- * Cursor
                                         , Cursor(..)
                                         ) where
@@ -355,44 +355,14 @@ liftAction :: LabelState l p s => M.Action (UnsafeLIO l p s) a -> Action l p s a
 liftAction = Action . lift . LIOAction
 
 --
--- Query
---
-
--- | Subset of MongoDB's query support. We currently do not allow
--- projections (as policies may depend on fields that are not
--- projected) or selections (i.e., @WHERE@ clauses) as they require
--- policy application to reflect observations when performing
--- comparisons.
-data Query = Query { options :: [QueryOption]
-                   -- ^ Query options, default @[]@
-                   , selCollection :: CollectionName
-                   -- ^ Actual selection
-                   , skip  :: Word32
-                   -- ^ Number of documents to skip, default 0.
-                   , limit :: Limit
-                   -- ^ Max number of documents to return. Default, 0,
-                   -- means no limit.
-                   , batchSize :: BatchSize
-                   -- ^ The number of document to return in each
-                   -- batch response from the server. 0 means
-                   -- Mongo default.
-                   } 
-
--- | Convert a 'Query' to the mongoDB query.
-toMongoQuery :: Query -> M.Query
-toMongoQuery q = (M.select [] (selCollection q)) { M.options = options q
-                                                 , M.skip = skip q
-                                                 , M.limit = limit q
-                                                 , M.batchSize = batchSize q }
-
---
 -- Cursor
 --
 
 -- | A labeled cursor. The cursor is labeled with the join of the
 -- database and collection it reads from.
-data Cursor l = Cursor { curLabel  :: l                  -- ^ Cursorlabel
-                       , curIntern :: M.Cursor           -- ^ Actual cursor
-                       , curPolicy :: CollectionPolicy l -- ^ Collection policy
+data Cursor l = Cursor { curLabel   :: l                  -- ^ Cursorlabel
+                       , curIntern  :: M.Cursor           -- ^ Actual cursor
+                       , curProject :: M.Projector        -- ^ Projector from query
+                       , curPolicy  :: CollectionPolicy l -- ^ Collection policy
                        } 
 
