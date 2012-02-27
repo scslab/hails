@@ -3,13 +3,14 @@ import Hails.TCB.Load
 import Hails.HttpServer
 
 import Data.IterIO.Server.TCPServer
+import Data.Functor ((<$>))
+import Data.Maybe (listToMaybe)
 
 import System.Environment
 import System.Console.GetOpt
 import System.IO (stderr, hPutStrLn)
 import System.Exit
 
-import Control.Exception
 import Control.Monad (when)
 
 
@@ -18,7 +19,10 @@ version = "0.0"
 
 about :: String -> String -> String
 about prog ver = "About: " ++ prog ++ " " ++ ver ++
-  " \n Simple tool for launching HAILS apps."
+  " \n Simple tool for launching HAILS apps. \
+  \ By default, " ++ prog ++ " uses the environment \
+  \ variables APP_NAME and PORT. Use the command-line \
+  \ arguments to override."
 
 --
 --
@@ -27,7 +31,8 @@ about prog ver = "About: " ++ prog ++ " " ++ ver ++
 main :: IO ()
 main = do
   args <- getArgs
-  opts <- parseHailsOpts args
+  env  <- getEnvironment
+  opts <- hailsOpts args env
   when (optAbout opts) $ printAbout
   let appName = optName opts
       port = optPort opts
@@ -52,24 +57,19 @@ printAbout = do
 data Options = Options 
    { optName   :: String  -- ^ App name
    , optPort   :: Integer -- ^ App port number
-   , optUseEnv :: Bool    -- ^ Use environment for config
    , optAbout  :: Bool    -- ^ About this program
    }
 
 defaultOpts :: Options
 defaultOpts = Options { optName   = "App"
                       , optPort   = 8080
-                      , optUseEnv = False 
                       , optAbout  = False }
 
 options :: [ OptDescr (Options -> Options) ]
 options = 
-  [ Option ['E'] ["env","environment"]
-      (NoArg (\o -> o { optUseEnv = True }))
-      "Use environment for configuration"
-  , Option ['s'] ["start"]
-      (ReqArg (\n o -> o { optName = n }) "NAME")
-      "Start application NAME"
+  [ Option ['s'] ["start"]
+      (ReqArg (\n o -> o { optName = n }) "APP_NAME")
+      "Start application APP_NAME"
   , Option ['p'] ["port"]
       (ReqArg (\p o -> o { optPort = read p }) "PORT")
       "Application PORT"
@@ -78,10 +78,11 @@ options =
         "about this program"
   ]
 
-hailsOpts :: [String] -> IO Options
-hailsOpts args = do
+hailsOpts :: [String] -> [(String, String)] -> IO Options
+hailsOpts args env = do
+  let opts = envOpts defaultOpts env
   case getOpt Permute options args of
-    (o,[], []) -> return $ foldl (flip id) defaultOpts o
+    (o,[], []) -> return $ foldl (flip id) opts o
     (_,_,errs) -> do prog <- getProgName
                      hPutStrLn stderr $ concat errs ++
                                         usageInfo (header prog) options
@@ -89,17 +90,15 @@ hailsOpts args = do
     where header prog = "Usage: " ++ prog ++ "[OPTION...]"
 
 
-parseHailsOpts :: [String] -> IO Options
-parseHailsOpts args = do
-  opts <- hailsOpts args
-  if optUseEnv opts && (not $ optAbout opts)
-    then do n <- getEnv "HAILS_APP_NAME"
-            p <- getEnv' "HAILS_PORT"
-            return $ opts { optName = n, optPort = p } 
-    else return opts
-  where getEnv' n = handle (\(e::SomeException) ->
-             throwIO . userError $ "Reading \'" ++ n ++ "\' failed: " ++ show e
-         ) $ getEnv n >>= readIO
+envOpts :: Options -> [(String, String)] -> Options
+envOpts opts env = 
+  opts { optName = maybe (optName opts) id (fromEnv "APP_NAME")
+       , optPort = maybe (optPort opts) id (readFromEnv "PORT")
+       }
+    where fromEnv n = lookup n env
+          readFromEnv n = lookup n env >>= mRead
+          mRead :: Read a => String -> Maybe a
+          mRead s = fst <$> (listToMaybe $ reads s)
 
 
 
