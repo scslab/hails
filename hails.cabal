@@ -14,7 +14,7 @@ Description:
         This module exports a libraries necessary for building HAILS applications.
 
 Executable hails
-  Main-is: Hails.hs
+  Main-is: hails.hs
   ghc-options: -package ghc -Wall -fno-warn-orphans
 
 Library
@@ -24,7 +24,7 @@ Library
                  bytestring >= 0.9 && < 1,
                  containers >= 0.4.2 && < 0.5,
                  ghc-paths >= 0.1 && < 0.2,
-                 lio >= 0.1.2 && < 0.2,
+                 lio >= 0.1.3 && < 0.2,
                  iterIO >= 0.2.1 && < 0.3,
                  iterio-server >= 0.2 && < 0.3,
                  dclabel >= 0.0.4 && < 0.1,
