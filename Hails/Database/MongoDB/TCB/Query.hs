@@ -146,8 +146,8 @@ instance Label l => Insert l (Labeled l (Document l)) where
 
 validateSearchableClause :: M.Document -> CollectionPolicy l -> Bool
 validateSearchableClause doc policy = and (map isSearchable doc)
-  where isSearchable (key M.:= value) =
-          case lookup key fieldPolicies of
+  where isSearchable (k M.:= _) =
+          case lookup k fieldPolicies of
             Just SearchableField -> True
             _ -> False
         fieldPolicies = rawFieldPolicies . colPolicy $ policy

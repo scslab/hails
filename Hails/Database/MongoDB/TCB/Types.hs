@@ -32,10 +32,15 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , liftAction
                                         , getDatabase
                                         -- * Query
-                                        , M.Query(..)
-                                        , M.select
+                                        , Query(..)
+                                        , QueryOption(..)
+                                        , Limit
+                                        , BatchSize
+                                        , select
                                         -- * Cursor
                                         , Cursor(..)
+                                        -- * Misc
+                                        , Failure
                                         ) where
 
 import LIO
@@ -46,16 +51,18 @@ import LIO.TCB ( LIO(..)
                , rtioTCB )
 
 import qualified Database.MongoDB as M
-import Database.MongoDB ( QueryOption(..)
+import Database.MongoDB ( Query(..)
+                        , QueryOption(..)
                         , Limit
                         , BatchSize
+                        , select 
+                        , Failure
                         )
 
 import Hails.Data.LBson.TCB
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Typeable
-import Data.Word (Word32)
 
 import Control.Applicative (Applicative)
 import Control.Monad.Error hiding (liftIO)
