@@ -5,7 +5,6 @@
 {-# LANGUAGE MultiParamTypeClasses, FlexibleInstances #-}
 
 module Hails.Database.MongoDB.TCB.Query ( Insert(..)
-                                        , defaultQuery
                                         , findP
                                         , findOneP
                                         , next, nextP
@@ -145,17 +144,17 @@ instance Label l => Insert l (Labeled l (Document l)) where
                                 (labelOf ldoc) (E.toException PolicyViolation)
 
 
+validateSearchableClause :: M.Document -> CollectionPolicy l -> Bool
+validateSearchableClause doc policy = and (map isSearchable doc)
+  where isSearchable (key M.:= value) =
+          case lookup key fieldPolicies of
+            Just SearchableField -> True
+            _ -> False
+        fieldPolicies = rawFieldPolicies . colPolicy $ policy
+
 --
 -- Read
 --
-
--- | Create a basic query
-defaultQuery :: CollectionName -> Query
-defaultQuery cn = Query { options = []
-                        , selCollection = cn
-                        , skip = 0
-                        , limit = 0
-                        , batchSize = 0 }
 
 -- | Fetch documents satisfying query. A labeled 'Cursor' is returned,
 -- which can be used to retrieve the actual 'Document's.
@@ -163,21 +162,27 @@ findP :: (LabelState l p s)
     => p -> Query -> Action l p s (Cursor l)
 findP p' q = do
   db <- getDatabase
-  let colName = selCollection q
+  let slct = selection $ q
+  let colName = M.coll slct
   col <- liftLIO $  withCombinedPrivs p' $ \p -> do
     -- Check that we can read collection names associated with database:
     colMap <- unlabelP p $ dbColPolicies db
     maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
-  cur <- liftAction $ M.useDb (dbIntern db) $ M.find (toMongoQuery q)
+  unless ((validateSearchableClause (M.selector slct) col) &&
+          (validateSearchableClause (M.sort q) col) &&
+          (validateSearchableClause (M.hint q) col)) $
+            liftIO $ throwIO InvalidFieldPolicyType
+  cur <- liftAction $ M.useDb (dbIntern db) $ M.find (q {project = []})
   return $ Cursor { curLabel  = (colLabel col) `lub` (dbLabel db)
                   , curIntern = cur 
+                  , curProject = project q
                   , curPolicy = col }
 
 -- | Fetch the first document satisfying query, or @Nothing@ if not
 -- documents matched the query.
 findOneP :: (LabelState l p s, Serialize l)
          => p -> Query -> Action l p s (Maybe (LabeledDocument l))
-findOneP p q = findP p q >>= next
+findOneP p q = findP p q >>= nextP p
 
 -- | Return next document in query result, or @Nothing@ if finished.
 -- The current label is raised to join of the current label and
@@ -199,5 +204,16 @@ nextP p' cur = do
   md <- fromBsonDoc' <$> (liftAction $ M.next (curIntern cur))
   case md of
     Nothing -> return Nothing
-    Just d -> Just <$> (liftLIO $ applyRawPolicyTCB (curPolicy cur) d)
+    Just d -> Just <$> (liftLIO $ (fmap) applyProjection
+                                $ applyRawPolicyTCB (curPolicy cur) d)
     where fromBsonDoc' = maybe Nothing fromBsonDocStrict
+          applyProjection doc = if (length $ curProject cur) == 0
+            then doc
+            else
+              let unsafeDoc = unlabelTCB doc
+              in labelTCB (labelOf doc) $
+                filter inProjection unsafeDoc
+          inProjection (k := _) = case M.look k $ curProject cur of
+            Just (M.Int32 1) -> True
+            _ -> False
+
