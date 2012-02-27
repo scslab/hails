@@ -24,7 +24,6 @@ import Hails.Data.LBson.TCB hiding (lookup)
 import qualified Database.MongoDB as M
 
 import Control.Monad.Reader hiding (liftIO)
-import qualified Control.Exception as E
 
 --
 -- Write 
