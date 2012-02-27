@@ -5,7 +5,8 @@
 {-# LANGUAGE DeriveFunctor,
              GeneralizedNewtypeDeriving #-}
              
-module Hails.TCB.Types ( AppConf(..)
+module Hails.TCB.Types ( AppName
+                       , AppConf(..)
                        , AppReqHandler
                        , AppRoute
                        ) where
