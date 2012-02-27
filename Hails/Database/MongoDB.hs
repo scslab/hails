@@ -25,7 +25,6 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , labelDatabase
                               -- * Query
                               , insert, insert_, insertP, insertP_
-                              , defaultQuery
                               , findP
                               , findOneP
                               , next, nextP
@@ -36,7 +35,5 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Query
 import Hails.Database.MongoDB.TCB.DCAccess
-import Hails.Data.LBson
-import Database.MongoDB.Query (Failure)
-
+import Hails.Data.LBson hiding (sort)
 
