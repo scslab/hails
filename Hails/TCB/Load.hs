@@ -1,20 +1,23 @@
+{-# LANGUAGE CPP #-}
+#if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE Unsafe #-}
+#endif
 
-module Hails.Utils.TCB ( loadDatabase
-                       , loadApp 
-                       ) where
+module Hails.TCB.Load ( loadDatabase
+                      , loadApp 
+                      ) where
 
 import GHC
 import GHC.Paths
 import DynFlags
 import Unsafe.Coerce
 
-import Data.IterIO.Http
 import LIO.DCLabel
 import DCLabel.Core
 
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.DCAccess
+import Hails.TCB.Types ( AppName, AppReqHandler )
 
 -- | Given a principal corresponding to the databaes owner, a database
 -- name, a policy module name, and  filepath to the database config file
@@ -41,7 +44,8 @@ loadDatabase dbPrincipal dbName policyMod policyFile =
         return $ value dbConf
 
 
-loadApp :: String -> IO (DCPrivTCB -> HttpRequestHandler DC ())
+-- | Given an application name, return the corresponding computation.
+loadApp :: AppName -> IO AppReqHandler
 loadApp appName = runGhc (Just libdir) $ do
   dflags <- getSessionDynFlags
   _ <- setSessionDynFlags $ dflags { safeHaskell = Sf_Safe }
@@ -53,5 +57,4 @@ loadApp appName = runGhc (Just libdir) $ do
     Succeeded -> do
       setContext [IIDecl $ simpleImportDecl (mkModuleName appName)]
       value <- compileExpr (appName ++ ".server") 
-      return $ ((unsafeCoerce value) :: DCPrivTCB -> HttpRequestHandler DC ())
-
+      return . unsafeCoerce $ value

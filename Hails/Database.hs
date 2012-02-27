@@ -5,7 +5,7 @@ module Hails.Database ( withDB, databases ) where
 import LIO.MonadCatch
 import LIO.DCLabel
 import Data.String.Utils
-import Hails.Utils.TCB
+import Hails.TCB.Load ( loadDatabase )
 import Hails.Database.MongoDB (DCAction)
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.DCAccess (dcAccess)
