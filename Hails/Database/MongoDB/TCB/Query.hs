@@ -92,58 +92,8 @@ instance Label l => Insert l (Document l) where
                 _               -> return ()
               guardLabeledVals ds c
 
-instance Label l => Insert l (Labeled l (Document l)) where
-  insertP p' colName ldoc = do
-    db <- getDatabase
-    liftLIO $ withCombinedPrivs p' $ \p -> do
-      -- Check that we can read collection names associated with database:
-      colMap <- unlabelP p $ dbColPolicies db
-      col <- maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
-      -- Check that we can write to database:
-      wguardP p (dbLabel db)
-      -- Check that we can write to collection:
-      wguardP p (colLabel col)
-      -- Check that the labels of all labeled values are below
-      -- clearance, check that 'PolicyLabeled' values match, and check that
-      -- the label of the document is policy-generated and below clearance:
-      guardAll col
-    let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
-    liftAction $ M.useDb (dbIntern db) $ M.insert colName bsonDoc
-      where doc = unlabelTCB ldoc
-            --
-            guardAll col = do
-              -- Apply policy to document:
-              ldoc' <- applyRawPolicyTCB col doc
-              -- Check that document labels match:
-              unless (labelOf ldoc' == labelOf ldoc) $ throwIO PolicyViolation
-              -- Check that the document label is below collection clerance:
-              unless (labelOf ldoc `leq` colClear col) $ throwIO LerrClearance
-              -- Check that fields match and are below collection clearance.
-              -- Fields are protected by document label, so if an
-              -- exception is thrown it should have this label.
-              guardFields (unlabelTCB ldoc') doc
-            --
-            guardFields []               []               = return ()
-            guardFields ((k0 := v0):ds0) ((k1 := v1):ds1) = do
-              unless (k0 == k1 && v0 `eq` v1) $ throwViolation
-              guardFields ds0 ds1
-            guardFields _                _                = throwViolation
-            --
-            eq (BsonVal v1)           (BsonVal v2)           = v1 == v2
-            eq (LabeledVal lv1)       (LabeledVal lv2)       = lv1 `eqL` lv2
-            eq (PolicyLabeledVal lv1) (PolicyLabeledVal lv2) = lv1 `eqPL` lv2
-            eq _                      _                      = False
-            --
-            eqL lv1 lv2 = (labelOf lv1 == labelOf lv2) &&
-                          (unlabelTCB lv1 == unlabelTCB lv2)
-            --
-            eqPL (PL lv1) (PL lv2) = lv1 `eqL` lv2
-            eqPL _        _        = False
-            --
-            throwViolation = ioTCB $ E.throwIO $ LabeledExceptionTCB
-                                (labelOf ldoc) (E.toException PolicyViolation)
-
-
+-- | Returns true if the clause contains only searchable fields from
+-- the collection policy
 validateSearchableClause :: M.Document -> CollectionPolicy l -> Bool
 validateSearchableClause doc policy = and (map isSearchable doc)
   where isSearchable (k M.:= _) =
