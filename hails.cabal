@@ -42,7 +42,7 @@ Library
                  unix >= 2.5 && < 3,
                  MissingH >= 1.1.1 && < 2
 
-  ghc-options: -Wall  -package ghc -fno-warn-orphans
+  ghc-options: -Wall -Werror -package ghc -fno-warn-orphans
 
   Exposed-modules:
     Hails.Data.LBson
