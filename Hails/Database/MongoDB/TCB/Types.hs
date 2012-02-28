@@ -23,6 +23,7 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , RawPolicy(..)
                                         , FieldPolicy(..)
                                         , isSearchableField
+                                        , searchableFields
                                         , PolicyError(..)
                                         , NoSuchDatabaseError(..)
                                           -- * Monad
@@ -269,6 +270,13 @@ isSearchableField :: FieldPolicy l -> Bool
 isSearchableField SearchableField = True
 isSearchableField _ = False
 
+-- | Returns a list of the @SearchableField@s speicified in a
+-- @RawPolicy@
+searchableFields :: RawPolicy l -> [Key]
+searchableFields policy = map fst $
+  filter (\(_, f) -> isSearchableField f) fields
+  where fields = rawFieldPolicies policy
+
 --
 -- Exceptions
 --
@@ -281,6 +289,7 @@ data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
                  | InvalidFieldPolicyType
                  -- ^ Field with associated policy is not of 'PolicyLabeled' type
                  -- Policy has been violated
+                 | InvalidSearchableType
                  | PolicyViolation -- ^ Policy has been violated
   deriving (Typeable)
 
@@ -291,6 +300,8 @@ instance Show PolicyError where
   show PolicyViolation        = "PolicyViolation: Policy has been violated"
   show InvalidFieldPolicyType = "InvalidFieldPolicyType: " ++
                                 "Expected \'PolicyLabeled\' type"
+  show InvalidSearchableType  = "InvalidSearchableType: Searchable" ++
+                                "fields cannot contain labeled values"
 
 instance E.Exception PolicyError
 
