@@ -48,7 +48,7 @@ Library
     Hails.Data.LBson
     Hails.Data.LBson.Safe
     Hails.Data.LBson.TCB
---    Hails.Network.HTTP
+    Hails.Network.HTTP
     Hails.App
     Hails.HttpServer
     Hails.IterIO.Conversions
