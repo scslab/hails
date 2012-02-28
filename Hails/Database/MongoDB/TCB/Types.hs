@@ -287,9 +287,9 @@ data PolicyError = NoFieldPolicy   -- ^ Policy for field not specified
                  | InvalidPolicy   -- ^ Policy application invalid
                  | NoColPolicy     -- ^ Policy for Collection not specified
                  | InvalidFieldPolicyType
-                 -- ^ Field with associated policy is not of 'PolicyLabeled' type
-                 -- Policy has been violated
+                 -- ^ Field with associated policy is not of PolicyLabeled type
                  | InvalidSearchableType
+                 -- ^ Searchable fields cannot contain labeled values
                  | PolicyViolation -- ^ Policy has been violated
   deriving (Typeable)
 
