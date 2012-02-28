@@ -82,10 +82,9 @@ instance Label l => Insert l (Document l) where
               -- Check that SearchableFields are not set to labeled
               -- values:
               let srchbls = searchableFields . colPolicy $ col
-              mapM (\(k := v) -> case v of
-                    (LabeledVal _) -> when (k `elem` srchbls) $
-                                        throwIO InvalidSearchableType
-                    _ -> return ()) (unlabelTCB ldoc)
+              forM_ (unlabelTCB ldoc)$ \(k := v) -> case v of
+                (BsonVal _) -> return ()
+                _ -> when (k `elem` srchbls) $ throwIO InvalidSearchableType
               -- Policies applied & labels are below clearance:
               return ldoc
     let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
