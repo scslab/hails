@@ -94,12 +94,14 @@ instance Label l => Insert l (Document l) where
 -- | Returns true if the clause contains only searchable fields from
 -- the collection policy
 validateSearchableClause :: M.Document -> CollectionPolicy l -> Bool
-validateSearchableClause doc policy = and (map isSearchable doc)
+validateSearchableClause doc policy = and (map isSearchable cleanDoc)
   where isSearchable (k M.:= _) =
           case lookup k fieldPolicies of
             Just SearchableField -> True
             _ -> False
         fieldPolicies = rawFieldPolicies . colPolicy $ policy
+        cleanDoc = map (\(f M.:= v) ->
+                          f M.:= sanitizeBsonValue v) doc
 
 --
 -- Read
