@@ -26,9 +26,6 @@ import LIO.TCB
 import Network.Socket as Net
 
 
-lpub :: DCLabel
-lpub = newDC (<>) (<>)
-
 -- | Given an 'App' return handler.
 httpApp :: AppReqHandler -> Inum L.ByteString L.ByteString DC ()
 httpApp lrh = mkInumM $ do
