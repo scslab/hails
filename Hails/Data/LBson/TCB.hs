@@ -50,6 +50,7 @@ module Hails.Data.LBson.TCB ( -- * UTF-8 String
                             -- * Serializing Value
                             , toBsonDoc
                             , fromBsonDoc, fromBsonDocStrict
+                            , sanitizeBsonValue
                             ) where
 
 
@@ -328,6 +329,19 @@ fromBsonDocStrict d =
       ok  = all (isJust .snd) cs'
   in if ok then Just . exceptInternal $ cs else Nothing
 
+-- | If value is a document, remove any fields that have
+-- 'hailsInternalKeyPrefix' as a prefix, otherwise return the value
+-- unchanged. This is equivilant to 'exceptInternal' except it
+-- operates on BSON values as opposed to Hails Documents.
+sanitizeBsonValue :: Bson.Value -> Bson.Value
+sanitizeBsonValue (Bson.Doc doc) = Bson.Doc $ doExcludes doc
+  where doExcludes [] = []
+        doExcludes (f@(k Bson.:= _):fs) =
+          let rest = doExcludes fs
+          in if hailsInternalKeyPrefix `isPrefixOf` k
+               then rest
+               else f:rest
+sanitizeBsonValue v = v
 
 -- | Remove any fields from the document that have
 -- 'hailsInternalKeyPrefix' as a prefix
