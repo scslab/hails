@@ -329,6 +329,10 @@ fromBsonDocStrict d =
       ok  = all (isJust .snd) cs'
   in if ok then Just . exceptInternal $ cs else Nothing
 
+-- | If value is a document, remove any fields that have
+-- 'hailsInternalKeyPrefix' as a prefix, otherwise return the value
+-- unchanged. This is equivilant to 'exceptInternal' except it
+-- operates on BSON values as opposed to Hails Documents.
 sanitizeBsonValue :: Bson.Value -> Bson.Value
 sanitizeBsonValue (Bson.Doc doc) = Bson.Doc $ doExcludes doc
   where doExcludes [] = []

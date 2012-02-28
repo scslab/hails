@@ -79,6 +79,13 @@ instance Label l => Insert l (Document l) where
               ldoc <- withClearance clearance $ applyRawPolicyP p col doc
               -- Check that 'Labeled' values have labels below clearnce:
               guardLabeledVals (unlabelTCB ldoc) clearance
+              -- Check that SearchableFields are not set to labeled
+              -- values:
+              let srchbls = searchableFields . colPolicy $ col
+              mapM (\(k := v) -> case v of
+                    (LabeledVal _) -> when (k `elem` srchbls) $
+                                        throwIO InvalidSearchableType
+                    _ -> return ()) (unlabelTCB ldoc)
               -- Policies applied & labels are below clearance:
               return ldoc
     let bsonDoc = toBsonDoc . unlabelTCB $ ldoc
