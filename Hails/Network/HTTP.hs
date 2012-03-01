@@ -116,6 +116,5 @@ simpleHTTPP p' req = withCombinedPrivs p' $ \p ->
   case labelOfURI (rqURI req) of
     Nothing -> return . Left $ ErrorParse "Cannot create URI label"
     Just lURI -> do
-      rtioTCB $ putStrLn (prettyShow lURI)
       wguardP p lURI
       rtioTCB $ Net.simpleHTTP req
