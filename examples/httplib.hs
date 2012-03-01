@@ -36,10 +36,7 @@ main = evalDC' $ do
 exMap :: String -> String -> DC ()
 exMap domain mapBase = do
   taint lpub
-  let aliceLocL = newDC ("alice" ./\.
-                          ("http" ./\. domain
-                                  ./\. ("#port" .\/. "80"))
-                        ) (<>)
+  let aliceLocL = newDC ("alice" ./\.  ("http://" ++ domain ++ ":80")) (<>)
   myLoc <- labelP alicePriv  aliceLocL "3101 24th Street, San Francisco, CA"
   aliceLoc <- urlEncode <$> (unlabelP alicePriv myLoc)
   resp <- simpleHTTP . getRequest $ mapBase ++ "&address=" ++ aliceLoc
