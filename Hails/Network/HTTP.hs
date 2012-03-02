@@ -66,7 +66,6 @@ import Network.Stream ( ConnError(..)
 import DCLabel.NanoEDSL
 import LIO.DCLabel
 import LIO.TCB
-import DCLabel.PrettyShow
 
 -- | Return the label corresponding to a URI. The created label with
 -- have the scheme and authority (including port) in the secrecy
