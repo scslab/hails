@@ -32,7 +32,7 @@ httpApp lrh = mkInumM $ do
   req0 <- httpReqI
   appState <- getAppConf req0
   case appState of
-    Left resp -> irun $ enumHttpResp resp Nothing
+    Left resp -> irun $ enumHttpResp resp
     Right appC -> do
       let userLabel = newDC (appUser appC) (<>)
           req = appReq appC
@@ -44,7 +44,7 @@ httpApp lrh = mkInumM $ do
       -- TODO: catch exceptions
       resp <- liftI $ inumHttpBody req .| lrh req
       resultLabel <- liftLIO $ getLabel
-      irun $ (flip enumHttpResp) Nothing $ 
+      irun $ enumHttpResp $ 
         if resultLabel `leq` userLabel
           then resp 
           else resp500 "App violated IFC" --TODO: add custom header
@@ -99,9 +99,9 @@ tryAuthUser req = do
   where authField = "authorization"
         -- No login, send an auth response-header:
         respAuthRequired =
-         let hdr = mkHttpHead stat401
-             authHdr = "WWW-Authenticate: Basic realm=\"Hails\""
-         in hdr { respHeaders = authHdr : (respHeaders hdr) }
+         let resp = mkHttpHead stat401
+             authHdr = ("WWW-Authenticate", "Basic realm=\"Hails\"")
+         in respAddHeader authHdr resp
         -- Get user information from request header:
         userFromReq  = let mAuthCode = lookup authField $ reqHeaders req
                        in extractUser . (C.dropWhile (/= ' ')) <$> mAuthCode
