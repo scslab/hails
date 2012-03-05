@@ -22,11 +22,12 @@ import Hails.TCB.Types ( AppName, AppReqHandler )
 -- | Given a principal corresponding to the databaes owner, a database
 -- name, a policy module name, and  filepath to the database config file
 -- create the corresponding database object in @LIO@.
-loadDatabase :: Principal
+loadDatabase :: DatabasePolicy dbp
+             => Principal
              -> DatabaseName
              -> String
              -> FilePath
-             -> IO (DC (Database DCLabel))
+             -> IO (DC dbp)
 loadDatabase dbPrincipal dbName policyMod policyFile =
   runGhc (Just libdir) $ do
     let policyPriv = createPrivTCB $ newPriv dbPrincipal

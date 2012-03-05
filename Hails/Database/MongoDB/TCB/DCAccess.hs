@@ -7,8 +7,12 @@ module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , DCAction
                                            , dcAccess
                                            , labelDatabase
+                                           , DatabasePolicy(..)
+                                           , relabelGroupsP
+                                           , relabelGroupsSafe
                                            ) where
 
+import Control.Monad (foldM)
 import Data.Bson (u)
 import qualified Data.Bson as Bson
 import Hails.Database.MongoDB.TCB.Types
@@ -62,6 +66,80 @@ labelDatabase conf lcoll lacc = do
       p    = dbConfPriv conf
   initColl <- labelP p lcoll Map.empty
   databaseP p dbName lacc initColl
+
+-- | Policy modules are instances of this class. In particular, when
+-- an application accesses a database, the runtime invokes
+-- @createDatabasePolicy@ in the appropriate policy module.
+class DatabasePolicy dbp where
+  -- | Given a @DBConf@ generate an instance of this
+  -- @DatabasePolicy@. This is the main entry point for policy
+  -- modules. Policies should, in general, ether discard @DBConf@ or
+  -- store it in such a way that it is inaccessible to other modules
+  -- since it contains the priviledge of the policy.
+  createDatabasePolicy :: DBConf -> DC (dbp)
+
+  -- | Get the actual underlying @Database@ instance for this policy.
+  policyDB :: dbp -> Database DCLabel
+
+  -- | Expands a principal of the form \"#group_name\" into a list of
+  -- @Principal@s
+  expandGroup :: dbp -> Principal -> DCAction [Principal]
+  expandGroup _ princ = return [princ]
+
+  -- | Relabeles the 'Labeled' value by using the policy's privilege
+  -- to downgrade the label and optionally re-taint in an application
+  -- specific way, e.g. exanding groups of the form \"#group_name\"
+  -- to a policy specified disjuction of real principals.
+  --
+  -- Policies are expected to implement this function by wrapping
+  -- 'relabelGroupsP' using their privilege and implementing
+  -- 'expandGroup', which is called by 'relabelGroupsP'.
+  relabelGroups :: dbp -> Labeled DCLabel a -> DC (Labeled DCLabel a)
+  relabelGroups _ = return
+
+-- | A wrapper around 'relabelGroups' that drops the current
+-- privileges and restores them after getting a result from
+-- 'relabelGroups'.
+relabelGroupsSafe :: DatabasePolicy dbp
+                  => dbp
+                  -> Labeled DCLabel a
+                  -> DC (Labeled DCLabel a)
+relabelGroupsSafe dbp lbl = withPrivileges noPrivs $
+  relabelGroups dbp lbl
+
+-- | Looks for disjuctions the privilege is able to downgrade and
+-- rewrites them by invoking 'expandGroup' on each principle in the
+-- disjuction. Using the result, the function relabels the 'Labeled'
+-- value. Clients should not call this directly, instead clients
+-- should call 'relabelGroups' which policies may implement by
+-- wrapping this function.
+relabelGroupsP :: DatabasePolicy dbp
+               => dbp
+               -> TCBPriv
+               -> Labeled DCLabel a
+               -> DC (Labeled DCLabel a)
+relabelGroupsP dbp p inp = do
+  let (MkDCLabel sec' inte') = labelOf inp
+  sec <- expandComponent sec'
+  inte <- expandComponent inte'
+  let lbl = MkDCLabel sec inte
+  low <- untaintLabeledP p inp
+  taintLabeled lbl low
+  where expandComponent MkComponentAll = return MkComponentAll
+        expandComponent (MkComponent (MkConj con')) = do
+          con <- mapM gocmp con'
+          return $ MkComponent $ MkConj con
+        gocmp d@(MkDisj dis) = do
+          let db = policyDB dbp
+          result <- dcAccess db $ fmap MkDisj $ do
+            if p `owns` d
+              then foldM (\res grp -> do
+                            next <- expandGroup dbp grp
+                            return $ res ++ next) [] dis
+              else return dis
+          return $ case result of
+            Right dr -> dr
+            Left _ -> d
 
 --
 -- Parser for getLastError

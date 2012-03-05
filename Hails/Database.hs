@@ -8,7 +8,7 @@ import Data.String.Utils
 import Hails.TCB.Load ( loadDatabase )
 import Hails.Database.MongoDB (DCAction)
 import Hails.Database.MongoDB.TCB.Types
-import Hails.Database.MongoDB.TCB.DCAccess (dcAccess)
+import Hails.Database.MongoDB.TCB.DCAccess (dcAccess, policyDB)
 import Database.MongoDB.Query (Failure(..) )
 import qualified Data.UString as U
 import System.Environment
@@ -23,7 +23,8 @@ confLineToDBPair line = do
     (dbPrincipal:dbName:policyMod:file:[]) -> do
       let dbP = principal . C.pack $ dbPrincipal
           dbN = U.pack dbName
-      db <- loadDatabase dbP dbN policyMod file
+      dbp <- loadDatabase dbP dbN policyMod file
+      let db = fmap policyDB dbp
       return (dbN, db)
     _ -> throwIO . userError $ "confLineToDBPair: could not parse line"
 
@@ -35,7 +36,6 @@ databases = unsafePerformIO $ do
                       (lookup "DATABASE_CONFIG_FILE" env)
   confLines <- fmap (split "\n") $ readFile configFile
   mapM confLineToDBPair $ filter ((> 0) . length) confLines
-
 
 -- | Given a database name and a database action, execute the action
 -- on the database.

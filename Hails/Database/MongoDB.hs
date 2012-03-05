@@ -23,6 +23,8 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , DCAction
                               , dcAccess
                               , labelDatabase
+                              , DatabasePolicy(..)
+                              , relabelGroupsP, relabelGroupsSafe
                               -- * Query
                               , insert, insert_, insertP, insertP_
                               , findP
