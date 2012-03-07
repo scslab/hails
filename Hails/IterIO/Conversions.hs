@@ -55,10 +55,6 @@ iterLIOtoIterIO iter0 s0 = adaptIter (\a -> (a, s0)) adapt iter0
 -- iterLIOtoIterIO lio = runStateTLI (adaptIterM peelLIO lio)
 --  where peelLIO (LIO x) = x
 
-{-
-(Iter tOut IO a -> Iter tIn IO (IterR tOut IO a)) -> 
-(Iter tOut DC a -> Iter tIn DC (IterR tOut DC a))
--}
 
 inumIOtoInumLIO :: (ChunkData tIn, ChunkData tOut)
     => Inum tIn tOut IO a
@@ -81,8 +77,3 @@ inumIOtoInumLIO io12 s0 = \dc1 -> do
   lift $ do s1 <- ioTCB $ readIORef ref
             putTCB s1
   return res
-
-{-
-(Iter tOut IO a -> Iter () IO (IterR tOut IO a)) ->
-(Iter tOut DC a -> Iter () IO (IterR tOut DC a)) ->
--}
