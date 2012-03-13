@@ -3,8 +3,10 @@
 module Hails.Database ( mkPolicy, withDB ) where
 
 import Data.Typeable
+import Data.IORef
 import LIO.MonadCatch
 import LIO.DCLabel
+import LIO.TCB
 import DCLabel.Core
 import Data.String.Utils
 import Hails.Database.MongoDB.TCB.Types
@@ -33,30 +35,33 @@ mkPolicy = do
   let tp = typeRepTyCon $ typeOf $ tpc
   let typeName = tyConPackage tp ++ ":" ++ tyConModule tp ++
                   "." ++ tyConName tp
-  maybe err doit $ lookup typeName databases
-    where doit (dbName, dbPrincipal) = do
-            result <- loadDatabase dbPrincipal dbName
-            return $ result
+  dbs <- ioTCB $ databases
+  maybe err doit $ lookup typeName dbs
+    where doit (dbName, dbPrincipal) = loadDatabase dbPrincipal dbName
           err = throwIO . userError $ "confLineToDBPair: could not parse line"
 
 -- | Get the DB pair from a configuration line.
 confLineToConfPair :: String
                    -> (String, (DatabaseName, Principal))
 confLineToConfPair line = do
-  case split "\t" line of
+  case split "," line of
     (typeName:dbPrincipal:dbName:[]) -> (typeName, (dbN, dbP))
       where dbP = principal . C.pack $ dbPrincipal
             dbN = U.pack dbName
     _ -> ("",(undefined, undefined))
 
--- | Get all the databases in the system.
-databases :: [(String, (DatabaseName, Principal))]
-databases = unsafePerformIO $ do
+-- | Cache database specifications
+databasesRef :: IO (IORef [(String, (DatabaseName, Principal))])
+databasesRef = do
   env <- getEnvironment
   let configFile = maybe "/etc/share/hails/conf/databases.conf" id
                       (lookup "DATABASE_CONFIG_FILE" env)
   confLines <- fmap (split "\n") $ readFile configFile
-  return $ map confLineToConfPair $ filter ((> 0) . length) confLines
+  newIORef $ map confLineToConfPair $ filter ((> 0) . length) confLines
+
+-- | Get all the databases in the system.
+databases :: IO [(String, (DatabaseName, Principal))]
+databases = databasesRef >>= readIORef
 
 
 -- | Given a database name and a database action, execute the action
