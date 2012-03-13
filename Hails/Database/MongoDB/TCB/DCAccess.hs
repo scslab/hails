@@ -12,7 +12,7 @@ module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , relabelGroupsSafe
                                            ) where
 
-import Control.Monad (foldM)
+import Control.Monad (foldM, liftM)
 import Data.Bson (u)
 import qualified Data.Bson as Bson
 import Hails.Database.MongoDB.TCB.Types
@@ -124,18 +124,18 @@ relabelGroupsP dbp p inp = do
   inte <- expandComponent inte'
   let lbl = MkDCLabel sec inte
   relabelP p lbl inp
-  where expandComponent MkComponentAll = return MkComponentAll
-        expandComponent (MkComponent (MkConj con')) = do
-          con <- mapM gocmp con'
-          return $ MkComponent $ MkConj con
-        gocmp d@(MkDisj dis) = do
+  where expandComponent l | l == (><)  = return l
+        expandComponent comp = do
+          ds <- mapM (gocmp) $ componentToList comp
+          return $ listToComponent ds
+        gocmp d = do
           let db = policyDB dbp
-          result <- dcAccess db $ fmap MkDisj $ do
+          result <-
             if p `owns` d
-              then foldM (\res grp -> do
-                            next <- expandGroup dbp grp
-                            return $ res ++ next) [] dis
-              else return dis
+              then dcAccess db $ liftM listToDisj $ do
+                foldM (\res grp -> do next <- expandGroup dbp grp
+                                      return $ res ++ next) [] $ disjToList d
+              else return $ Right d
           return $ case result of
             Right dr -> dr
             Left _ -> d
