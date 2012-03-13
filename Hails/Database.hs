@@ -13,7 +13,6 @@ import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.DCAccess
 import qualified Data.UString as U
 import System.Environment
-import System.IO.Unsafe
 import qualified Data.ByteString.Char8 as C
 
 -- | Given a principal corresponding to the databaes owner and a
