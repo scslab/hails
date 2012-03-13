@@ -71,7 +71,7 @@ labelDatabase conf lcoll lacc = do
 -- an application accesses a database, the runtime invokes
 -- @createDatabasePolicy@ in the appropriate policy module.
 class DatabasePolicy dbp where
-  -- | Given a @DBConf@ generate an instance of this
+  -- | Given a 'DBConf' generate an instance of this
   -- @DatabasePolicy@. This is the main entry point for policy
   -- modules. Policies should, in general, ether discard @DBConf@ or
   -- store it in such a way that it is inaccessible to other modules
@@ -123,8 +123,7 @@ relabelGroupsP dbp p inp = do
   sec <- expandComponent sec'
   inte <- expandComponent inte'
   let lbl = MkDCLabel sec inte
-  low <- untaintLabeledP p inp
-  taintLabeled lbl low
+  relabelP p lbl inp
   where expandComponent MkComponentAll = return MkComponentAll
         expandComponent (MkComponent (MkConj con')) = do
           con <- mapM gocmp con'
