@@ -56,8 +56,8 @@ databasesRef = do
   env <- getEnvironment
   let configFile = maybe "/etc/share/hails/conf/databases.conf" id
                       (lookup "DATABASE_CONFIG_FILE" env)
-  confLines <- fmap (split "\n") $ readFile configFile
-  newIORef $ map confLineToConfPair $ filter ((> 0) . length) confLines
+  confLines <- fmap lines $ readFile configFile
+  newIORef $ map confLineToConfPair $ filter (not.null) confLines
 
 -- | Get all the databases in the system.
 databases :: IO [(String, (DatabaseName, Principal))]
