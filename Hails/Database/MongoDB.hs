@@ -19,10 +19,12 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , Action, getDatabase
                               , Query(..)
                               , Cursor
-                              , DBConf(..)
+                              , DBConf
                               , DCAction
                               , dcAccess
                               , labelDatabase
+                              , DatabasePolicy(..)
+                              , relabelGroupsP, relabelGroupsSafe
                               -- * Query
                               , insert, insert_, insertP, insertP_
                               , findP
