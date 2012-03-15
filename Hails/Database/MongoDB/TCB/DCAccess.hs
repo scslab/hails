@@ -76,7 +76,7 @@ class DatabasePolicy dbp where
   -- modules. Policies should, in general, ether discard @DBConf@ or
   -- store it in such a way that it is inaccessible to other modules
   -- since it contains the priviledge of the policy.
-  createDatabasePolicy :: DBConf -> DC (dbp)
+  createDatabasePolicy :: DBConf -> DCPrivTCB -> DC (dbp)
 
   -- | Get the actual underlying @Database@ instance for this policy.
   policyDB :: dbp -> Database DCLabel
