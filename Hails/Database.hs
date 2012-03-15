@@ -3,7 +3,6 @@
 module Hails.Database ( mkPolicy, withDB ) where
 
 import Data.Typeable
-import Data.IORef
 import LIO.MonadCatch
 import LIO.DCLabel
 import LIO.TCB
@@ -24,14 +23,13 @@ loadDatabase :: DatabasePolicy dbp
 loadDatabase dbPrincipal dbName = do
     let policyPriv = createPrivTCB $ newPriv dbPrincipal
     let dbConf = DBConf dbName policyPriv
-    createDatabasePolicy dbConf
+    createDatabasePolicy dbConf policyPriv
 
 -- | Create a @DatabasePolicy@ with the appropriate underline databse
 -- name and privileges, determined by the actual instance requested.
 mkPolicy :: forall dbp. (DatabasePolicy dbp, Typeable dbp) => DC dbp
 mkPolicy = do
-  let tpc = undefined :: dbp
-  let tp = typeRepTyCon $ typeOf $ tpc
+  let tp = typeRepTyCon $ typeOf $ (undefined :: dbp)
   let typeName = tyConPackage tp ++ ":" ++ tyConModule tp ++
                   "." ++ tyConName tp
   dbs <- ioTCB $ databases
@@ -50,18 +48,13 @@ confLineToConfPair line = do
     _ -> ("",(undefined, undefined))
 
 -- | Cache database specifications
-databasesRef :: IO (IORef [(String, (DatabaseName, Principal))])
-databasesRef = do
+databases :: IO [(String, (DatabaseName, Principal))]
+databases = do
   env <- getEnvironment
   let configFile = maybe "/etc/share/hails/conf/databases.conf" id
                       (lookup "DATABASE_CONFIG_FILE" env)
   confLines <- fmap lines $ readFile configFile
-  newIORef $ map confLineToConfPair $ filter (not.null) confLines
-
--- | Get all the databases in the system.
-databases :: IO [(String, (DatabaseName, Principal))]
-databases = databasesRef >>= readIORef
-
+  return $ map confLineToConfPair $ filter (not.null) confLines
 
 -- | Given a database name and a database action, execute the action
 -- on the database.
