@@ -26,9 +26,10 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , DatabasePolicy(..)
                               , relabelGroupsP, relabelGroupsSafe
                               -- * Query
-                              , insert, insert_, insertP, insertP_
+                              , insert, insert_, insertP, insertP_, saveP
                               , findP
                               , findOneP
+                              , select
                               , next, nextP
                               -- * Misc
                               , Failure
