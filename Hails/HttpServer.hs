@@ -94,7 +94,7 @@ tryAuthUser req = do
     Just user -> do
         return . Right $
           ( user, req {
-              reqHeaders = filter ((/=authField) . fst) $ reqHeaders req
+              reqHeaders = ("x-hails-user", user):(filter ((/=authField) . fst) $ reqHeaders req)
                       })
   where authField = "authorization"
         -- No login, send an auth response-header:
