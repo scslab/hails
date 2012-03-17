@@ -24,7 +24,7 @@ loadDatabase dbPrincipal dbName = do
     let policyPriv = createPrivTCB $ newPriv dbPrincipal
     let dbConf = DBConf dbName policyPriv
     clr <- getClearance
-    lowerClrTCB ltop
+    lowerClrTCB $ newDC (listToComponent $ [listToDisj [dbPrincipal]]) (<>)
     res <- createDatabasePolicy dbConf policyPriv
     lowerClrTCB clr
     return res
