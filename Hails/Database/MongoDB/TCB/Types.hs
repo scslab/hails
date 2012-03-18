@@ -32,12 +32,6 @@ module Hails.Database.MongoDB.TCB.Types ( -- * Collection
                                         , Action(..)
                                         , liftAction
                                         , getDatabase
-                                        -- * Query
-                                        , Query(..)
-                                        , QueryOption(..)
-                                        , Limit
-                                        , BatchSize
-                                        , select
                                         -- * Cursor
                                         , Cursor(..)
                                         -- * Misc
@@ -52,13 +46,7 @@ import LIO.TCB ( LIO(..)
                , rtioTCB )
 
 import qualified Database.MongoDB as M
-import Database.MongoDB ( Query(..)
-                        , QueryOption(..)
-                        , Limit
-                        , BatchSize
-                        , select 
-                        , Failure
-                        )
+import Database.MongoDB (Failure)
 
 import Hails.Data.LBson.TCB
 import Data.Map (Map)
