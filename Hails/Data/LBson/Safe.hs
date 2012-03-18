@@ -15,8 +15,9 @@ module Hails.Data.LBson.Safe ( -- * UTF-8 String
                                -- * Field
                              , Field(..), (=:), (=?)
                              , Key
+                             , hailsInternalKeyPrefix 
                                -- * Value
-                             , Value, val, cast', cast, typed
+                             , Value, Val, val, cast', cast, typed
                                -- * Policy labeled values
                              , pu, pl
                                -- * Special Bson value types

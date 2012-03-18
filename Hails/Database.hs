@@ -23,7 +23,11 @@ loadDatabase :: DatabasePolicy dbp
 loadDatabase dbPrincipal dbName = do
     let policyPriv = createPrivTCB $ newPriv dbPrincipal
     let dbConf = DBConf dbName policyPriv
-    createDatabasePolicy dbConf policyPriv
+    clr <- getClearance
+    lowerClrTCB $ newDC dbPrincipal (<>)
+    res <- createDatabasePolicy dbConf policyPriv
+    lowerClrTCB clr
+    return res
 
 -- | Create a @DatabasePolicy@ with the appropriate underline databse
 -- name and privileges, determined by the actual instance requested.
@@ -33,9 +37,9 @@ mkPolicy = do
   let typeName = tyConPackage tp ++ ":" ++ tyConModule tp ++
                   "." ++ tyConName tp
   dbs <- ioTCB $ databases
-  maybe err doit $ lookup typeName dbs
+  maybe (err typeName) doit $ lookup typeName dbs
     where doit (dbName, dbPrincipal) = loadDatabase dbPrincipal dbName
-          err = throwIO . userError $ "confLineToDBPair: could not parse line"
+          err tn = throwIO . userError $ "mkPolicy: could not find policy for " ++ tn
 
 -- | Get the DB pair from a configuration line.
 confLineToConfPair :: String
