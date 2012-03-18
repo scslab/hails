@@ -45,20 +45,18 @@ applyRawFieldPolicyP p col doc k = do
   -- Find policy corresponding to key k:
   f <- maybe (throwIO NoFieldPolicy) return $ List.lookup k policies
   -- Ensure field is not searchable
-  if isSearchableField f then
-    throwIO InvalidPolicy
-    else do
-    let (FieldPolicy fp) = f
-    -- Get the 'PolicyLabeled' value corresponding to k:
-    plv <- getPolicyLabeledVal
-    -- Apply policy, or check matching labels:
-    lv <- case plv of
-           (PU v)  -> labelP p (fp doc) v
-           (PL lv) -> do unless (labelOf lv == fp doc) $
-                           throwIO PolicyViolation
-                         return lv
-    -- Return new field, with policy applied value
-    return (k := (PolicyLabeledVal . PL $ lv))
+  when (isSearchableField f) $ throwIO InvalidPolicy
+  let (FieldPolicy fp) = f
+  -- Get the 'PolicyLabeled' value corresponding to k:
+  plv <- getPolicyLabeledVal
+  -- Apply policy, or check matching labels:
+  lv <- case plv of
+         (PU v)  -> labelP p (fp doc) v
+         (PL lv) -> do unless (labelOf lv == fp doc) $
+                         throwIO PolicyViolation
+                       return lv
+  -- Return new field, with policy applied value
+  return (k := (PolicyLabeledVal . PL $ lv))
       where getPolicyLabeledVal = case look k doc of
               (Just (PolicyLabeledVal x)) -> return  x
               _                           -> throwIO InvalidPolicy
