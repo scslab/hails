@@ -45,7 +45,9 @@ httpApp lrh = mkInumM $ do
                    lowerClr userLabel
                    setPrivileges (appPriv appC)
       -- TODO: catch exceptions
-      resp <- liftI $ inumHttpBody req .| lrh req
+      body <- inumHttpBody req .| pureI
+      let fullReq = labelTCB (newDC (<>) (appUser appC)) (req, body)
+      resp <- liftI $ lrh fullReq
       resultLabel <- liftLIO $ getLabel
       irun $ enumHttpResp $ 
         if resultLabel `leq` userLabel
