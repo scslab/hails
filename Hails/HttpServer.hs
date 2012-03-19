@@ -58,7 +58,8 @@ secureHttpServer port lrh = TCPServer port (httpApp lrh) dcServerAcceptor
 dcServerAcceptor :: Net.Socket -> DC (Iter L.ByteString DC (), Onum L.ByteString DC ())
 dcServerAcceptor sock = do
   (iterIO, onumIO) <- ioTCB $ defaultServerAcceptor sock
-  return (iterIOtoIterLIO iterIO, onumIOtoOnumLIO onumIO)
+  s <- getTCB
+  return (iterIOtoIterLIO iterIO, inumIOtoInumLIO onumIO s)
 
 --
 -- Helper
