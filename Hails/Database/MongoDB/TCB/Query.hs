@@ -120,130 +120,144 @@ type Order l = Document l
 -- Write
 --
 
--- | Insert document into collection and return its @_id@ value,
--- which is created automatically if not supplied. It is required that
--- the current label flow to the label of the collection and database
--- (and vice versa). Additionally, the document must be well-formed
--- with respect to the collection policy. In other words, all the
--- labeled values must be below the collection clearance and the
--- policy be applied successfully.
-insert :: (LabelState l p s, Serialize l)
-       => CollectionName
-       -> Document l
-       -> Action l p s (Value l)
-insert = insertP noPrivs
+class (LabelState l p s, Serialize l) => Insert l p s doc where
+  -- | Insert document into collection and return its @_id@ value,
+  -- which is created automatically if not supplied. It is required that
+  -- the current label flow to the label of the collection and database
+  -- (and vice versa). Additionally, the document must be well-formed
+  -- with respect to the collection policy. In other words, all the
+  -- labeled values must be below the collection clearance and the
+  -- policy be applied successfully.
+  insert :: CollectionName
+         -> doc
+         -> Action l p s (Value l)
+  insert = insertP noPrivs
 
--- | Same as 'insert' except it does not return @_id@
-insert_ :: (LabelState l p s, Serialize l)
-        => CollectionName
-        -> Document l
-        -> Action l p s ()
-insert_ c d = void $ insert c d
+  -- | Same as 'insert' except it does not return @_id@
+  insert_ :: CollectionName
+          -> doc
+          -> Action l p s ()
+  insert_ c d = void $ insert c d
 
--- | Same as 'insert', but uses privileges when applying the
--- collection policies, and doing label comparisons.
-insertP :: (LabelState l p s, Serialize l)
-        => p 
-        -> CollectionName
-        -> Document l
-        -> Action l p s (Value l)
-insertP p colName doc = do
-  db <- getDatabase
-  bsonDoc <- mkDocForInsertTCB p colName doc
-  liftAction $ liftM BsonVal $ M.useDb (dbIntern db) $ M.insert colName bsonDoc
-
--- | Same as 'insertP' except it does not return @_id@
-insertP_ :: (LabelState l p s, Serialize l)
-         => p 
-         -> CollectionName
-         -> Document l
-         -> Action l p s ()
-insertP_ p c d = void $ insertP p c d
-
--- | Update a document based on the @_id@ value. The IFC requirements
--- subsume those of 'insert'. Specifically, in addition to being able
--- to apply all the policies and requiring that the current label flow
--- to the label of the collection and database @save@ requires that 
--- the current label flow to the label of the existing database record.
-save :: (LabelState l p s, Serialize l)
-      => CollectionName
-      -> Document l
-      -> Action l p s ()
-save = saveP noPrivs
-
--- | Like 'save', but uses privileges when performing label
--- comparisons.
-saveP :: (LabelState l p s, Serialize l)
-       => p
-       -> CollectionName
-       -> Document l
-       -> Action l p s ()
-saveP p colName doc = do
-  db <- getDatabase
-  -- check that we can insert documetn as is:
-  bsonDoc <- mkDocForInsertTCB p colName doc
-  case M.look "_id" bsonDoc of
-    Nothing -> dbAct db $ M.insert colName bsonDoc
-    Just i -> do
-      mdoc <- findOneP p $ select ["_id" := BsonVal i] colName
-      -- If document exists make sure that we can overwrite the
-      -- existing document:
-      maybe (return ()) (lioWGuard . labelOf) mdoc
-      dbAct db $ M.save colName bsonDoc
-  where lioWGuard l = liftLIO $ withCombinedPrivs p $ \p' -> wguardP p' l
-        dbAct db = void . liftAction . M.useDb (dbIntern db) 
-
--- | Convert a 'Document' to a MongoDB @Document@, applying policies
--- and checking that we can insert to DB and collection.
--- Because the returned document is \"serialized\" document, this
--- function must be part of the TCB.
-mkDocForInsertTCB :: (LabelState l p s, Serialize l)
-                  => p
-                  -> CollectionName
-                  -> Document l
-                  -> Action l p s M.Document
-mkDocForInsertTCB p' colName doc = do
+  -- | Same as 'insert', but uses privileges when applying the
+  -- collection policies, and doing label comparisons.
+  insertP :: p
+          -> CollectionName
+          -> doc
+          -> Action l p s (Value l)
+  insertP p colName doc = do
     db <- getDatabase
-    col <- liftLIO $  withCombinedPrivs p' $ \p -> do
+    bsonDoc <- mkDocForInsertTCB p colName doc
+    liftAction $ liftM BsonVal $ M.useDb (dbIntern db) $ M.insert colName bsonDoc
+
+  -- | Same as 'insertP' except it does not return @_id@
+  insertP_ :: p
+           -> CollectionName
+           -> doc
+           -> Action l p s ()
+  insertP_ p c d = void $ insertP p c d
+
+  -- | Update a document based on the @_id@ value. The IFC requirements
+  -- subsume those of 'insert'. Specifically, in addition to being able
+  -- to apply all the policies and requiring that the current label flow
+  -- to the label of the collection and database @save@ requires that 
+  -- the current label flow to the label of the existing database record.
+  save :: CollectionName
+        -> doc
+        -> Action l p s ()
+  save = saveP noPrivs
+
+  -- | Like 'save', but uses privileges when performing label
+  -- comparisons.
+  saveP :: p
+         -> CollectionName
+         -> doc
+         -> Action l p s ()
+  saveP p colName doc = do
+    db <- getDatabase
+    -- check that we can insert documetn as is:
+    bsonDoc <- mkDocForInsertTCB p colName doc
+    case M.look "_id" bsonDoc of
+      Nothing -> dbAct db $ M.insert colName bsonDoc
+      Just i -> do
+        mdoc <- findOneP p $ select ["_id" := BsonVal i] colName
+        -- If document exists make sure that we can overwrite the
+        -- existing document:
+        maybe (return ()) (lioWGuard . labelOf) mdoc
+        dbAct db $ M.save colName bsonDoc
+    where lioWGuard l = liftLIO $ withCombinedPrivs p $ \p' -> wguardP p' l
+          dbAct db = void . liftAction . M.useDb (dbIntern db) 
+
+  -- | Convert a 'Document' to a MongoDB @Document@, applying policies
+  -- and checking that we can insert to DB and collection.
+  -- Because the returned document is \"serialized\" document, this
+  -- function must be part of the TCB.
+  mkDocForInsertTCB :: p
+                    -> CollectionName
+                    -> doc
+                    -> Action l p s M.Document
+
+instance (LabelState l p s, Serialize l) =>
+  Insert l p s (Document l) where
+  mkDocForInsertTCB p' colName doc = do
+    db <- getDatabase
+    ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
       -- Check that we can read collection names associated with DB:
       colMap <- unlabelP p $ dbColPolicies db
       -- Lookup collection name in the collection map associated  with DB:
-      maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
-    -- Get the collection clearance:
-    let clearance = colClear col
-    -- Check that we can insert such a document, and apply policies:
-    ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
-              -- Check that we can write to database:
-              wguardP p (dbLabel db)
-              -- Check that we can write to collection:
-              wguardP p (colLabel col)
-              -- Apply policies (data should not be labeled with a label
-              -- that is above the collection clearance):
-              ldoc <- withClearance clearance $ applyRawPolicyP p col doc
-              -- Document was labeled, policy was OK, remove label
-              let udoc = unlabelTCB ldoc
-              -- Check that 'Labeled' values have labels below clearance:
-              guardLabeledVals udoc clearance
-              -- Check that 'SearchableField's are not set to labeled
-              -- values:
-              guardSerachables udoc col
-              -- Policies applied, labels are below clearance,
-              -- searchables are Bson values and unlabeled, done:
-              return udoc
-    return . toBsonDoc $ ldoc
-      where guardLabeledVals ds c = forM_ ds $ \(_ := v) ->
-              case v of
-                (LabeledVal lv) -> unless (labelOf lv `leq` c) $
-                                     throwIO $ LerrClearance
-                _               -> return ()
-            --
-            guardSerachables ds col =
-              let srchbls = searchableFields . colPolicy $ col
-              in forM_ ds $ \(k := v) ->
-                   case v of
-                     (BsonVal _) -> return ()
-                     _           -> when (k `elem` srchbls) $
-                                      throwIO InvalidSearchableType
+      col <- maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
+      -- Get the collection clearance:
+      let clearance = colClear col
+      withClearance clearance $ applyRawPolicyP p col doc
+    mkDocForInsertTCB p' colName ldoc
+
+instance (LabelState l p s, Serialize l) =>
+  Insert l p s (Labeled l (Document l)) where
+  mkDocForInsertTCB p' colName ldoc = do
+    db <- getDatabase
+    liftLIO $ withCombinedPrivs p' $ \p -> do
+      -- Check that we can read collection names associated with DB:
+      colMap <- unlabelP p $ dbColPolicies db
+      -- Lookup collection name in the collection map associated  with DB:
+      col <- maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
+      -- Get the collection clearance:
+      let clearance = colClear col
+      -- Check that we can insert such a document, and apply policies:
+      --
+      -- Check that we can write to database:
+      wguardP p (dbLabel db)
+      -- Check that we can write to collection:
+      wguardP p (colLabel col)
+      -- Document was labeled, policy was OK, remove label
+      let udoc = unlabelTCB ldoc
+      -- Apply policies (data should not be labeled with a label
+      -- that is above the collection clearance):
+      asIfLDoc <- applyRawPolicyTCB col udoc
+      -- Check that label of the passed in @Document@ `canflowto`
+      -- the label that would be generated by the policy.
+      unless (labelOf asIfLDoc `leq` labelOf ldoc) $
+        throwIO $ LerrHigh
+      -- Check that 'Labeled' values have labels below clearance:
+      guardLabeledVals udoc clearance
+      -- Check that 'SearchableField's are not set to labeled
+      -- values:
+      guardSerachables udoc col
+      -- Policies applied, labels are below clearance,
+      -- searchables are Bson values and unlabeled, done:
+      return . toBsonDoc $ udoc
+    where guardLabeledVals ds c = forM_ ds $ \(_ := v) ->
+            case v of
+              (LabeledVal lv) -> unless (labelOf lv `leq` c) $
+                                   throwIO $ LerrClearance
+              _               -> return ()
+          --
+          guardSerachables ds col =
+            let srchbls = searchableFields . colPolicy $ col
+            in forM_ ds $ \(k := v) ->
+                 case v of
+                   (BsonVal _) -> return ()
+                   _           -> when (k `elem` srchbls) $
+                                    throwIO InvalidSearchableType
 
 -- | Returns true if the clause contains only searchable fields from
 -- the collection policy

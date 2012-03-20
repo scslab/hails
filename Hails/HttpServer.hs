@@ -47,7 +47,7 @@ httpApp lrh = mkInumM $ do
       -- TODO: catch exceptions
       body <- inumHttpBody req .| pureI
       let fullReq = labelTCB (newDC (<>) (appUser appC)) (req, body)
-      resp <- liftI $ lrh fullReq
+      resp <- liftI $ enumPure body .|$ lrh fullReq
       resultLabel <- liftLIO $ getLabel
       irun $ enumHttpResp $ 
         if resultLabel `leq` userLabel
