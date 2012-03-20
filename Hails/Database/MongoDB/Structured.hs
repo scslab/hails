@@ -56,16 +56,16 @@ class DCRecord a where
   findBy = findByP noPrivs
   --
   insertRecordP p policy colName record = do
-    priv <- getPrivileges
+    p' <- getPrivileges
     withDB policy $ do
-      insertP (priv `mappend` p)  colName $ toDocument record
+      insertP (p' `mappend` p)  colName $ toDocument record
   --
   insertRecord = insertRecordP noPrivs
   --
   saveRecordP p policy colName record = do
-    priv <- getPrivileges
+    p' <- getPrivileges
     withDB policy $ do
-      saveP (priv `mappend` p) colName $ toDocument record
+      saveP (p' `mappend` p) colName $ toDocument record
   --
   saveRecord = saveRecordP noPrivs
   --
