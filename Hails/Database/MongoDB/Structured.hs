@@ -47,8 +47,8 @@ class DCRecord a where
   --
 
   --
-  findByP p policy colName key val = do
-    result <- withDB policy $ findOneP p $ select [key =: val] colName
+  findByP p policy colName k v = do
+    result <- withDB policy $ findOneP p $ select [k =: v] colName
     case result of
       Right (Just r) -> unlabelP p r >>= fromDocument >>= (return . Just )
       _ -> return Nothing
