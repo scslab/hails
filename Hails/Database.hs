@@ -16,8 +16,7 @@ import qualified Data.ByteString.Char8 as C
 
 -- | Given a principal corresponding to the databaes owner and a
 -- database name create the corresponding database object in @LIO@.
-loadDatabase :: DatabasePolicy dbp
-             => Principal
+loadDatabase :: DatabasePolicy dbp => Principal
              -> DatabaseName
              -> (DC dbp)
 loadDatabase dbPrincipal dbName = do
@@ -39,7 +38,8 @@ mkPolicy = do
   dbs <- ioTCB $ databases
   maybe (err typeName) doit $ lookup typeName dbs
     where doit (dbName, dbPrincipal) = loadDatabase dbPrincipal dbName
-          err tn = throwIO . userError $ "mkPolicy: could not find policy for " ++ tn
+          err tn = throwIO . userError $ "mkPolicy: could not find policy for "
+                                          ++ tn
 
 -- | Get the DB pair from a configuration line.
 confLineToConfPair :: String

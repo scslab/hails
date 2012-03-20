@@ -28,7 +28,7 @@ class DCRecord a where
          => p -> CollectionName -> Key -> v -> DC (Maybe a)
   -- | Insert a record into the database
   insertRecord :: (DatabasePolicy p)
-               => p -> CollectionName -> a -> DC (Either Failure ())
+               => p -> CollectionName -> a -> DC (Either Failure (Value DCLabel))
   -- | Insert a record into the database
   saveRecord :: (DatabasePolicy p)
              => p -> CollectionName -> a -> DC (Either Failure ())
@@ -37,7 +37,7 @@ class DCRecord a where
           => DCPrivTCB -> p -> CollectionName -> Key -> v -> DC (Maybe a)
   -- | Same as 'insertRecord', but using explicit privileges.
   insertRecordP :: (DatabasePolicy p)
-              => DCPrivTCB -> p -> CollectionName -> a -> DC (Either Failure ())
+              => DCPrivTCB -> p -> CollectionName -> a -> DC (Either Failure (Value DCLabel))
   -- | Same as 'saveRecord', but using explicit privileges.
   saveRecordP :: (DatabasePolicy p)
               => DCPrivTCB -> p -> CollectionName -> a -> DC (Either Failure ())
@@ -47,11 +47,10 @@ class DCRecord a where
   --
 
   --
-  findByP priv policy colName key val = do
-    result <- withPrivileges noPrivs $ 
-                 withDB policy $ findOneP priv $ select [key =: val] colName
+  findByP p policy colName key val = do
+    result <- withDB policy $ findOneP p $ select [key =: val] colName
     case result of
-      Right (Just p) -> unlabelP priv p >>= fromDocument >>= (return . Just )
+      Right (Just r) -> unlabelP p r >>= fromDocument >>= (return . Just )
       _ -> return Nothing
   --
   findBy = findByP noPrivs
@@ -59,7 +58,7 @@ class DCRecord a where
   insertRecordP p policy colName record = do
     priv <- getPrivileges
     withDB policy $ do
-      insertP_ (priv `mappend` p)  colName $ toDocument record
+      insertP (priv `mappend` p)  colName $ toDocument record
   --
   insertRecord = insertRecordP noPrivs
   --

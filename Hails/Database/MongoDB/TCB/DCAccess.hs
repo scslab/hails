@@ -3,6 +3,8 @@
 {-# LANGUAGE Unsafe #-}
 #endif
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FunctionalDependencies #-}
 module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , DCAction
                                            , dcAccess
@@ -10,6 +12,9 @@ module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , DatabasePolicy(..)
                                            , relabelGroupsP
                                            , relabelGroupsSafe
+                                           -- * Privilege granting gate
+                                           , PrivilegeGrantGate(..)
+                                           , Challenge(..)
                                            ) where
 
 import Control.Monad (foldM, liftM)
@@ -25,10 +30,13 @@ import Database.MongoDB ( runIOE
                         , GetLastError
                         , AccessMode(..) )
 import LIO
-import LIO.TCB ( rtioTCB )
+import LIO.TCB ( rtioTCB, ioTCB )
 import LIO.DCLabel
-import System.Environment
 
+import System.Environment
+import System.Random ( randomIO )
+
+import Data.Int (Int64)
 import qualified Data.Map as Map
 import qualified Data.List as List
 
@@ -76,10 +84,13 @@ class DatabasePolicy dbp where
   -- modules. Policies should, in general, ether discard @DBConf@ or
   -- store it in such a way that it is inaccessible to other modules
   -- since it contains the priviledge of the policy.
-  createDatabasePolicy :: DBConf -> DCPrivTCB -> DC (dbp)
+  createDatabasePolicy :: DBConf -> DCPrivTCB -> DC dbp
 
   -- | Get the actual underlying @Database@ instance for this policy.
   policyDB :: dbp -> Database DCLabel
+
+  -- | Get the database policy's owner.
+  policyOwner :: dbp -> Principal
 
   -- | Expands a principal of the form \"#group_name\" into a list of
   -- @Principal@s
@@ -94,8 +105,27 @@ class DatabasePolicy dbp where
   -- Policies are expected to implement this function by wrapping
   -- 'relabelGroupsP' using their privilege and implementing
   -- 'expandGroup', which is called by 'relabelGroupsP'.
-  relabelGroups :: dbp -> Labeled DCLabel a -> DC (Labeled DCLabel a)
+  relabelGroups :: dbp -> DCLabeled a -> DC (DCLabeled a)
   relabelGroups _ = return
+
+
+class (DatabasePolicy dbp, Challenge c) => PrivilegeGrantGate dbp c | dbp -> c where
+  -- | Request the policy's privilege, given a challenge.
+  -- Essentially, the policy vendor should generate a random
+  -- challenge that the app can endorse.
+  -- The policy vendor then takes this repose and returns
+  -- a privilege.
+  getPolicyPriv :: dbp
+                -> (c -> DC (DCLabeled c))
+                -> DC DCPrivTCB
+
+class Eq c => Challenge c where
+  -- | Generate a challenge.
+  genChallenge :: DC c
+
+instance Challenge Int64 where
+  -- | /Note:/ Not-cryptographically secure, but sufficient challenge.
+  genChallenge = ioTCB $ randomIO 
 
 -- | A wrapper around 'relabelGroups' that drops the current
 -- privileges and restores them after getting a result from
@@ -103,7 +133,7 @@ class DatabasePolicy dbp where
 relabelGroupsSafe :: DatabasePolicy dbp
                   => dbp
                   -> Labeled DCLabel a
-                  -> DC (Labeled DCLabel a)
+                  -> DC (DCLabeled a)
 relabelGroupsSafe dbp lbl = withPrivileges noPrivs $
   relabelGroups dbp lbl
 
@@ -115,9 +145,9 @@ relabelGroupsSafe dbp lbl = withPrivileges noPrivs $
 -- wrapping this function.
 relabelGroupsP :: DatabasePolicy dbp
                => dbp
-               -> TCBPriv
+               -> DCPrivTCB
                -> Labeled DCLabel a
-               -> DC (Labeled DCLabel a)
+               -> DC (DCLabeled a)
 relabelGroupsP dbp p inp = do
   let (MkDCLabel sec' inte') = labelOf inp
   sec <- expandComponent sec'
