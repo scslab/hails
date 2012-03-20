@@ -78,12 +78,12 @@ getAppConf req0 = do
   case authRes of
     Left resp -> return . Left $ resp
     Right (user, req) ->
-      let usrN = principal $ user
-          appN = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
-          priv = createPrivTCB $ newPriv appN
+      let usrN  = principal $ user
+          appN  = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
+          privs = createPrivTCB $ newPriv appN
       in return . Right $ AppConf { appUser = usrN
                                   , appName = appN
-                                  , appPriv = priv
+                                  , appPriv = privs
                                   , appReq  = addAppHdr req appN }
     where addAppHdr req n = 
             req { reqHeaders = ("x-hails-app", S8.pack n) : reqHeaders req }
