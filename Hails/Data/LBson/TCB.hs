@@ -16,8 +16,8 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverlappingInstances #-}
 
---TODO: remove
-#define DEBUG 1
+--
+#define DEBUG 0
 --
 
 module Hails.Data.LBson.TCB ( -- * UTF-8 String

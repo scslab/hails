@@ -130,7 +130,7 @@ type Order l = Document l
 insert :: (LabelState l p s, Serialize l)
        => CollectionName
        -> Document l
-       -> Action l p s M.Value
+       -> Action l p s (Value l)
 insert = insertP noPrivs
 
 -- | Same as 'insert' except it does not return @_id@
@@ -146,11 +146,11 @@ insertP :: (LabelState l p s, Serialize l)
         => p 
         -> CollectionName
         -> Document l
-        -> Action l p s M.Value
+        -> Action l p s (Value l)
 insertP p colName doc = do
   db <- getDatabase
   bsonDoc <- mkDocForInsertTCB p colName doc
-  liftAction $ M.useDb (dbIntern db) $ M.insert colName bsonDoc
+  liftAction $ liftM BsonVal $ M.useDb (dbIntern db) $ M.insert colName bsonDoc
 
 -- | Same as 'insertP' except it does not return @_id@
 insertP_ :: (LabelState l p s, Serialize l)

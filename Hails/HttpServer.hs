@@ -8,8 +8,8 @@
 module Hails.HttpServer ( secureHttpServer ) where
 
 import Data.ByteString.Base64
-import qualified Data.ByteString.Lazy.Char8 as L
-import qualified Data.ByteString.Char8 as C
+import qualified Data.ByteString.Lazy.Char8 as L8
+import qualified Data.ByteString.Char8 as S8
 
 import Data.IterIO
 import Data.IterIO.Http
@@ -26,8 +26,11 @@ import LIO.TCB
 import Network.Socket as Net
 
 
+type L = L8.ByteString
+type S = S8.ByteString
+
 -- | Given an 'App' return handler.
-httpApp :: AppReqHandler -> Inum L.ByteString L.ByteString DC ()
+httpApp :: AppReqHandler -> Inum L L DC ()
 httpApp lrh = mkInumM $ do
   req0 <- httpReqI
   appState <- getAppConf req0
@@ -50,12 +53,12 @@ httpApp lrh = mkInumM $ do
           else resp500 "App violated IFC" --TODO: add custom header
 
 -- | Return a server, given a port number and app.
-secureHttpServer :: PortNumber -> AppReqHandler -> TCPServer L.ByteString DC
+secureHttpServer :: PortNumber -> AppReqHandler -> TCPServer L DC
 secureHttpServer port lrh = TCPServer port (httpApp lrh) dcServerAcceptor
   (\m -> fmap fst $ evalDC m)
 
 -- | Given a socket, return the to/from-browser pipes.
-dcServerAcceptor :: Net.Socket -> DC (Iter L.ByteString DC (), Onum L.ByteString DC ())
+dcServerAcceptor :: Net.Socket -> DC (Iter L DC (), Onum L DC ())
 dcServerAcceptor sock = do
   (iterIO, onumIO) <- ioTCB $ defaultServerAcceptor sock
   s <- getTCB
@@ -75,28 +78,29 @@ getAppConf req0 = do
   case authRes of
     Left resp -> return . Left $ resp
     Right (user, req) ->
-      let u = principal $ user
-          n = C.unpack $ C.takeWhile (/= '.') $ reqHost req
-          p = createPrivTCB $ newPriv n
-      in return . Right $ AppConf { appUser = u
-                                  , appName = n
-                                  , appPriv = p
-                                  , appReq  = req }
+      let usrN  = principal $ user
+          appN  = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
+          privs = createPrivTCB $ newPriv appN
+      in return . Right $ AppConf { appUser = usrN
+                                  , appName = appN
+                                  , appPriv = privs
+                                  , appReq  = addAppHdr req appN }
+    where addAppHdr req n = 
+            req { reqHeaders = ("x-hails-app", S8.pack n) : reqHeaders req }
 
 
 -- | Get the authenticated user information and remove and sensitive
 -- headers from request.
 tryAuthUser :: (Monad m, Monad m')
             => HttpReq s
-            -> m (Either (HttpResp m') (C.ByteString, HttpReq s))
+            -> m (Either (HttpResp m') (S, HttpReq s))
 tryAuthUser req = do
   case userFromReq of
     Nothing -> return . Left $ respAuthRequired
     Just user -> do
         return . Right $
-          ( user, req {
-              reqHeaders = ("x-hails-user", user):(filter ((/=authField) . fst) $ reqHeaders req)
-                      })
+          let hdrs = filter ((/=authField) . fst) $ reqHeaders req
+          in (user, req { reqHeaders = ("x-hails-user", user) : hdrs })
   where authField = "authorization"
         -- No login, send an auth response-header:
         respAuthRequired =
@@ -105,6 +109,6 @@ tryAuthUser req = do
          in respAddHeader authHdr resp
         -- Get user information from request header:
         userFromReq  = let mAuthCode = lookup authField $ reqHeaders req
-                       in extractUser . (C.dropWhile (/= ' ')) <$> mAuthCode
-        extractUser b64u = C.takeWhile (/= ':') $ decodeLenient b64u
+                       in extractUser . (S8.dropWhile (/= ' ')) <$> mAuthCode
+        extractUser b64u = S8.takeWhile (/= ':') $ decodeLenient b64u
 
