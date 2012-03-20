@@ -61,3 +61,4 @@ Library
     Hails.Database.MongoDB.TCB.Types
     Hails.Database.MongoDB.TCB.Query
     Hails.Database.MongoDB.TCB.DCAccess
+    Hails.Database.MongoDB.Structured
