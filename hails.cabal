@@ -54,6 +54,7 @@ Library
     Hails.IterIO.Conversions
     Hails.IterIO.HailsRoute
     Hails.IterIO.HttpClient
+    Hails.IterIO.Http
     Hails.TCB.Load
     Hails.TCB.Types
     Hails.Database

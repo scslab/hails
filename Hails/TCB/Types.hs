@@ -9,6 +9,7 @@ module Hails.TCB.Types ( AppName
                        , AppConf(..)
                        , AppReqHandler
                        , AppRoute
+                       , AppSessionData(..)
                        ) where
 
 import qualified Data.ByteString.Lazy as L
@@ -31,14 +32,15 @@ data AppConf = AppConf { appUser :: !Principal
                          -- ^ The app's name
                          , appPriv :: !TCBPriv
                          -- ^ The app's privileges.
-                         , appReq  :: HttpReq ()
+                         , appReq  :: HttpReq AppSessionData
                          -- ^ The request message
-                         } deriving (Show)
+                         }
 
 -- | Application handler.
-type AppReqHandler = HttpReq ()
-                   -> Iter L DC (DCLabeled (HttpReq (), L))
+type AppReqHandler = HttpReq AppSessionData
                    -> Iter L DC (HttpResp DC)
+
+data AppSessionData = AppSessionDataTCB Principal
 
 -- | Application route.
 type AppRoute = HttpRoute DC ()

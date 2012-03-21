@@ -45,9 +45,7 @@ httpApp lrh = mkInumM $ do
                    lowerClr userLabel
                    setPrivileges (appPriv appC)
       -- TODO: catch exceptions
-      resp <- liftI $ inumHttpBody req .| (lrh req $ do
-        bdy <- pureI
-        return $ labelTCB (newDC (<>) (appUser appC)) (req, bdy))
+      resp <- liftI $ inumHttpBody req .| lrh req
       resultLabel <- liftLIO $ getLabel
       irun $ enumHttpResp $
         if resultLabel `leq` userLabel
@@ -86,9 +84,25 @@ getAppConf req0 = do
       in return . Right $ AppConf { appUser = usrN
                                   , appName = appN
                                   , appPriv = privs
-                                  , appReq  = addAppHdr req appN }
-    where addAppHdr req n = 
-            req { reqHeaders = ("x-hails-app", S8.pack n) : reqHeaders req }
+                                  , appReq  = modReq req appN usrN }
+    where modReq req n userN =
+            HttpReq { reqMethod = reqMethod req
+                    , reqScheme = reqScheme req
+                    , reqPathParams = reqPathParams req
+                    , reqTransferEncoding = reqTransferEncoding req
+                    , reqPath = reqPath req
+                    , reqPathLst = reqPathLst req
+                    , reqPathCtx = reqPathCtx req
+                    , reqQuery = reqQuery req
+                    , reqHost = reqHost req
+                    , reqPort = reqPort req
+                    , reqVers = reqVers req
+                    , reqHeaders = ("x-hails-app", S8.pack n) : reqHeaders req
+                    , reqCookies = reqCookies req
+                    , reqContentType = reqContentType req
+                    , reqContentLength = reqContentLength req
+                    , reqIfModifiedSince = reqIfModifiedSince req
+                    , reqSession = AppSessionDataTCB userN}
 
 
 -- | Get the authenticated user information and remove and sensitive
