@@ -1,6 +1,6 @@
 module Hails.Database.MongoDB.TCB.Convert ( -- * Converting HTTP requests
                                             -- to 'Labeled' 'Document'
-                                            toLabeledDocument
+                                            labeledDocI
                                           ) where
 
 import LIO
@@ -10,6 +10,7 @@ import Data.IterIO.Http
 import qualified Data.ByteString.Lazy.Char8 as L
 import qualified Data.ByteString.Char8 as S
 import Data.UString (pack)
+import Hails.TCB.Types
 import Hails.Data.LBson.TCB
 
 
@@ -18,13 +19,13 @@ import Hails.Data.LBson.TCB
 -- 'Document' with keys and values corresponding to the form fields
 -- from the request. The label on the @Labeled@ result is the same as
 -- input.
-toLabeledDocument :: (LabelState l p s)
-                  => Labeled l (HttpReq b, L.ByteString)
-                  -> LIO l p s (Labeled l (Document l))
-toLabeledDocument lbld = do
-  let (req, body) = unlabelTCB lbld
-  doc <- enumPure body |$ foldForm req docontrol []
-  return $ labelTCB (labelOf lbld) doc
+labeledDocI :: (LabelState l p s)
+                  => HttpReq (AppSessionData l)
+                  -> Iter L.ByteString (LIO l p s) (Labeled l (Document l))
+labeledDocI req = do
+  doc <- foldForm req docontrol []
+  let (AppSessionDataTCB userL) = reqSession req
+  return $ labelTCB userL doc
   where docontrol acc field = do
           formVal <- fmap L.unpack pureI
           let lfld = pack (S.unpack.ffName $ field) =: formVal

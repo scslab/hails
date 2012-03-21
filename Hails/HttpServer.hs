@@ -102,7 +102,8 @@ getAppConf req0 = do
                     , reqContentType = reqContentType req
                     , reqContentLength = reqContentLength req
                     , reqIfModifiedSince = reqIfModifiedSince req
-                    , reqSession = AppSessionDataTCB userN}
+                    , reqSession = AppSessionDataTCB $ newDC (<>) (userN)
+                    }
 
 
 -- | Get the authenticated user information and remove and sensitive

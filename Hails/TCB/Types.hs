@@ -32,17 +32,17 @@ data AppConf = AppConf { appUser :: !Principal
                          -- ^ The app's name
                          , appPriv :: !TCBPriv
                          -- ^ The app's privileges.
-                         , appReq  :: HttpReq AppSessionData
+                         , appReq  :: HttpReq (AppSessionData DCLabel)
                          -- ^ The request message
                          }
 
 -- | Application handler.
-type AppReqHandler = HttpReq AppSessionData
+type AppReqHandler = HttpReq (AppSessionData DCLabel)
                    -> Iter L DC (HttpResp DC)
 
 -- | Session data to be passed to apps in an 'HttpReq'. The
 -- constructor must not be exported to untrusted code.
-data AppSessionData = AppSessionDataTCB Principal
+data AppSessionData l = AppSessionDataTCB l
 
 -- | Application route.
 type AppRoute = HttpRoute DC ()

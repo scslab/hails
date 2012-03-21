@@ -14,10 +14,10 @@ type L = L8.ByteString
 -- | Apps can use this 'Iter' to read in the body of an HTTP request
 -- as a 'DCLabeled' tuple labeled with the integrity of the logged in
 -- user.
-labeledBodyI :: HttpReq AppSessionData
-      -> Iter L DC (DCLabeled (HttpReq AppSessionData, L))
+labeledBodyI :: HttpReq (AppSessionData DCLabel)
+      -> Iter L DC (DCLabeled (HttpReq (AppSessionData DCLabel), L))
 labeledBodyI req = do
   bdy <- pureI
-  let (AppSessionDataTCB user) = reqSession req
-  return $ labelTCB (newDC (<>) (user)) (req, bdy)
+  let (AppSessionDataTCB userL) = reqSession req
+  return $ labelTCB userL (req, bdy)
 

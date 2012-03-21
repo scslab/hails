@@ -216,7 +216,7 @@ doForCollectionP p' colName act = do
 instance (LabelState l p s, Serialize l) =>
   Insert l p s (Document l) where
   mkDocForInsertTCB p' colName doc = do
-    ldoc <- doForCollectionP p' colName $ \p db col ->
+    ldoc <- doForCollectionP p' colName $ \p _ col ->
       withClearance (colClear col) $ applyRawPolicyP p col doc
     mkDocForInsertTCB p' colName ldoc
 

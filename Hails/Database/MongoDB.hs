@@ -37,7 +37,7 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , select
                               -- * Misc
                               , Failure
-                              , toLabeledDocument
+                              , labeledDocI
                               ) where
 
 import Hails.Database.MongoDB.TCB.Types
