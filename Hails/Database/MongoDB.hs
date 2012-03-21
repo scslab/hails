@@ -37,10 +37,12 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , select
                               -- * Misc
                               , Failure
+                              , labeledDocI
                               ) where
 
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Query
 import Hails.Database.MongoDB.TCB.DCAccess
 import Hails.Data.LBson hiding (sort, find)
+import Hails.Database.MongoDB.TCB.Convert
 
