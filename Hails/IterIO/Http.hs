@@ -11,6 +11,9 @@ import Hails.TCB.Types
 
 type L = L8.ByteString
 
+-- | Apps can use this 'Iter' to read in the body of an HTTP request
+-- as a 'DCLabeled' tuple labeled with the integrity of the logged in
+-- user.
 labeledBodyI :: HttpReq AppSessionData
       -> Iter L DC (DCLabeled (HttpReq AppSessionData, L))
 labeledBodyI req = do
