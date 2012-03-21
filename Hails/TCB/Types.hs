@@ -16,7 +16,6 @@ import Data.IterIO
 import Data.IterIO.Http
 import Data.IterIO.HttpRoute
 
-import LIO
 import DCLabel.TCB
 import LIO.DCLabel
 
@@ -37,7 +36,9 @@ data AppConf = AppConf { appUser :: !Principal
                          } deriving (Show)
 
 -- | Application handler.
-type AppReqHandler = Labeled DCLabel (HttpReq (), L) -> Iter L DC (HttpResp DC)
+type AppReqHandler = HttpReq ()
+                   -> Iter L DC (DCLabeled (HttpReq (), L))
+                   -> Iter L DC (HttpResp DC)
 
 -- | Application route.
 type AppRoute = HttpRoute DC ()

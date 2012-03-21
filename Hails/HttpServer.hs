@@ -41,17 +41,17 @@ httpApp lrh = mkInumM $ do
           req = appReq appC
       -- Set current label to be public, clearance to the user's label
       -- and privilege to the app's privilege.
-      liftLIO $ do taint lpub 
+      liftLIO $ do taint lpub
                    lowerClr userLabel
                    setPrivileges (appPriv appC)
       -- TODO: catch exceptions
-      body <- inumHttpBody req .| pureI
-      let fullReq = labelTCB (newDC (<>) (appUser appC)) (req, body)
-      resp <- liftI $ enumPure body .|$ lrh fullReq
+      resp <- liftI $ inumHttpBody req .| (lrh req $ do
+        bdy <- pureI
+        return $ labelTCB (newDC (<>) (appUser appC)) (req, bdy))
       resultLabel <- liftLIO $ getLabel
-      irun $ enumHttpResp $ 
+      irun $ enumHttpResp $
         if resultLabel `leq` userLabel
-          then resp 
+          then resp
           else resp500 "App violated IFC" --TODO: add custom header
 
 -- | Return a server, given a port number and app.
