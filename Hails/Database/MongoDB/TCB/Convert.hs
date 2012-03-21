@@ -1,5 +1,5 @@
 module Hails.Database.MongoDB.TCB.Convert ( -- * Converting HTTP requests
-                                            -- to @Labeled@ @Document@
+                                            -- to 'Labeled' 'Document'
                                             toLabeledDocument
                                           ) where
 
@@ -13,9 +13,9 @@ import Data.UString (pack)
 import Hails.Data.LBson.TCB
 
 
--- | Trusted transformer that takes a @Labeled@ tuple with @HttpReq@
--- and the request body as a @L.ByteString@ and returns a @Labeled@
--- @Document@ with keys and values corresponding to the form fields
+-- | Trusted transformer that takes a 'Labeled' tuple with 'HttpReq'
+-- and the request body as a 'L.ByteString' and returns a 'Labeled'
+-- 'Document' with keys and values corresponding to the form fields
 -- from the request. The label on the @Labeled@ result is the same as
 -- input.
 toLabeledDocument :: (LabelState l p s)
