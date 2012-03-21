@@ -4,17 +4,17 @@
 #endif
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE FunctionalDependencies #-}
 module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , DCAction
                                            , dcAccess
                                            , labelDatabase
                                            , DatabasePolicy(..)
+                                           -- * Groups
+                                           , PolicyGroup(..)
                                            , relabelGroupsP
                                            , relabelGroupsSafe
                                            -- * Privilege granting gate
                                            , PrivilegeGrantGate(..)
-                                           , Challenge(..)
                                            ) where
 
 import Control.Monad (foldM, liftM)
@@ -30,13 +30,12 @@ import Database.MongoDB ( runIOE
                         , GetLastError
                         , AccessMode(..) )
 import LIO
-import LIO.TCB ( rtioTCB, ioTCB )
+import LIO.TCB ( rtioTCB )
 import LIO.DCLabel
 
 import System.Environment
-import System.Random ( randomIO )
 
-import Data.Int (Int64)
+import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.List as List
 
@@ -55,8 +54,8 @@ dcAccess :: Database DCLabel
          -> DCAction a
          -> DC (Either Failure a)
 dcAccess db act = do
-  env <- rtioTCB $ getEnvironment
-  let hostName = maybe "localhost" id (List.lookup "HAILS_MONGODB_SERVER" env)
+  env <- rtioTCB getEnvironment
+  let hostName = fromMaybe "localhost" (List.lookup "HAILS_MONGODB_SERVER" env)
   let mode     = maybe master parseMode (List.lookup "HAILS_MONGODB_MODE" env)
   pipe <- rtioTCB $ runIOE $ connect (host hostName)
   accessTCB pipe mode db act
@@ -92,6 +91,8 @@ class DatabasePolicy dbp where
   -- | Get the database policy's owner.
   policyOwner :: dbp -> Principal
 
+-- | Class used to define groups in a policy-specific manner.
+class DatabasePolicy dbp => PolicyGroup dbp where
   -- | Expands a principal of the form \"#group_name\" into a list of
   -- @Principal@s
   expandGroup :: dbp -> Principal -> DCAction [Principal]
@@ -109,28 +110,17 @@ class DatabasePolicy dbp where
   relabelGroups _ = return
 
 
-class (DatabasePolicy dbp, Challenge c) => PrivilegeGrantGate dbp c | dbp -> c where
-  -- | Request the policy's privilege, given a challenge.
-  -- Essentially, the policy vendor should generate a random
-  -- challenge that the app can endorse.
-  -- The policy vendor then takes this repose and returns
-  -- a privilege.
-  getPolicyPriv :: dbp
-                -> (c -> DC (DCLabeled c))
-                -> DC DCPrivTCB
-
-class Eq c => Challenge c where
-  -- | Generate a challenge.
-  genChallenge :: DC c
-
-instance Challenge Int64 where
-  -- | /Note:/ Not-cryptographically secure, but sufficient challenge.
-  genChallenge = ioTCB $ randomIO 
+-- | Class used to define policy-specifi privilege granting gate.
+class DatabasePolicy dbp => PrivilegeGrantGate dbp where
+  -- | Request the policy's privilege-granting gate.
+  grantPriv :: dbp        -- ^ Policy
+            -> Principal  -- ^ App principal
+            -> DC (DCGate DCPrivTCB)
 
 -- | A wrapper around 'relabelGroups' that drops the current
 -- privileges and restores them after getting a result from
 -- 'relabelGroups'.
-relabelGroupsSafe :: DatabasePolicy dbp
+relabelGroupsSafe :: PolicyGroup dbp
                   => dbp
                   -> Labeled DCLabel a
                   -> DC (DCLabeled a)
@@ -143,7 +133,7 @@ relabelGroupsSafe dbp lbl = withPrivileges noPrivs $
 -- value. Clients should not call this directly, instead clients
 -- should call 'relabelGroups' which policies may implement by
 -- wrapping this function.
-relabelGroupsP :: DatabasePolicy dbp
+relabelGroupsP :: PolicyGroup dbp
                => dbp
                -> DCPrivTCB
                -> Labeled DCLabel a
@@ -156,13 +146,13 @@ relabelGroupsP dbp p inp = do
   relabelP p lbl inp
   where expandComponent l | l == (><)  = return l
         expandComponent comp = do
-          ds <- mapM (gocmp) $ componentToList comp
+          ds <- mapM gocmp $ componentToList comp
           return $ listToComponent ds
         gocmp d = do
           let db = policyDB dbp
           result <-
             if p `owns` d
-              then dcAccess db $ liftM listToDisj $ do
+              then dcAccess db $ liftM listToDisj $
                 foldM (\res grp -> do next <- expandGroup dbp grp
                                       return $ res ++ next) [] $ disjToList d
               else return $ Right d
