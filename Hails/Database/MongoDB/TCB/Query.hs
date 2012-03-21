@@ -197,6 +197,7 @@ class (LabelState l p s, Serialize l) => Insert l p s doc where
                     -> doc
                     -> Action l p s M.Document
 
+-- | Perform an 'LIO' action on a 'CollectionPolicy'
 doForCollectionP :: (LabelState l p s, Serialize l)
                  => p
                  -> CollectionName
