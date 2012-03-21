@@ -197,33 +197,33 @@ class (LabelState l p s, Serialize l) => Insert l p s doc where
                     -> doc
                     -> Action l p s M.Document
 
+doForCollectionP :: (LabelState l p s, Serialize l)
+                 => p
+                 -> CollectionName
+                 -> (p -> Database l
+                       -> CollectionPolicy l -> LIO l p s a)
+                 -> Action l p s a
+doForCollectionP p' colName act = do
+  db <- getDatabase
+  liftLIO $ withCombinedPrivs p' $ \p -> do
+    -- Check that we can read collection names associated with DB:
+    colMap <- unlabelP p $ dbColPolicies db
+    -- Lookup collection name in the collection map associated  with DB:
+    col <- maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
+    -- Get the collection clearance:
+    act p db col
+
 instance (LabelState l p s, Serialize l) =>
   Insert l p s (Document l) where
   mkDocForInsertTCB p' colName doc = do
-    db <- getDatabase
-    ldoc <- liftLIO $ withCombinedPrivs p' $ \p -> do
-      -- Check that we can read collection names associated with DB:
-      colMap <- unlabelP p $ dbColPolicies db
-      -- Lookup collection name in the collection map associated  with DB:
-      col <- maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
-      -- Get the collection clearance:
-      let clearance = colClear col
-      withClearance clearance $ applyRawPolicyP p col doc
+    ldoc <- doForCollectionP p' colName $ \p db col ->
+      withClearance (colClear col) $ applyRawPolicyP p col doc
     mkDocForInsertTCB p' colName ldoc
 
 instance (LabelState l p s, Serialize l) =>
   Insert l p s (Labeled l (Document l)) where
   mkDocForInsertTCB p' colName ldoc = do
-    db <- getDatabase
-    liftLIO $ withCombinedPrivs p' $ \p -> do
-      -- Check that we can read collection names associated with DB:
-      colMap <- unlabelP p $ dbColPolicies db
-      -- Lookup collection name in the collection map associated  with DB:
-      col <- maybe (throwIO NoColPolicy) return $ Map.lookup colName colMap
-      -- Get the collection clearance:
-      let clearance = colClear col
-      -- Check that we can insert such a document, and apply policies:
-      --
+    doForCollectionP p' colName $ \p db col -> do
       -- Check that we can write to database:
       wguardP p (dbLabel db)
       -- Check that we can write to collection:
@@ -238,7 +238,7 @@ instance (LabelState l p s, Serialize l) =>
       unless (labelOf asIfLDoc `leq` labelOf ldoc) $
         throwIO $ LerrHigh
       -- Check that 'Labeled' values have labels below clearance:
-      guardLabeledVals udoc clearance
+      guardLabeledVals udoc $ colClear col
       -- Check that 'SearchableField's are not set to labeled
       -- values:
       guardSerachables udoc col
