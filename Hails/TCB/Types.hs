@@ -40,6 +40,8 @@ data AppConf = AppConf { appUser :: !Principal
 type AppReqHandler = HttpReq AppSessionData
                    -> Iter L DC (HttpResp DC)
 
+-- | Session data to be passed to apps in an 'HttpReq'. The
+-- constructor must not be exported to untrusted code.
 data AppSessionData = AppSessionDataTCB Principal
 
 -- | Application route.
