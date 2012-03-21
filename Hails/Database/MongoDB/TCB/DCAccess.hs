@@ -113,9 +113,9 @@ class DatabasePolicy dbp => PolicyGroup dbp where
 -- | Class used to define policy-specifi privilege granting gate.
 class DatabasePolicy dbp => PrivilegeGrantGate dbp where
   -- | Request the policy's privilege-granting gate.
-  getGrantGate :: dbp        -- ^ Policy
-               -> Principal  -- ^ App principal
-               -> DC (DCGate DCPrivTCB)
+  grantPriv :: dbp        -- ^ Policy
+            -> Principal  -- ^ App principal
+            -> DC (DCGate DCPrivTCB)
 
 -- | A wrapper around 'relabelGroups' that drops the current
 -- privileges and restores them after getting a result from
