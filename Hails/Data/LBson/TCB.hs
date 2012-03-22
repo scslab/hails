@@ -29,6 +29,7 @@ module Hails.Data.LBson.TCB ( -- * UTF-8 String
                             , Field(..), (=:), (=?)
                             , Key
                             , hailsInternalKeyPrefix 
+                            , isUnsafeKey
                               -- * Value
                             , Value(..), Val(..), cast, typed
                               -- * Policy labeled values
@@ -48,7 +49,10 @@ module Hails.Data.LBson.TCB ( -- * UTF-8 String
                             , ObjectId(..)
                             , timestamp
                             , genObjectId
-                            -- * Serializing Value
+                            -- * Serializing Value, converting to Bson documents
+                            , BsonValue, safeToBsonValue, safeFromBsonValue
+                            , BsonDocument, safeToBsonDoc, safeFromBsonDoc
+                            -- Unsafe converters
                             , toBsonDoc
                             , fromBsonDoc, fromBsonDocStrict
                             , sanitizeBsonValue
@@ -70,12 +74,13 @@ import Data.Bson ( Binary(..)
                  , MinMaxKey(..)
                  , ObjectId(..)
                  , timestamp)
-import Data.Maybe (mapMaybe, maybeToList, isJust)
+import Data.Maybe (mapMaybe, maybeToList, isJust, fromMaybe)
 import Data.List (find, findIndex)
 import Data.Typeable hiding (cast)
 import Data.CompactString.UTF8 (append, isPrefixOf)
 import Data.Serialize (Serialize, encode, decode)
 
+import Control.Monad
 import Control.Monad.Identity (runIdentity)
 
 import LIO
@@ -116,7 +121,7 @@ valueAt k = runIdentity . look k
 
 -- | Typed value of field in document. Error if missing or wrong type.
 at :: forall v l. (Val l v, Label l) => Key -> Document l -> v
-at k doc = maybe err id (lookup k doc)
+at k doc = fromMaybe err (lookup k doc)
   where err = error $ "expected (" ++ show k ++ " :: "
                 ++ show (typeOf (undefined :: v)) ++ ") in " ++ show doc
 
@@ -126,7 +131,7 @@ include keys doc = mapMaybe (\k -> find ((k ==) . key) doc) keys
 
 -- | Exclude fields from document in key list
 exclude :: Label l => [Key] -> Document l -> Document l
-exclude keys doc = filter (\(k := _) -> notElem k keys) doc
+exclude keys = filter (\(k := _) -> notElem k keys)
 
 -- | Merge documents with preference given to first one when both
 -- have the same key. I.e. for every (k := v) in first argument,
@@ -207,8 +212,7 @@ instance (Bson.Val a, Label l) => Val l a where
   cast' (BsonVal v) = Bson.cast' v
   cast' _           = Nothing
               
--- | Every type that is an instance of BSON Val is an instance of
--- LBSON Val.
+-- | Every 'Value' is a 'Val'.
 instance (Label l) => Val l (Value l) where
   val   = id
   cast' = Just
@@ -306,6 +310,35 @@ instance Label l => Eq (PolicyLabeled l a) where
 -- Serializing 'Value's
 --
 
+-- | Export 'Bson.Value'
+type BsonValue = Bson.Value
+
+-- | Safely convert from a 'Value' to a 'BsonValue'.
+safeToBsonValue :: (Label l) => Value l -> Maybe BsonValue
+safeToBsonValue (BsonVal v) = Just v
+safeToBsonValue _  = Nothing
+
+-- | Safely convert from a 'BsonValue' to a 'Value'.
+safeFromBsonValue :: (Serialize l, Label l) => BsonValue -> Maybe (Value l)
+safeFromBsonValue v' = case fromBsonValue v' of
+  mv@(Just (BsonVal _)) -> mv
+  _                     -> Nothing
+
+-- | Export 'Bson.Document'
+type BsonDocument = Bson.Document
+
+-- | Safe version of 'toBsonDoc'.
+safeToBsonDoc :: (Serialize l, Label l) => Document l -> Maybe BsonDocument
+safeToBsonDoc = mapM (\(k := v) -> do v' <- safeToBsonValue v
+                                      return (k Bson.:= v')) . exceptInternal
+
+-- | Safe version of 'fromBsonDoc'.
+safeFromBsonDoc :: (Serialize l, Label l) => BsonDocument -> Maybe (Document l)
+safeFromBsonDoc d = do
+  d' <- forM d $ \(k Bson.:= v) -> do v' <- safeFromBsonValue v
+                                      return (k := v')
+  return $ exceptInternal d'
+
 -- | Convert a 'Document' to a Bson @Document@. It is an error to call
 -- this function with malformed 'Document's (i.e., those for which
 -- a policy has not been applied.
@@ -319,16 +352,23 @@ fromBsonDoc :: (Serialize l, Label l) => Bson.Document -> Document l
 fromBsonDoc d = 
   let cs' = map (\(k Bson.:= v) -> (k, fromBsonValue v)) d
       cs  = map (\(k, Just v) -> k := v) $ filter (isJust . snd) cs'
-  in exceptInternal $ cs
+  in exceptInternal cs
 
 -- | Same as 'fromBsonDoc', but fails (returns @Nothing@) if any of
 -- the field  values failed to be serialized.
-fromBsonDocStrict :: (Serialize l, Label l) => Bson.Document -> Maybe (Document l)
+fromBsonDocStrict :: (Serialize l, Label l)
+                  => Bson.Document -> Maybe (Document l)
 fromBsonDocStrict d = 
   let cs' = map (\(k Bson.:= v) -> (k, fromBsonValue v)) d
       cs  = map (\(k, Just v) -> k := v) $ filter (isJust . snd) cs'
       ok  = all (isJust .snd) cs'
   in if ok then Just . exceptInternal $ cs else Nothing
+
+isUnsafeKey :: Key -> Bool
+isUnsafeKey k = or
+  [ hailsInternalKeyPrefix `isPrefixOf` k 
+  , (u "$") `isPrefixOf` k
+  ]
 
 -- | If value is a document, remove any fields that have
 -- 'hailsInternalKeyPrefix' as a prefix, otherwise return the value
@@ -339,7 +379,7 @@ sanitizeBsonValue (Bson.Doc doc) = Bson.Doc $ doExcludes doc
   where doExcludes [] = []
         doExcludes (f@(k Bson.:= _):fs) =
           let rest = doExcludes fs
-          in if hailsInternalKeyPrefix `isPrefixOf` k
+          in if isUnsafeKey k
                then rest
                else f:rest
 sanitizeBsonValue v = v
@@ -350,35 +390,35 @@ exceptInternal :: Label l => Document l -> Document l
 exceptInternal [] = []
 exceptInternal (f@(k := _):fs) =
   let rest = exceptInternal fs
-  in if hailsInternalKeyPrefix `isPrefixOf` k
+  in if isUnsafeKey k
        then rest
        else f:rest
 
 -- | This prefix is reserved for HAILS keys. It should not be used by
 -- arbitrary code.
-hailsInternalKeyPrefix :: Bson.Label
+hailsInternalKeyPrefix :: Key
 hailsInternalKeyPrefix = u "__hails_internal_"
 
 -- | Serializing a 'Labeled' to a BSON @Document@ with key 
 -- @lBsonLabeledValKey@.
-lBsonLabeledValKey :: Bson.Label
+lBsonLabeledValKey :: Key
 lBsonLabeledValKey = hailsInternalKeyPrefix `append` u "Labeled"
 
 -- | Serializing a 'PolicyLabeled' to a BSON @Document@ with key 
 -- @lBsonPolicyLabeledValKey@.
-lBsonPolicyLabeledValKey :: Bson.Label
+lBsonPolicyLabeledValKey :: Key
 lBsonPolicyLabeledValKey = hailsInternalKeyPrefix `append` u "PolicyLabeled"
 
 -- | When serializing a 'Labeled' we serialize it to a document
 -- containing the label and value, the key for the label is
 -- @lBsonLabelKey@.
-lBsonLabelKey :: Bson.Label
+lBsonLabelKey :: Key
 lBsonLabelKey = u "label"
 
 -- | When serializing a 'Labeled' (or 'PolicyLabeled') we serialize
 -- it to a document containing the value, the key for the value
 -- is @lBsonValueKey@.
-lBsonValueKey :: Bson.Label
+lBsonValueKey :: Key
 lBsonValueKey = u "value"
 
 -- | Convert 'Value' to Bson @Value@
@@ -391,11 +431,12 @@ toBsonValue mV =
               , lBsonValueKey Bson.:= unlabelTCB lv ] ]
     (PolicyLabeledVal (PL lv)) -> Bson.val [ lBsonPolicyLabeledValKey Bson.=:
               [ lBsonValueKey Bson.:= unlabelTCB lv ] ]
-    (PolicyLabeledVal (PU _)) -> error "bsonValue2lbsonValue: Invalid use."
+    (PolicyLabeledVal (PU _)) -> error "toBsonValue: Invalid use (PU _)."
+
 
 -- | Convert Bson @Value@ to 'Value'
 fromBsonValue :: (Serialize l, Label l) => Bson.Value -> Maybe (Value l)
-fromBsonValue mV = do
+fromBsonValue mV =
   case mV of
     x@(Bson.Doc d) ->
       let haveL = isJust $ Bson.look lBsonLabeledValKey d
@@ -412,7 +453,8 @@ fromBsonValue mV = do
           v <- Bson.look lBsonValueKey lv
           return . LabeledVal $ labelTCB l v
         --
-        getPolicyLabeled :: (Serialize l, Label l) => Bson.Document -> Maybe (Value l)
+        getPolicyLabeled :: (Serialize l, Label l)
+                         => Bson.Document -> Maybe (Value l)
         getPolicyLabeled d = do
           (Bson.Doc lv) <- Bson.look lBsonPolicyLabeledValKey d
           v <- Bson.look lBsonValueKey lv

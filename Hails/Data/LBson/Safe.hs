@@ -35,6 +35,10 @@ module Hails.Data.LBson.Safe ( -- * UTF-8 String
                              , ObjectId(..)
                              , timestamp
                              , genObjectId
+
+                               -- * Convert to/from "Data.Bson"
+                             , BsonValue, safeToBsonValue, safeFromBsonValue
+                             , BsonDocument, safeToBsonDoc, safeFromBsonDoc
                              ) where
 import Prelude ()
 import Hails.Data.LBson.TCB
