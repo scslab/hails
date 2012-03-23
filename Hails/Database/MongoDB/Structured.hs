@@ -13,6 +13,7 @@ import Hails.Database
 import Hails.Database.MongoDB
 
 import Data.Monoid (mappend)
+import Control.Monad (liftM)
 
 -- | Class for converting from \"structured\" records to documents
 -- (and vice versa).
@@ -50,22 +51,20 @@ class DCRecord a where
   findByP p policy colName k v = do
     result <- withDB policy $ findOneP p $ select [k =: v] colName
     case result of
-      Right (Just r) -> unlabelP p r >>= fromDocument >>= (return . Just )
+      Right (Just r) -> fromDocument `liftM` unlabelP p r
       _ -> return Nothing
   --
   findBy = findByP noPrivs
   --
   insertRecordP p policy colName record = do
     p' <- getPrivileges
-    withDB policy $ do
-      insertP (p' `mappend` p)  colName $ toDocument record
+    withDB policy $ insertP (p' `mappend` p)  colName $ toDocument record
   --
   insertRecord = insertRecordP noPrivs
   --
   saveRecordP p policy colName record = do
     p' <- getPrivileges
-    withDB policy $ do
-      saveP (p' `mappend` p) colName $ toDocument record
+    withDB policy $ saveP (p' `mappend` p) colName $ toDocument record
   --
   saveRecord = saveRecordP noPrivs
   --
