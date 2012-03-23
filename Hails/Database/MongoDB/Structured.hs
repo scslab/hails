@@ -28,7 +28,7 @@ class DCRecord a where
   findBy :: (Val DCLabel v, DatabasePolicy p)
          => p -> CollectionName -> Key -> v -> DC (Maybe a)
   -- | Find an object with given query
-  genFindBy :: (DatabasePolicy p)
+  findWhere :: (DatabasePolicy p)
             => p -> Query DCLabel -> DC (Maybe a)
   -- | Insert a record into the database
   insertRecord :: (DatabasePolicy p)
@@ -39,8 +39,8 @@ class DCRecord a where
   -- | Same as 'findBy', but using explicit privileges.
   findByP :: (Val DCLabel v, DatabasePolicy p)
           => DCPrivTCB -> p -> CollectionName -> Key -> v -> DC (Maybe a)
-  -- | Same as 'genFindBy', but using explicit privileges.
-  genFindByP :: (DatabasePolicy p)
+  -- | Same as 'findWhere', but using explicit privileges.
+  findWhereP :: (DatabasePolicy p)
             => DCPrivTCB -> p -> Query DCLabel -> DC (Maybe a)
   -- | Same as 'insertRecord', but using explicit privileges.
   insertRecordP :: (DatabasePolicy p)
@@ -56,7 +56,7 @@ class DCRecord a where
   --
   findBy = findByP noPrivs
   --
-  genFindBy = genFindByP noPrivs
+  findWhere = findWhereP noPrivs
   --
   insertRecordP p policy colName record = do
     p' <- getPrivileges
@@ -70,9 +70,9 @@ class DCRecord a where
   --
   saveRecord = saveRecordP noPrivs
   --
-  findByP p policy colName k v = genFindByP p policy (select [k =: v] colName)
+  findByP p policy colName k v = findWhereP p policy (select [k =: v] colName)
   --
-  genFindByP p policy query  = do
+  findWhereP p policy query  = do
     result <- withDB policy $ findOneP p query
     case result of
       Right (Just r) -> fromDocument `liftM` unlabelP p r
