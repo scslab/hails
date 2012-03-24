@@ -52,6 +52,7 @@ module Hails.Data.LBson.TCB ( -- * UTF-8 String
                             -- * Serializing Value, converting to Bson documents
                             , BsonValue, safeToBsonValue, safeFromBsonValue
                             , BsonDocument, safeToBsonDoc, safeFromBsonDoc
+                            , encodeDoc, decodeDoc
                             -- Unsafe converters
                             , toBsonDoc
                             , fromBsonDoc, fromBsonDocStrict
@@ -74,7 +75,12 @@ import Data.Bson ( Binary(..)
                  , MinMaxKey(..)
                  , ObjectId(..)
                  , timestamp)
-import Data.Maybe (mapMaybe, maybeToList, isJust, fromMaybe)
+import Data.Bson.Binary (putDocument, getDocument)
+import Data.Binary.Get (runGet)
+import Data.Binary.Put (runPut)
+import qualified Data.ByteString.Lazy as L
+
+import Data.Maybe
 import Data.List (find, findIndex)
 import Data.Typeable hiding (cast)
 import Data.CompactString.UTF8 (append, isPrefixOf)
@@ -364,6 +370,7 @@ fromBsonDocStrict d =
       ok  = all (isJust .snd) cs'
   in if ok then Just . exceptInternal $ cs else Nothing
 
+-- | Check if a key is unsafe.
 isUnsafeKey :: Key -> Bool
 isUnsafeKey k = or
   [ hailsInternalKeyPrefix `isPrefixOf` k 
@@ -462,3 +469,27 @@ fromBsonValue mV =
         --
         orMaybe :: Maybe a -> Maybe a -> Maybe a
         orMaybe x y = if isJust x then x else y
+
+
+--
+-- Encoding/decoding Bson documents
+--
+
+-- | Class used to encode/decode 'BsonDocument's, and 'Document's that
+-- do not have 'PolicyLabeled' or 'Labeled' values.
+class BsonDocSerialize doc where
+  encodeDoc :: doc -> L.ByteString
+  -- ^ Encodea document
+  decodeDoc :: L.ByteString -> doc
+  -- ^ Decode a document
+
+instance BsonDocSerialize BsonDocument where
+  encodeDoc doc' = let (Bson.Doc doc) = sanitizeBsonValue . Bson.Doc $ doc'
+                   in runPut $ putDocument doc
+  decodeDoc bs = let (Bson.Doc doc) = sanitizeBsonValue
+                                    . Bson.Doc $ runGet getDocument bs
+                 in doc
+
+instance (Serialize l, Label l) => BsonDocSerialize  (Document l) where
+  encodeDoc = encodeDoc . fromJust . safeToBsonDoc
+  decodeDoc = fromJust . safeFromBsonDoc . decodeDoc 
