@@ -39,6 +39,7 @@ module Hails.Data.LBson.Safe ( -- * UTF-8 String
                                -- * Convert to/from "Data.Bson"
                              , BsonValue, safeToBsonValue, safeFromBsonValue
                              , BsonDocument, safeToBsonDoc, safeFromBsonDoc
+                             , encodeDoc, decodeDoc
                              ) where
 import Prelude ()
 import Hails.Data.LBson.TCB
