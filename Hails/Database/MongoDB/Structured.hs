@@ -23,7 +23,7 @@ class DCRecord a where
   -- | Convert a record to a document
   toDocument :: a -> Document DCLabel
   -- | Get the collection name for the record
-  collectionName :: a -> String
+  collectionName :: a -> CollectionName
   -- | Find an object with mathing value for the given key
   findBy :: (Val DCLabel v, DatabasePolicy p)
          => p -> CollectionName -> Key -> v -> DC (Maybe a)
@@ -32,10 +32,10 @@ class DCRecord a where
             => p -> Query DCLabel -> DC (Maybe a)
   -- | Insert a record into the database
   insertRecord :: (DatabasePolicy p)
-               => p -> CollectionName -> a -> DC (Either Failure (Value DCLabel))
+               => p -> a -> DC (Either Failure (Value DCLabel))
   -- | Insert a record into the database
   saveRecord :: (DatabasePolicy p)
-             => p -> CollectionName -> a -> DC (Either Failure ())
+             => p -> a -> DC (Either Failure ())
   -- | Same as 'findBy', but using explicit privileges.
   findByP :: (Val DCLabel v, DatabasePolicy p)
           => DCPrivTCB -> p -> CollectionName -> Key -> v -> DC (Maybe a)
@@ -44,10 +44,10 @@ class DCRecord a where
             => DCPrivTCB -> p -> Query DCLabel -> DC (Maybe a)
   -- | Same as 'insertRecord', but using explicit privileges.
   insertRecordP :: (DatabasePolicy p)
-              => DCPrivTCB -> p -> CollectionName -> a -> DC (Either Failure (Value DCLabel))
+              => DCPrivTCB -> p -> a -> DC (Either Failure (Value DCLabel))
   -- | Same as 'saveRecord', but using explicit privileges.
   saveRecordP :: (DatabasePolicy p)
-              => DCPrivTCB -> p -> CollectionName -> a -> DC (Either Failure ())
+              => DCPrivTCB -> p -> a -> DC (Either Failure ())
 
   --
   -- Default definitions
@@ -58,19 +58,22 @@ class DCRecord a where
   --
   findWhere = findWhereP noPrivs
   --
-  insertRecordP p policy colName record = do
+  insertRecordP p policy record = do
+    let colName = collectionName record
     p' <- getPrivileges
     withDB policy $ insertP (p' `mappend` p)  colName $ toDocument record
   --
   insertRecord = insertRecordP noPrivs
   --
-  saveRecordP p policy colName record = do
+  saveRecordP p policy record = do
+    let colName = collectionName record
     p' <- getPrivileges
     withDB policy $ saveP (p' `mappend` p) colName $ toDocument record
   --
   saveRecord = saveRecordP noPrivs
   --
-  findByP p policy colName k v = findWhereP p policy (select [k =: v] colName)
+  findByP p policy colName k v = do
+    findWhereP p policy (select [k =: v] colName)
   --
   findWhereP p policy query  = do
     result <- withDB policy $ findOneP p query
