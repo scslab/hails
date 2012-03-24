@@ -41,7 +41,11 @@ Library
                  binary >= 0.5 && < 0.6,
                  HsOpenSSL >= 0.10 && < 2,
                  unix >= 2.5 && < 3,
-                 MissingH >= 1.1.1 && < 2
+                 MissingH >= 1.1.1 && < 2,
+                 SHA >= 1.5 && < 2,
+                 pureMD5 >= 2.1.0.3 && < 3,
+                 SimpleAES >= 0.4.2 && < 0.5,
+                 RSA >= 1.0.6.2 && < 2
 
   ghc-options: -Wall -Werror -package ghc -fno-warn-orphans
 
@@ -65,3 +69,4 @@ Library
     Hails.Database.MongoDB.TCB.Query
     Hails.Database.MongoDB.TCB.DCAccess
     Hails.Database.MongoDB.Structured
+    Hails.Crypto
