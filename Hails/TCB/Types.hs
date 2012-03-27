@@ -4,16 +4,14 @@
 #endif
 {-# LANGUAGE DeriveFunctor,
              GeneralizedNewtypeDeriving #-}
-             
+
 module Hails.TCB.Types ( AppName
                        , AppConf(..)
                        , AppReqHandler
                        , AppRoute
-                       , AppSessionData(..)
                        ) where
 
 import qualified Data.ByteString.Lazy as L
-import Data.IterIO
 import Data.IterIO.Http
 import Data.IterIO.HttpRoute
 
@@ -32,17 +30,15 @@ data AppConf = AppConf { appUser :: !Principal
                          -- ^ The app's name
                          , appPriv :: !TCBPriv
                          -- ^ The app's privileges.
-                         , appReq  :: HttpReq (AppSessionData DCLabel)
+                         , appReq  :: HttpReq ()
                          -- ^ The request message
                          }
 
 -- | Application handler.
-type AppReqHandler = HttpReq (AppSessionData DCLabel)
-                   -> Iter L DC (HttpResp DC)
-
--- | Session data to be passed to apps in an 'HttpReq'. The
--- constructor must not be exported to untrusted code.
-data AppSessionData l = AppSessionDataTCB l
+type AppReqHandler = HttpReq ()
+                   -> DCLabeled L
+                   -> DC (HttpResp DC)
 
 -- | Application route.
 type AppRoute = HttpRoute DC ()
+
