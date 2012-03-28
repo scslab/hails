@@ -7,6 +7,8 @@
 module Hails.Database.MongoDB.TCB.Query ( insert, insert_
                                         , insertP, insertP_
                                         , save, saveP
+                                        , deleteOne, deleteOneP
+                                        -- * Finding objects
                                         , find, findP
                                         , findOne, findOneP
                                         , next, nextP
@@ -355,3 +357,38 @@ nextP p' cur = do
           inProjection (k := _) = case M.look k $ curProject cur of
                                      Just (M.Int32 1) -> True
                                      _                -> False
+--
+-- Delete
+--
+
+-- | Given a query, delete first object in selection. In addition to
+-- being able to read the object, write to the database and collection,
+-- it must be that the current label flow to the label of the existing
+-- document.
+deleteOne :: (LabelState l p s, Serialize l)
+          =>  Selection l -> Action l p s ()
+deleteOne = deleteOneP noPrivs
+
+-- | Same as 'deleteOne', but uses privileges when performing label
+-- comparisons.
+deleteOneP :: (LabelState l p s, Serialize l)
+           => p -> Selection l -> Action l p s ()
+deleteOneP p' sel = do
+  p <- liftLIO $ withCombinedPrivs p' return
+  let colName = coll sel
+  mobj <- findOneP p $ select (selector sel) colName
+  voidIfNothing mobj $ \ldoc -> do
+    doForCollectionP p' (coll sel) $ \_ db col -> do
+      -- Check that we can write to database:
+      wguardP p (dbLabel db)
+      -- Check that we can write to collection:
+      wguardP p (colLabel col)
+      -- Check that we can overwrite document:
+      wguardP p $ labelOf ldoc
+    i <- look "_id" $ unlabelTCB ldoc
+    dbAct . M.deleteOne . selectionToMSelection $ select ["_id" := i] colName
+   where dbAct act = do
+          db <- getDatabase
+          void . liftAction . M.useDb (dbIntern db) $ act
+         voidIfNothing mv m = maybe (return ()) m mv
+

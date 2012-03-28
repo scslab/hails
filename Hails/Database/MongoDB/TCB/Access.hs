@@ -60,7 +60,6 @@ applyRawFieldPolicyP p col doc k = do
       where getPolicyLabeledVal = case look k doc of
               (Just (PolicyLabeledVal x)) -> return  x
               _                           -> throwIO InvalidPolicy
--- | Return True if the field
 
 -- | Apply a raw field/column policy to all the fields of type
 -- 'PolicyLabeled'.
