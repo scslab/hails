@@ -17,6 +17,7 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , isSearchableField
                               , PolicyError(..)
                               , Action, getDatabase
+                              , Selection(..)
                               , Query(..)
                               , Cursor
                               , DBConf
@@ -31,6 +32,7 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , insert, insert_
                               , insertP, insertP_
                               , save, saveP
+                              , deleteOne, deleteOneP
                               , find, findP
                               , findOne, findOneP
                               , next, nextP

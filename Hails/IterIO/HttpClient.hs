@@ -7,18 +7,24 @@
 
 Exports basic HTTP client functions inside the 'DC' Monad.
 Computations are allowed to communicate over HTTP as long as they can
-read and write to a labeled origin. A labeled origin has a label of
-the form @\< {[\"scheme:\/\/authority\"]}, True \>@, where @scheme@ is
+read and write to a labeled origin. An origin is associated with two
+labels. When writing, the origin has a label of the form
+@\< {[\"scheme:\/\/authority\"]}, True \>@, where @scheme@ is
 either \'http\' or \'https\', and @authority@ is the domain name or IP
 address used in the request and port number of the connection. In
 other words, the secrecy component contains the origin information,
 while the integrity component is the same as that of public data.
+When reading, the origin has a label of the form
+@\< True, {[\"scheme:\/\/authority\"]} \>@.
 
 This means that 'LIO' (specifically, 'DC') computations can export
-data if the current label is the same as that of the labeled origin.
-Practically, this means that untrusted computation can export data so
-long as the they have not observed any data more sensitive than the
-label of the target domain.
+data if the current label is not higher than that of the labeled
+origin, and read data that is no more trustworthy than that of the
+origin.  Practically, this means that untrusted computation can export
+data so long as the they have not observed any data more sensitive
+than the label of the target domain. Reading (which also occurs on
+every request/write) further raises the current label to the join of
+the current label and origin.
                                             
 For example, suppose some piece of data, @myLoc@, has the label:
 
@@ -162,24 +168,25 @@ simpleHeadHttp = simpleHeadHttpP noPrivs
 --
 
 
--- | Return the label corresponding to the absolute URI of a request header.
--- The created label will have the scheme and authority (including port) in the
--- secrecy componenet, and @True@ in the integrity component. Specifically, the
--- label will have the form:
+-- | Return the labels corresponding to the absolute URI of a request header.
+-- The created labels will have the scheme and authority (including port) in the
+-- secrecy componenet, and @True@ in the integrity component for the
+-- read label (and the dual for write label). Specifically, the
+-- labels will have the form:
 --
---  > < {[scheme://authority]}, True >
+--  > (< {[scheme://authority]}, True >,< True, {[scheme://authority]} >0
 --
---  For example, the label of a request to \"http:\/\/gitstar.com/\" will be:
+--  For example, the read label of a request to \"http:\/\/gitstar.com/\" is:
 -- 
 --  > <{["http://gitstar.com:80"]} , True>
 --
---  while the label of \"https:\/\/gitstar.com:444/\"
+--  while the read label of \"https:\/\/gitstar.com:444/\"
 --
 --  > <{["https://gitstar.com:444"]} , True>
 --
 -- This should be used for only for single-connection requests, where the
 -- absolute URL makes senes.
-labelOfReq :: HttpReq () -> Maybe DCLabel
+labelOfReq :: HttpReq () -> Maybe (DCLabel, DCLabel)
 labelOfReq req = do
   scheme <- notNull $ reqScheme req
   host   <- notNull $ reqHost req
@@ -187,8 +194,8 @@ labelOfReq req = do
   let prin = S8.concat [ scheme
                        , S8.pack "://"
                        , host
-                       , S8.pack $ ":" ++ show port ]
-  return $! newDC (principal prin) (<>)
+                       , S8.pack $ ':' : show port ]
+  return (newDC (principal prin) (<>), newDC (<>) (principal prin))
     where defaultPort s | s == S8.pack "http"  = return 80
                         | s == S8.pack "https" = return 443
                         | otherwise = Nothing
@@ -200,10 +207,14 @@ labelOfReq req = do
 
 -- | Check that current label can flow to label of request.
 wguardURLP :: DCPrivTCB -> HttpReq () -> DC ()
-wguardURLP p' req = withCombinedPrivs p' $ \p ->
+wguardURLP p' req = withCombinedPrivs p' $ \p -> do
+  l <- getLabel
   case labelOfReq req of
     Nothing -> throwIO . userError $ "Parse error: cannot create request label"
-    Just l -> wguardP p l
+    Just (lr, lw) -> do
+      unless (leqp p l lr) $ throwIO . userError $ 
+                "Current label must flow to origin read label"
+      taintP p lw
 
 -- | Get the CA directory from environment variable. If set, a 
 -- new context is returned.
