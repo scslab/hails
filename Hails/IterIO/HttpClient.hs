@@ -60,6 +60,7 @@ module Hails.IterIO.HttpClient ( -- * Simple interface
                                , simpleHttp, simpleHttpP
                                , simpleGetHttp, simpleGetHttpP
                                , simpleHeadHttp, simpleHeadHttpP
+                               , extractBody
                                -- * Advanced interface
                                , multiHttp, DCHttpResponseHandler
                                -- * Basic requests
@@ -83,6 +84,7 @@ import Hails.IterIO.Conversions
 import LIO
 import LIO.TCB (rtioTCB, getTCB)
 import LIO.DCLabel
+import LIO.LIORef
 import LIO.MonadCatch
 
 import Control.Monad
@@ -101,7 +103,9 @@ httpRespToDC resp =
   HttpRespDC { respStatusDC  = respStatus resp
              , respHeadersDC = respHeaders resp
              , respBodyDC    = getTCB >>= \s -> 
-                return $ inumIOtoInumLIO (enumHttpResp resp) s }
+                return $ inumIOtoInumLIO enumHttpBodyResp s }
+    where enumHttpBodyResp = respBody resp |. maybeChunk
+          maybeChunk = if respChunk resp then inumToChunks else inumNop
 
 --
 -- HTTP Response
@@ -115,6 +119,16 @@ data HttpRespDC = HttpRespDC { respStatusDC  :: !HttpStatus
                              , respBodyDC    :: DC (Onum L DC ())
                                -- ^ Response body
                              } 
+
+-- | Extract body from response
+extractBody :: HttpRespDC -> DC L
+extractBody resp = do
+  bodyOnum <- respBodyDC resp
+  l <- getLabel
+  ref <- newLIORef l L.empty
+  bodyOnum |$ do bdy <- pureI
+                 liftLIO $ writeLIORef ref bdy
+  readLIORef ref
 
 --
 -- Basic functions
