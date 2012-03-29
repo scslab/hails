@@ -103,7 +103,9 @@ httpRespToDC resp =
   HttpRespDC { respStatusDC  = respStatus resp
              , respHeadersDC = respHeaders resp
              , respBodyDC    = getTCB >>= \s -> 
-                return $ inumIOtoInumLIO (enumHttpResp resp) s }
+                return $ inumIOtoInumLIO enumHttpBodyResp s }
+    where enumHttpBodyResp = respBody resp |. maybeChunk
+          maybeChunk = if respChunk resp then inumToChunks else inumNop
 
 --
 -- HTTP Response
