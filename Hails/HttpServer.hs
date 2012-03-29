@@ -45,7 +45,8 @@ httpApp lrh = mkInumM $ do
                    lowerClr userLabel
                    setPrivileges (appPriv appC)
       -- TODO: catch exceptions
-      resp <- liftI $ inumHttpBody req .| lrh req
+      body <- inumHttpBody req .| pureI
+      resp <- liftLIO $ lrh req (labelTCB (newDC (<>) (appUser appC)) body)
       resultLabel <- liftLIO $ getLabel
       irun $ enumHttpResp $
         if resultLabel `leq` userLabel
@@ -84,8 +85,8 @@ getAppConf req0 = do
       in return . Right $ AppConf { appUser = usrN
                                   , appName = appN
                                   , appPriv = privs
-                                  , appReq  = modReq req appN usrN }
-    where modReq req n userN =
+                                  , appReq  = modReq req appN}
+    where modReq req n =
             HttpReq { reqMethod = reqMethod req
                     , reqScheme = reqScheme req
                     , reqPathParams = reqPathParams req
@@ -102,7 +103,7 @@ getAppConf req0 = do
                     , reqContentType = reqContentType req
                     , reqContentLength = reqContentLength req
                     , reqIfModifiedSince = reqIfModifiedSince req
-                    , reqSession = AppSessionDataTCB $ newDC (<>) (userN)
+                    , reqSession = ()
                     }
 
 
