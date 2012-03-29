@@ -36,6 +36,14 @@ class DCRecord a where
   -- | Insert a record into the database
   saveRecord :: (DatabasePolicy p)
              => p -> a -> DC (Either Failure ())
+  -- | Delete a record from the database given a matching value for
+  -- given key. The deleted record is returned.
+  deleteBy :: (Val DCLabel v, DatabasePolicy p)
+           => p -> CollectionName -> Key -> v -> DC (Maybe a)
+  -- | Delete an object matching the given query.
+  -- The deleted record is returned.
+  deleteWhere :: (DatabasePolicy p)
+              => p -> Selection DCLabel -> DC (Maybe a)
   -- | Same as 'findBy', but using explicit privileges.
   findByP :: (Val DCLabel v, DatabasePolicy p)
           => DCPrivTCB -> p -> CollectionName -> Key -> v -> DC (Maybe a)
@@ -48,6 +56,12 @@ class DCRecord a where
   -- | Same as 'saveRecord', but using explicit privileges.
   saveRecordP :: (DatabasePolicy p)
               => DCPrivTCB -> p -> a -> DC (Either Failure ())
+  -- | Same as 'deleteBy', but using explicit privileges.
+  deleteByP :: (Val DCLabel v, DatabasePolicy p)
+      => DCPrivTCB -> p -> CollectionName -> Key -> v -> DC (Maybe a)
+  -- | Same as 'deleteWhere', but using explicit privileges.
+  deleteWhereP :: (DatabasePolicy p)
+               => DCPrivTCB -> p -> Selection DCLabel -> DC (Maybe a)
 
   --
   -- Default definitions
@@ -58,26 +72,43 @@ class DCRecord a where
   --
   findWhere = findWhereP noPrivs
   --
+  insertRecord = insertRecordP noPrivs
+  --
+  saveRecord = saveRecordP noPrivs
+  --
+  deleteBy = deleteByP noPrivs
+  --
+  deleteWhere = deleteWhereP noPrivs
+  --
   insertRecordP p policy record = do
     let colName = collectionName record
     p' <- getPrivileges
     withDB policy $ insertP (p' `mappend` p)  colName $ toDocument record
-  --
-  insertRecord = insertRecordP noPrivs
   --
   saveRecordP p policy record = do
     let colName = collectionName record
     p' <- getPrivileges
     withDB policy $ saveP (p' `mappend` p) colName $ toDocument record
   --
-  saveRecord = saveRecordP noPrivs
-  --
-  findByP p policy colName k v = do
+  findByP p policy colName k v = 
     findWhereP p policy (select [k =: v] colName)
   --
   findWhereP p policy query  = do
     result <- withDB policy $ findOneP p query
     case result of
       Right (Just r) -> fromDocument `liftM` unlabelP p r
+      _ -> return Nothing
+  --
+  deleteByP p policy colName k v = 
+    deleteWhereP p policy (select [k =: v] colName)
+  --
+  deleteWhereP p policy sel = do
+    -- Find with only supplied privileges
+    mdoc <- findWhereP p policy $ select (selector sel) (coll sel)
+    -- User underlying privileges as well:
+    p' <- getPrivileges
+    res <- withDB policy $ deleteOneP (p' `mappend` p) sel
+    case res of
+      Right _ -> return mdoc
       _ -> return Nothing
   --
