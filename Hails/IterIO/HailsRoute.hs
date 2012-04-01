@@ -3,9 +3,7 @@
 {-# LANGUAGE Trustworthy #-}
 #endif
 module Hails.IterIO.HailsRoute ( routeFileSys
-															 , systemMimeMap
-															 , module Data.IterIO.HttpRoute
-															 ) where
+                               , systemMimeMap) where
 
 import Hails.IterIO.Conversions
 import qualified Data.ByteString.Char8 as S8
