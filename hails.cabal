@@ -55,6 +55,7 @@ Library
     Hails.Data.LBson.TCB
     Hails.App
     Hails.HttpServer
+    Hails.IterIO.Conversions
     Hails.IterIO.HailsRoute
     Hails.IterIO.HttpClient
     Hails.TCB.Load
