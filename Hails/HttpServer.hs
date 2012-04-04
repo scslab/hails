@@ -10,15 +10,17 @@ module Hails.HttpServer ( secureHttpServer ) where
 import Data.ByteString.Base64
 import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.ByteString.Char8 as S8
-
+import Data.Monoid (mempty)
 import Data.IterIO
 import Data.IterIO.Http
+import Data.IterIO.HttpRoute (runHttpRoute, routeName)
 import Data.IterIO.Server.TCPServer
 import Data.Functor ((<$>))
 
 import Hails.TCB.Types
 
 import Hails.IterIO.Conversions
+import Hails.IterIO.HailsRoute
 import DCLabel.TCB
 import LIO.DCLabel
 import LIO.MonadLIO hiding (liftIO)
@@ -36,7 +38,11 @@ httpApp lrh = mkInumM $ do
   appState <- getAppConf req0
   case appState of
     Left resp -> irun $ enumHttpResp resp
-    Right appC -> do
+    Right appC | isStaticReq appC -> do
+      resp <- liftI $ respondWithFS (appReq appC)
+      irun $ enumHttpResp resp
+
+               | otherwise -> do
       let userLabel = newDC (appUser appC) (<>)
           req = appReq appC
       -- Set current label to be public, clearance to the user's label
@@ -52,6 +58,13 @@ httpApp lrh = mkInumM $ do
         if resultLabel `leq` userLabel
           then resp
           else resp500 "App violated IFC" --TODO: add custom header
+  where isStaticReq appC | null . reqPathLst . appReq $ appC = False
+                         | otherwise =
+                            (head . reqPathLst . appReq $ appC)
+                            == "static"
+        respondWithFS req = do
+          let rh = runHttpRoute $ routeName "static" $ routeFileSys systemMimeMap (const mempty) "static"
+          inumHttpBody req .| rh req
 
 -- | Return a server, given a port number and app.
 secureHttpServer :: PortNumber -> AppReqHandler -> TCPServer L DC
