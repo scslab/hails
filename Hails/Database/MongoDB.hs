@@ -28,6 +28,7 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               , PolicyGroup(..)
                               , relabelGroupsP, relabelGroupsSafe
                               , PrivilegeGrantGate(..)
+                              , gateToLabeled
                               -- * Query
                               , insert, insert_
                               , insertP, insertP_
