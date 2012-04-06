@@ -2,7 +2,10 @@
 #if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE Unsafe #-}
 #endif
-{-# LANGUAGE MultiParamTypeClasses, FlexibleInstances, OverloadedStrings #-}
+{-# LANGUAGE MultiParamTypeClasses,
+             FlexibleContexts,
+             FlexibleInstances,
+             OverloadedStrings #-}
 
 module Hails.Database.MongoDB.TCB.Query ( insert, insert_
                                         , insertP, insertP_
@@ -150,7 +153,7 @@ class (LabelState l p s, Serialize l) => Insert l p s doc where
           -> Action l p s (Value l)
   insertP p colName doc = do
     db <- getDatabase
-    bsonDoc <- mkDocForInsertTCB p colName doc
+    bsonDoc <- snd `liftM` mkDocForInsertTCB p colName doc
     liftAction $ liftM BsonVal $ M.useDb (dbIntern db) $ M.insert colName bsonDoc
 
   -- | Same as 'insertP' except it does not return @_id@
@@ -176,29 +179,17 @@ class (LabelState l p s, Serialize l) => Insert l p s doc where
          -> CollectionName
          -> doc
          -> Action l p s ()
-  saveP p colName doc = do
-    db <- getDatabase
-    -- check that we can insert documetn as is:
-    bsonDoc <- mkDocForInsertTCB p colName doc
-    case M.look "_id" bsonDoc of
-      Nothing -> dbAct db $ M.insert colName bsonDoc
-      Just i -> do
-        mdoc <- findOneP p $ select ["_id" := BsonVal i] colName
-        -- If document exists make sure that we can overwrite the
-        -- existing document:
-        maybe (return ()) (lioWGuard . labelOf) mdoc
-        dbAct db $ M.save colName bsonDoc
-    where lioWGuard l = liftLIO $ withCombinedPrivs p $ \p' -> wguardP p' l
-          dbAct db = void . liftAction . M.useDb (dbIntern db) 
 
   -- | Convert a 'Document' to a MongoDB @Document@, applying policies
   -- and checking that we can insert to DB and collection.
+  -- The first projection is the label of the document after applying
+  -- the policy.
   -- Because the returned document is \"serialized\" document, this
   -- function must be part of the TCB.
   mkDocForInsertTCB :: p
                     -> CollectionName
                     -> doc
-                    -> Action l p s M.Document
+                    -> Action l p s (l, M.Document)
 
   -- | Simply chech that the computation can perform an insert,
   -- tainting the current label appropriately.
@@ -213,6 +204,9 @@ class (LabelState l p s, Serialize l) => Insert l p s doc where
                -> doc
                -> Action l p s ()
   insertGuardP p colName ldoc = void $ mkDocForInsertTCB p colName ldoc
+
+
+
 
 -- | Perform an 'LIO' action on a 'CollectionPolicy'
 doForCollectionP :: (LabelState l p s, Serialize l)
@@ -231,16 +225,49 @@ doForCollectionP p' colName act = do
     -- Get the collection clearance:
     act p db col
 
-instance (LabelState l p s, Serialize l) =>
-  Insert l p s (Document l) where
+
+
+
+instance (LabelState l p s, Serialize l) => Insert l p s (Document l) where
+  saveP p colName doc = do
+    db <- getDatabase
+    -- check that we can insert documetn as is:
+    bsonDoc <- snd `liftM` mkDocForInsertTCB p colName doc
+    case M.look "_id" bsonDoc of
+      Nothing -> dbAct db $ M.insert colName bsonDoc
+      Just i -> do
+        mdoc <- findOneP p $ select ["_id" := BsonVal i] colName
+        -- If document exists make sure that we can overwrite the
+        -- existing document:
+        maybe (return ()) (lioWGuard . labelOf) mdoc
+        dbAct db $ M.save colName bsonDoc
+    where lioWGuard l = liftLIO $ withCombinedPrivs p $ \p' -> wguardP p' l
+          dbAct db = void . liftAction . M.useDb (dbIntern db)
+
   mkDocForInsertTCB p' colName doc = do
     ldoc <- doForCollectionP p' colName $ \p _ col ->
       withClearance (colClear col) $ applyRawPolicyP p col doc
     mkDocForInsertTCB p' colName ldoc
 
-instance (LabelState l p s, Serialize l) =>
-  Insert l p s (Labeled l (Document l)) where
-  mkDocForInsertTCB p' colName ldoc = do
+instance (LabelState l p s, Serialize l, Insert l p s (Document l)) =>
+         Insert l p s (Labeled l (Document l)) where
+  saveP p colName ldoc = do
+    db <- getDatabase
+    -- check that we can insert documetn as is:
+    (docL, bsonDoc) <- mkDocForInsertTCB p colName ldoc
+    case M.look "_id" bsonDoc of
+      Nothing -> dbAct db $ M.insert colName bsonDoc
+      Just i -> do
+        mdoc <- findOneP p $ select ["_id" := BsonVal i] colName
+        -- If document exists make sure that we can overwrite the
+        -- existing document:
+        maybe (return ()) (lioWGuard docL . labelOf) mdoc
+        dbAct db $ M.save colName bsonDoc
+    where lioWGuard nl l = liftLIO $ withCombinedPrivs p $ \p' ->
+            unless (leqp p' nl l) $ throwIO LerrHigh
+          dbAct db = void . liftAction . M.useDb (dbIntern db)
+
+  mkDocForInsertTCB p' colName ldoc = 
     doForCollectionP p' colName $ \p db col -> do
       -- Check that we can write to database:
       wguardP p (dbLabel db)
@@ -261,7 +288,7 @@ instance (LabelState l p s, Serialize l) =>
       guardSerachables udoc col
       -- Policies applied, labels are below clearance,
       -- searchables are Bson values and unlabeled, done:
-      return . toBsonDoc $ udoc
+      return $ (labelOf asIfLDoc, toBsonDoc udoc)
     where guardLabeledVals ds c = forM_ ds $ \(_ := v) ->
             case v of
               (LabeledVal lv) -> unless (labelOf lv `leq` c) $
