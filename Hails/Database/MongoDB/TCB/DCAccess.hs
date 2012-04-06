@@ -15,7 +15,7 @@ module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , relabelGroupsSafe
                                            -- * Privilege granting gate
                                            , PrivilegeGrantGate(..)
-                                           , gateToLabeled
+                                           , withLabel, gateToLabeled
                                            ) where
 
 import Control.Monad (foldM, liftM)
@@ -221,28 +221,34 @@ gle_opt_write   = do _ <- string "write"
 
 
 -- | Given a set of privileges, a labeled document and computaiton on
--- the (unlabeled version of the) documnet, lower the current label with
--- the supplied privileges execute, unlabel the document and apply
--- the computation to it. The result is then labeled with the current
+-- the (unlabeled version of the) documnet, downgrade the current label with
+-- the supplied privileges execute (only integrity), unlabel the document
+-- and apply the computation to it. The result is then labeled with the current
 -- label and the current label is reset to the original (if possible).
--- Note that initially the privileges are used to
--- modify the integrity component of the current label and not lower
--- both integrity and secrecy.
 gateToLabeled :: DCPrivTCB
               -> DCLabeled (Document DCLabel)
               -> (Document DCLabel -> DC a) -> DC (DCLabeled a)
 gateToLabeled privs ldoc act = do
+  l <- getLabel
+  withLabel privs (newDC (secrecy l) (><)) $ do
+    doc <- unlabel ldoc
+    res <- act doc
+    lr  <- getLabel
+    label lr res
+
+
+-- | Given a set of privileges, a desired label and action. Lower the
+-- current label as close tothe desired label as possible, execute the
+-- action and raise the current label.
+withLabel :: DCPrivTCB -> DCLabel -> DC a -> DC a
+withLabel privs l act = do
   -- Lower the current label:
   l0 <- getLabel
-  setLabelP privs $ lostar privs l0 (newDC (secrecy l0) (><))
-  -- START
-  doc <- unlabel ldoc
-  res <- act doc
-  -- END
-  -- Label result:
-  l1 <- getLabel
-  lres <- label l1 res
+  setLabelP privs $ lostar privs l0 l
+  -- Execute action
+  res <- act
   -- Raise current label:
+  l1 <- getLabel
   setLabelP privs (lostar privs l1 l0)
-  -- Return labeled result:
-  return lres
+  -- Return result:
+  return res
