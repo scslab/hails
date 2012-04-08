@@ -15,11 +15,13 @@ module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , relabelGroupsSafe
                                            -- * Privilege granting gate
                                            , PrivilegeGrantGate(..)
+                                           , withLabel, gateToLabeled
                                            ) where
 
 import Control.Monad (foldM, liftM)
 import Data.Bson (u)
 import qualified Data.Bson as Bson
+import Hails.Data.LBson (Document)
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.Access
 import Database.MongoDB ( runIOE
@@ -39,7 +41,7 @@ import Data.Maybe (fromMaybe)
 import qualified Data.Map as Map
 import qualified Data.List as List
 
-import Text.Parsec
+import Text.Parsec hiding (label)
 
 -- | Database configuration, used to invoke @withDB@
 data DBConf = DBConf { dbConfName :: DatabaseName
@@ -217,3 +219,36 @@ gle_opt_write   = do _ <- string "write"
                      dgt <- many1 digit
                      return [ (u "w") Bson.=: (read dgt :: Integer) ]
 
+
+-- | Given a set of privileges, a labeled document and computaiton on
+-- the (unlabeled version of the) documnet, downgrade the current label with
+-- the supplied privileges execute (only integrity), unlabel the document
+-- and apply the computation to it. The result is then labeled with the current
+-- label and the current label is reset to the original (if possible).
+gateToLabeled :: DCPrivTCB
+              -> DCLabeled (Document DCLabel)
+              -> (Document DCLabel -> DC a) -> DC (DCLabeled a)
+gateToLabeled privs ldoc act = do
+  l <- getLabel
+  withLabel privs (newDC (secrecy l) (><)) $ do
+    doc <- unlabel ldoc
+    res <- act doc
+    lr  <- getLabel
+    label lr res
+
+
+-- | Given a set of privileges, a desired label and action. Lower the
+-- current label as close tothe desired label as possible, execute the
+-- action and raise the current label.
+withLabel :: DCPrivTCB -> DCLabel -> DC a -> DC a
+withLabel privs l act = do
+  -- Lower the current label:
+  l0 <- getLabel
+  setLabelP privs $ lostar privs l0 l
+  -- Execute action
+  res <- act
+  -- Raise current label:
+  l1 <- getLabel
+  setLabelP privs (lostar privs l1 l0)
+  -- Return result:
+  return res
