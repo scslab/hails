@@ -62,9 +62,10 @@ httpApp lrh = mkInumM $ do
                          | otherwise =
                             (head . reqPathLst . appReq $ appC)
                             == "static"
-        respondWithFS req = do
-          let rh = runHttpRoute $ routeName "static" $ routeFileSys systemMimeMap (const mempty) "static"
-          inumHttpBody req .| rh req
+        respondWithFS req = 
+          let rh = runHttpRoute $ routeName "static" $
+                    routeFileSys systemMimeMap (const mempty) "static"
+          in inumHttpBody req .| rh req
 
 -- | Return a server, given a port number and app.
 secureHttpServer :: PortNumber -> AppReqHandler -> TCPServer L DC

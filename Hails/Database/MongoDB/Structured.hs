@@ -3,8 +3,14 @@
 {-# LANGUAGE Safe #-}
 #endif
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE TypeSynonymInstances #-}
 
-module Hails.Database.MongoDB.Structured ( DCRecord(..) ) where
+module Hails.Database.MongoDB.Structured ( DCRecord(..)
+                                         , DCLabeledRecord(..)
+                                         , MkToLabeledDocument(..)
+                                         , toDocumentP
+                                         ) where
 
 import LIO
 import LIO.DCLabel
@@ -24,7 +30,9 @@ class DCRecord a where
   toDocument :: a -> Document DCLabel
   -- | Get the collection name for the record
   collectionName :: a -> CollectionName
-  -- | Find an object with mathing value for the given key
+  -- | Find an object with mathing value for the given key. If the
+  -- object does exist but cannot be read (above clearance), this
+  -- returns 'Nothing'.
   findBy :: (Val DCLabel v, DatabasePolicy p)
          => p -> CollectionName -> Key -> v -> DC (Maybe a)
   -- | Find an object with given query
@@ -33,6 +41,10 @@ class DCRecord a where
   -- | Insert a record into the database
   insertRecord :: (DatabasePolicy p)
                => p -> a -> DC (Either Failure (Value DCLabel))
+  -- | Perform all the checks and taints as if inserting document, but
+  -- does not insert.
+  insertRecordGuard :: (DatabasePolicy p)
+               => p -> a -> DC (Either Failure ())
   -- | Insert a record into the database
   saveRecord :: (DatabasePolicy p)
              => p -> a -> DC (Either Failure ())
@@ -53,6 +65,9 @@ class DCRecord a where
   -- | Same as 'insertRecord', but using explicit privileges.
   insertRecordP :: (DatabasePolicy p)
               => DCPrivTCB -> p -> a -> DC (Either Failure (Value DCLabel))
+  -- | Same as 'insertRecordGuard', but using explicit privileges.
+  insertRecordGuardP :: (DatabasePolicy p)
+               => DCPrivTCB -> p -> a -> DC (Either Failure ())
   -- | Same as 'saveRecord', but using explicit privileges.
   saveRecordP :: (DatabasePolicy p)
               => DCPrivTCB -> p -> a -> DC (Either Failure ())
@@ -74,6 +89,8 @@ class DCRecord a where
   --
   insertRecord = insertRecordP noPrivs
   --
+  insertRecordGuard = insertRecordGuardP noPrivs
+  --
   saveRecord = saveRecordP noPrivs
   --
   deleteBy = deleteByP noPrivs
@@ -85,6 +102,11 @@ class DCRecord a where
     p' <- getPrivileges
     withDB policy $ insertP (p' `mappend` p)  colName $ toDocument record
   --
+  insertRecordGuardP p policy record = do
+    let colName = collectionName record
+    p' <- getPrivileges
+    withDB policy $ insertGuardP (p' `mappend` p) colName $ toDocument record
+  --
   saveRecordP p policy record = do
     let colName = collectionName record
     p' <- getPrivileges
@@ -95,8 +117,9 @@ class DCRecord a where
   --
   findWhereP p policy query  = do
     result <- withDB policy $ findOneP p query
+    c <- getClearance
     case result of
-      Right (Just r) -> fromDocument `liftM` unlabelP p r
+      Right (Just r) | labelOf r `leq` c -> fromDocument `liftM` unlabelP p r
       _ -> return Nothing
   --
   deleteByP p policy colName k v = 
@@ -112,3 +135,88 @@ class DCRecord a where
       Right _ -> return mdoc
       _ -> return Nothing
   --
+
+-- | Class for inserting and saving labeled records.
+class DCRecord a => DCLabeledRecord a where
+  -- | Insert a labeled record into the database
+  insertLabeledRecord :: (MkToLabeledDocument p)
+               => p -> DCLabeled a -> DC (Either Failure (Value DCLabel))
+  -- | Perform all the checks and taints as if inserting document, but
+  -- does not insert.
+  insertLabeledRecordGuard :: (MkToLabeledDocument p)
+               => p -> DCLabeled a -> DC (Either Failure ())
+  -- | Insert a labeled record into the database
+  saveLabeledRecord :: (MkToLabeledDocument p)
+             => p -> DCLabeled a -> DC (Either Failure ())
+  -- | Same as 'insertLabeledRecord', but using explicit privileges.
+  insertLabeledRecordP :: (MkToLabeledDocument p)
+    => DCPrivTCB -> p -> DCLabeled a -> DC (Either Failure (Value DCLabel))
+  -- | Same as 'insertLabeledRecordGuard', but using explicit privileges.
+  insertLabeledRecordGuardP :: (MkToLabeledDocument p)
+               => DCPrivTCB -> p -> DCLabeled a -> DC (Either Failure ())
+  -- | Same as 'saveLabeledRecord', but using explicit privileges.
+  saveLabeledRecordP :: (MkToLabeledDocument p)
+              => DCPrivTCB -> p -> DCLabeled a -> DC (Either Failure ())
+
+  --
+  -- Default definitions for insert/save
+  --
+
+  --
+  insertLabeledRecord = insertLabeledRecordP noPrivs
+  --
+  insertLabeledRecordGuard = insertLabeledRecordGuardP noPrivs
+  --
+  saveLabeledRecord = saveLabeledRecordP noPrivs
+  --
+  insertLabeledRecordP p policy lrecord = do
+    let colName = collectionName (forceType lrecord)
+    p' <- getPrivileges
+    ldoc <- mkToLabeledDocument policy lrecord
+    withDB policy $ insertP (p' `mappend` p)  colName  ldoc
+  --
+  insertLabeledRecordGuardP p policy lrecord = do
+    let colName = collectionName (forceType lrecord)
+    p' <- getPrivileges
+    ldoc <- mkToLabeledDocument policy lrecord
+    withDB policy $ insertGuardP (p' `mappend` p) colName ldoc
+  --
+  saveLabeledRecordP p policy lrecord = do
+    let colName = collectionName (forceType lrecord)
+    p' <- getPrivileges
+    ldoc <- mkToLabeledDocument policy lrecord
+    withDB policy $ saveP (p' `mappend` p) colName ldoc
+  --
+
+-- | Classe used by a database policy to translate a labeled record to
+-- a labeled document.
+class DatabasePolicy p => MkToLabeledDocument p where
+  -- | Given a policy, return a function that can be used to translate
+  -- labeled records to labeled documents. It is recommended to simply
+  -- create the instance by defining @mkToDocumentP@ as:
+  --
+  -- > mkToDocumentP (Policy ... priv ..) = toDocumentP priv
+  --
+  mkToLabeledDocument :: DCRecord a
+                      => p
+                      -> DCLabeled a
+                      -> DC (DCLabeled (Document DCLabel))
+
+-- | Same as 'toDocument' but for uses the policy's privileges to
+-- convert a labeled record to a labeled  document.
+toDocumentP :: DCRecord a
+            => DCPrivTCB -> DCLabeled a -> DC (DCLabeled (Document DCLabel))
+toDocumentP privs lr = do
+  lcur <- getLabel
+  let lres = lostar privs lcur (labelOf lr)
+  r <- unlabelP privs lr
+  labelP privs lres $ toDocument r
+
+
+--
+-- Misc helpers
+--
+
+-- | Get the type of a 'DCLabeled' value
+forceType :: DCLabeled a -> a
+forceType = undefined
