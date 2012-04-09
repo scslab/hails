@@ -14,9 +14,10 @@ import qualified Data.UString as U
 import System.Environment
 import qualified Data.ByteString.Char8 as C
 
--- | Given a principal corresponding to the databaes owner and a
+-- | Given a principal corresponding to the database owner and a
 -- database name create the corresponding database object in @LIO@.
-loadDatabase :: DatabasePolicy dbp => Principal
+loadDatabase :: DatabasePolicy dbp
+             => Principal
              -> DatabaseName
              -> (DC dbp)
 loadDatabase dbPrincipal dbName = do
