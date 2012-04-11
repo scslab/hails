@@ -34,6 +34,10 @@ labeledDocI req lbody = do
   doc <- enumPure (unlabelTCB lbody) |$ formFolder req
   return $ labelTCB lbl doc
 
+-- | Parases query or request body into a BSON document. Query components
+-- become 'Key' 'String' pairs in the BSON doc. If a query argument has the
+-- form \"key1[]=blah\" it will be parsed as an array of 'String's and equally
+-- named arguments will be combined.
 formFolder :: (LabelState l p s)
            => HttpReq a -> Iter L.ByteString (LIO l p s) (Document l)
 formFolder req = foldForm req docontrol []
@@ -46,7 +50,10 @@ formFolder req = foldForm req docontrol []
               let lfld = pack (S.unpack.ffName $ field) =: formVal
               return $ lfld : acc
 
-appendVal :: LabelState l p s => [Field l] -> String -> String -> [Field l]
+-- | Appends the a value to the corresponding field in a document. If the field
+-- already exists in the document, appends the value to the array. Otherwise the
+-- field is added with the passed in value the only element in the array.
+appendVal :: LabelState l p s => Document l -> String -> String -> Document l
 appendVal doc k' formVal =
   let k = U.pack $ takeWhile (/= '[') k'
       field = (k := BsonVal (B.Array [B.String $ U.pack formVal]))
