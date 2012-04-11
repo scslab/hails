@@ -16,10 +16,6 @@
 {-# LANGUAGE DeriveDataTypeable #-}
 {-# LANGUAGE OverlappingInstances #-}
 
---
-#define DEBUG 0
---
-
 module Hails.Data.LBson.TCB ( -- * UTF-8 String
                               module Data.UString
                               -- * Document
@@ -50,7 +46,8 @@ module Hails.Data.LBson.TCB ( -- * UTF-8 String
                             , timestamp
                             , genObjectId
                             -- * Serializing Value, converting to Bson documents
-                            , BsonValue, safeToBsonValue, safeFromBsonValue
+                            , BsonValue
+                            , safeToBsonValue, safeFromBsonValue
                             , BsonDocument, safeToBsonDoc, safeFromBsonDoc
                             , encodeDoc, decodeDoc
                             -- Unsafe converters
@@ -74,7 +71,8 @@ import Data.Bson ( Binary(..)
                  , MongoStamp(..)
                  , MinMaxKey(..)
                  , ObjectId(..)
-                 , timestamp)
+                 , timestamp
+                 )
 import Data.Bson.Binary (putDocument, getDocument)
 import Data.Binary.Get (runGet)
 import Data.Binary.Put (runPut)

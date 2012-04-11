@@ -11,7 +11,8 @@ module Hails.Data.LBson.Safe ( -- * UTF-8 String
                                module Data.UString
                                -- * Document
                              , Document, LabeledDocument
-                             , look, lookup, valueAt, at, include, exclude, merge
+                             , look, lookup
+                             , valueAt, at, include, exclude, merge
                                -- * Field
                              , Field(..), (=:), (=?)
                              , Key
@@ -37,10 +38,14 @@ module Hails.Data.LBson.Safe ( -- * UTF-8 String
                              , genObjectId
 
                                -- * Convert to/from "Data.Bson"
-                             , BsonValue, safeToBsonValue, safeFromBsonValue
+                             , BsonValue
+                             , module Hails.Data.LBson.Rexports
+                             , safeToBsonValue, safeFromBsonValue
                              , BsonDocument, safeToBsonDoc, safeFromBsonDoc
+                               -- * Convert to/from Bytestring
                              , encodeDoc, decodeDoc
                              ) where
-import Prelude ()
+import Prelude hiding (lookup)
 import Hails.Data.LBson.TCB
 import Data.UString
+import Hails.Data.LBson.Rexports hiding (Value)
