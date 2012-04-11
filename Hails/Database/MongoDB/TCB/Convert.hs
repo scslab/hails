@@ -22,7 +22,9 @@ import Hails.Data.LBson.TCB
 -- and the request body as a 'L.ByteString' and returns a 'Labeled'
 -- 'Document' with keys and values corresponding to the form fields
 -- from the request. The label on the @Labeled@ result is the same as
--- input.
+-- input. Arguments values are parsed in to BSON Strings except if the
+-- key is of the form \"key_name[]\" in which case all such arguments
+-- will be combined into an array of Strings.
 labeledDocI :: (LabelState l p s)
                   => HttpReq a
                   -> Labeled l L.ByteString
@@ -38,9 +40,9 @@ formFolder req = foldForm req docontrol []
   where docontrol acc field = do
           formVal <- fmap L.unpack pureI
           let k = S.unpack $ ffName field
-          case k of
-            _ | endswith "[]" k -> return $ appendVal acc k formVal
-              | otherwise -> do
+          if endswith "[]" k then
+            return $ appendVal acc k formVal
+            else do
               let lfld = pack (S.unpack.ffName $ field) =: formVal
               return $ lfld : acc
 
@@ -49,6 +51,12 @@ appendVal doc k' formVal =
   let k = U.pack $ takeWhile (/= '[') k'
       field = (k := BsonVal (B.Array [B.String $ U.pack formVal]))
   in case find (isKey k) doc of
-      Just (_ := (BsonVal (B.Array arr))) -> (k =: ((B.String $ U.pack formVal):arr)):(deleteBy (\x y -> (key x) == (key y)) field doc)
-      _ -> field:doc
-  where isKey kk (k := _) = k == kk
+        Just _ -> map (upsert k) doc
+        Nothing -> field:doc
+  where upsert k f@(k0 := (BsonVal (B.Array arr))) =
+          if k0 == k then
+            (k =: (B.String $ U.pack formVal):arr)
+            else f
+        upsert _ f = f
+        isKey kk (k := _) = k == kk
+
