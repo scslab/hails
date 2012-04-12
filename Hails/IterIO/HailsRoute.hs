@@ -15,6 +15,7 @@ import System.Posix.Files
 import System.Posix.IO
 import System.Posix.Types
 import System.IO.Unsafe
+import Control.Exception (SomeException(..))
 
 routeFileSys :: LabelState l p st =>
                 (String -> S8.ByteString)
@@ -37,16 +38,19 @@ routeFileSys :: LabelState l p st =>
              -> HttpRoute (LIO l p st) s
 routeFileSys = routeGenFileSys defaultFileSystemCalls
 
+-- | Given a file extension (e.g., \"hs\") return its MIME type (e.g.,
+-- \"text\/x-haskell\"). If there is no recognized MIME type (or none
+-- of the default paths exist), this function returns
+-- \"application\/octet-stream\"
 systemMimeMap :: String -> S8.ByteString
-systemMimeMap = unsafePerformIO $ do
-		        path <- findMimeTypes ["mime.types"
-		                              , "/etc/mime.types"
-		                              , "/var/www/conf/mime.types"]
-		        enumFile path |$ mimeTypesI "application/octet-stream"
-		where
-		  findMimeTypes (h:t) = do exist <- fileExist h
-		                           if exist then return h else findMimeTypes t
-		  findMimeTypes []    = return "mime.types" -- cause error
+systemMimeMap = unsafePerformIO $ 
+  foldr1 cat (map enumMimeFile defaultPaths) |$
+    mimeTypesI "application/octet-stream"
+    where defaultPaths = ["mime.types"
+                         , "/etc/mime.types"
+                         , "/var/www/conf/mime.types"]
+          enumMimeFile f = inumCatch (enumFile f) $ \(SomeException _) res ->
+                                                      resumeI res
 
 defaultFileSystemCalls :: LabelState l p st => FileSystemCalls Fd (LIO l p st)
 defaultFileSystemCalls = FileSystemCalls { fs_stat = liftLIO . ioTCB . getFileStatus
