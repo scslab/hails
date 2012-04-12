@@ -119,7 +119,7 @@ class DCRecord a where
     result <- withDB policy $ findOneP p query
     c <- getClearance
     case result of
-      Right (Just r) | labelOf r `leq` c -> fromDocument `liftM` unlabelP p r
+      Right (Just r) | leqp p (labelOf r) c -> fromDocument `liftM` unlabelP p r
       _ -> return Nothing
   --
   deleteByP p policy colName k v = 

@@ -51,6 +51,7 @@ Library
 
   Exposed-modules:
     Hails.Data.LBson
+    Hails.Data.LBson.Rexports.Bson
     Hails.Data.LBson.Safe
     Hails.Data.LBson.TCB
     Hails.App
