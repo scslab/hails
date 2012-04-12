@@ -41,10 +41,6 @@ class DCRecord a where
   -- | Insert a record into the database
   insertRecord :: (DatabasePolicy p)
                => p -> a -> DC (Either Failure (Value DCLabel))
-  -- | Perform all the checks and taints as if inserting document, but
-  -- does not insert.
-  insertRecordGuard :: (DatabasePolicy p)
-               => p -> a -> DC (Either Failure ())
   -- | Insert a record into the database
   saveRecord :: (DatabasePolicy p)
              => p -> a -> DC (Either Failure ())
@@ -65,9 +61,6 @@ class DCRecord a where
   -- | Same as 'insertRecord', but using explicit privileges.
   insertRecordP :: (DatabasePolicy p)
               => DCPrivTCB -> p -> a -> DC (Either Failure (Value DCLabel))
-  -- | Same as 'insertRecordGuard', but using explicit privileges.
-  insertRecordGuardP :: (DatabasePolicy p)
-               => DCPrivTCB -> p -> a -> DC (Either Failure ())
   -- | Same as 'saveRecord', but using explicit privileges.
   saveRecordP :: (DatabasePolicy p)
               => DCPrivTCB -> p -> a -> DC (Either Failure ())
@@ -89,8 +82,6 @@ class DCRecord a where
   --
   insertRecord = insertRecordP noPrivs
   --
-  insertRecordGuard = insertRecordGuardP noPrivs
-  --
   saveRecord = saveRecordP noPrivs
   --
   deleteBy = deleteByP noPrivs
@@ -101,11 +92,6 @@ class DCRecord a where
     let colName = collectionName record
     p' <- getPrivileges
     withDB policy $ insertP (p' `mappend` p)  colName $ toDocument record
-  --
-  insertRecordGuardP p policy record = do
-    let colName = collectionName record
-    p' <- getPrivileges
-    withDB policy $ insertGuardP (p' `mappend` p) colName $ toDocument record
   --
   saveRecordP p policy record = do
     let colName = collectionName record
@@ -141,19 +127,12 @@ class DCRecord a => DCLabeledRecord a where
   -- | Insert a labeled record into the database
   insertLabeledRecord :: (MkToLabeledDocument p)
                => p -> DCLabeled a -> DC (Either Failure (Value DCLabel))
-  -- | Perform all the checks and taints as if inserting document, but
-  -- does not insert.
-  insertLabeledRecordGuard :: (MkToLabeledDocument p)
-               => p -> DCLabeled a -> DC (Either Failure ())
   -- | Insert a labeled record into the database
   saveLabeledRecord :: (MkToLabeledDocument p)
              => p -> DCLabeled a -> DC (Either Failure ())
   -- | Same as 'insertLabeledRecord', but using explicit privileges.
   insertLabeledRecordP :: (MkToLabeledDocument p)
     => DCPrivTCB -> p -> DCLabeled a -> DC (Either Failure (Value DCLabel))
-  -- | Same as 'insertLabeledRecordGuard', but using explicit privileges.
-  insertLabeledRecordGuardP :: (MkToLabeledDocument p)
-               => DCPrivTCB -> p -> DCLabeled a -> DC (Either Failure ())
   -- | Same as 'saveLabeledRecord', but using explicit privileges.
   saveLabeledRecordP :: (MkToLabeledDocument p)
               => DCPrivTCB -> p -> DCLabeled a -> DC (Either Failure ())
@@ -165,8 +144,6 @@ class DCRecord a => DCLabeledRecord a where
   --
   insertLabeledRecord = insertLabeledRecordP noPrivs
   --
-  insertLabeledRecordGuard = insertLabeledRecordGuardP noPrivs
-  --
   saveLabeledRecord = saveLabeledRecordP noPrivs
   --
   insertLabeledRecordP p policy lrecord = do
@@ -174,12 +151,6 @@ class DCRecord a => DCLabeledRecord a where
     p' <- getPrivileges
     ldoc <- mkToLabeledDocument policy lrecord
     withDB policy $ insertP (p' `mappend` p)  colName  ldoc
-  --
-  insertLabeledRecordGuardP p policy lrecord = do
-    let colName = collectionName (forceType lrecord)
-    p' <- getPrivileges
-    ldoc <- mkToLabeledDocument policy lrecord
-    withDB policy $ insertGuardP (p' `mappend` p) colName ldoc
   --
   saveLabeledRecordP p policy lrecord = do
     let colName = collectionName (forceType lrecord)

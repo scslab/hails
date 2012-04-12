@@ -9,7 +9,6 @@
 
 module Hails.Database.MongoDB.TCB.Query ( insert, insert_
                                         , insertP, insertP_
-                                        , insertGuard, insertGuardP
                                         , save, saveP
                                         , deleteOne, deleteOneP
                                         -- * Finding objects
@@ -188,21 +187,6 @@ class (LabelState l p s, Serialize l) => Insert l p s doc where
                     -> CollectionName
                     -> doc
                     -> Action l p s M.Document
-
-  -- | Simply chech that the computation can perform an insert,
-  -- tainting the current label appropriately.
-  insertGuard :: CollectionName
-              -> doc
-              -> Action l p s ()
-  insertGuard = insertGuardP noPrivs
-
-  -- | Same as 'insertGuard', but uses explicit priveleges.
-  insertGuardP :: p
-               -> CollectionName
-               -> doc
-               -> Action l p s ()
-  insertGuardP p colName ldoc = void $ mkDocForInsertTCB p colName ldoc
-
 
 
 
