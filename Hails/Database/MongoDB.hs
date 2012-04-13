@@ -33,7 +33,6 @@ module Hails.Database.MongoDB ( module Hails.Data.LBson
                               -- * Query
                               , insert, insert_
                               , insertP, insertP_
-                              , insertGuard, insertGuardP
                               , save, saveP
                               , deleteOne, deleteOneP
                               , find, findP
