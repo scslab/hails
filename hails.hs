@@ -1,6 +1,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 import Hails.TCB.Load
 import Hails.HttpServer
+import Hails.HttpServer.Auth
 
 import Data.IterIO.Server.TCPServer
 import Data.Functor ((<$>))
@@ -35,9 +36,12 @@ main = do
   opts <- hailsOpts args env
   when (optAbout opts) $ printAbout
   let appName = optName opts
-      port = optPort opts
+      port    = optPort opts
+      authF   = if optDev opts
+                  then basicNoAuth
+                  else basicNoAuth
   func <- loadApp appName
-  runTCPServer $ secureHttpServer (fromInteger port) func
+  runTCPServer $ secureHttpServer authF (fromInteger port) func
 
 --
 -- Helper
@@ -58,12 +62,14 @@ data Options = Options
    { optName   :: String  -- ^ App name
    , optPort   :: Integer -- ^ App port number
    , optAbout  :: Bool    -- ^ About this program
+   , optDev    :: Bool    -- ^ Development
    }
 
 defaultOpts :: Options
 defaultOpts = Options { optName   = "App"
                       , optPort   = 8080
-                      , optAbout  = False }
+                      , optAbout  = False
+                      , optDev    = False }
 
 options :: [ OptDescr (Options -> Options) ]
 options = 
@@ -73,6 +79,9 @@ options =
   , Option ['p'] ["port"]
       (ReqArg (\p o -> o { optPort = read p }) "PORT")
       "Application PORT"
+  , Option ['d']    ["dev", "development"]
+        (NoArg (\opts -> opts { optDev = True }))
+        "about this program"
   , Option ['h','?']    ["help", "about"]
         (NoArg (\opts -> opts { optAbout = True }))
         "about this program"
