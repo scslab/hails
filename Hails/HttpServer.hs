@@ -31,28 +31,33 @@ import Hails.HttpServer.Auth
 type L = L8.ByteString
 
 -- | Given an 'App' return handler.
-httpApp :: HttpReq () -> AppReqHandler -> Inum L L DC ()
-httpApp req0 lrh = mkInumM $ do
-  appState <- getAppConf req0
-  irun . enumHttpResp =<<
-    case appState of
-     Nothing -> return $ resp500 "Missing x-hails-user header"
-     Just appC | isStaticReq appC -> liftI $ respondWithFS (appReq appC)
-               | otherwise -> do
-       let userLabel = newDC (appUser appC) (<>)
-           req = appReq appC
-       -- Set current label to be public, clearance to the user's label
-       -- and privilege to the app's privilege.
-       liftLIO $ do taint lpub
-                    lowerClr userLabel
-                    setPrivileges (appPriv appC)
-       body <- inumHttpBody req .| pureI
-       -- TODO: catch exceptions:
-       resp <- liftLIO $ lrh req (labelTCB (newDC (<>) (appUser appC)) body)
-       resultLabel <- liftLIO getLabel
-       return $ if resultLabel `leq` userLabel
-                  then resp
-                  else resp500 "App violated IFC"
+httpApp :: AuthFunction DC () -> AppReqHandler -> Inum L L DC ()
+httpApp authFunc lrh = mkInumM $ do
+  req0 <- httpReqI
+  authRes <- liftLIO $ authFunc req0
+  case authRes of
+    Left resp  -> irun $ enumHttpResp resp
+    Right req1 -> do
+      appState <- getAppConf req1
+      irun . enumHttpResp =<<
+        case appState of
+         Nothing -> return $ resp500 "Missing x-hails-user header"
+         Just appC | isStaticReq appC -> liftI $ respondWithFS (appReq appC)
+                   | otherwise -> do
+           let userLabel = newDC (appUser appC) (<>)
+               req = appReq appC
+           -- Set current label to be public, clearance to the user's label
+           -- and privilege to the app's privilege.
+           liftLIO $ do taint lpub
+                        lowerClr userLabel
+                        setPrivileges (appPriv appC)
+           body <- inumHttpBody req .| pureI
+           -- TODO: catch exceptions:
+           resp <- liftLIO $ lrh req (labelTCB (newDC (<>) (appUser appC)) body)
+           resultLabel <- liftLIO getLabel
+           return $ if resultLabel `leq` userLabel
+                      then resp
+                      else resp500 "App violated IFC"
   where isStaticReq appC | null . reqPathLst . appReq $ appC = False
                          | otherwise =
                             (head . reqPathLst . appReq $ appC) == "static"
@@ -70,11 +75,7 @@ secureHttpServer :: AuthFunction DC ()
 secureHttpServer authFunc port appHandler =
   TCPServer port app dcServerAcceptor handler
   where handler m = fst <$> evalDC m
-        app = mkInumM $ do reqBeforeAuth <- httpReqI
-                           authRes <- liftLIO $ authFunc reqBeforeAuth
-                           case authRes of
-                            Left resp -> irun $ enumHttpResp resp
-                            Right req -> irun $ httpApp req appHandler
+        app = httpApp authFunc appHandler
 
 -- | Given a socket, return the to/from-browser pipes.
 dcServerAcceptor :: Net.Socket -> DC (Iter L DC (), Onum L DC ())
