@@ -8,15 +8,19 @@ import GHC
 import GHC.Paths
 import DynFlags
 import Unsafe.Coerce
+import Control.Monad (void)
 
 import Hails.TCB.Types ( AppName, AppReqHandler )
 
 
 -- | Given an application name, return the corresponding computation.
-loadApp :: AppName -> IO AppReqHandler
-loadApp appName = runGhc (Just libdir) $ do
+loadApp :: Bool -> AppName -> IO AppReqHandler
+loadApp safe appName = runGhc (Just libdir) $ do
   dflags <- getSessionDynFlags
-  _ <- setSessionDynFlags $ dflags { safeHaskell = Sf_Safe }
+  let dflagsXSafe = if safe
+                      then dflags { safeHaskell = Sf_Safe }
+                      else dflags
+  void $ setSessionDynFlags dflagsXSafe
   target <- guessTarget appName Nothing
   addTarget target
   r <- load LoadAllTargets
