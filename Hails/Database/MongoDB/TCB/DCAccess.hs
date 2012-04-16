@@ -33,6 +33,7 @@ import Database.MongoDB ( runIOE
                         , AccessMode(..) )
 import LIO
 import LIO.TCB ( rtioTCB )
+import LIO.MonadCatch
 import LIO.DCLabel
 
 import System.Environment
@@ -246,9 +247,6 @@ withLabel privs l act = do
   l0 <- getLabel
   setLabelP privs $ lostar privs l0 l
   -- Execute action
-  res <- act
-  -- Raise current label:
-  l1 <- getLabel
-  setLabelP privs (lostar privs l1 l0)
-  -- Return result:
-  return res
+  act `finally` do l1 <- getLabel
+                   -- Raise current label:
+                   setLabelP privs (lostar privs l1 l0)
