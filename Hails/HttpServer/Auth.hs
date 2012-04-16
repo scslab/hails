@@ -79,7 +79,8 @@ externalAuth key url req =
                let mac1 = showDigest $ hmacSha1 key (lazyfy user)
                if (S8.unpack mac0) == mac1
                  then return $ req { reqCookies =
-                         filter ((/= _hails_cookie) . fst) cookies }
+                         filter ((/= _hails_cookie) . fst) cookies
+                       , reqHeaders = ("x-hails-user", user) : reqHeaders req}
                  else Nothing
   in return $ maybe redirect Right res
     where redirect = Left $ resp303 url
