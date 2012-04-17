@@ -21,6 +21,7 @@ import Hails.Crypto
 
 import LIO.DCLabel
 
+type S = S8.ByteString
 type L = L8.ByteString
 
 -- |Authentication function
@@ -56,9 +57,17 @@ basicAuth authFunc req =
                        in extractUser . S8.dropWhile (/= ' ') <$> mAuthCode
         extractUser b64u = S8.split ':' $ decodeLenient b64u
 
--- | Basic authentication, that always succeeds
+-- | Basic authentication, that always succeeds. The function uses the
+-- username in the cookie (as in 'externalAuth'), if it is set. If the
+-- cookie is not set, 'bsicAuth' is used.
 basicNoAuth :: Monad m => AuthFunction m s
-basicNoAuth = basicAuth (const $ return True)
+basicNoAuth req =
+  let cookies = reqCookies req
+  in case lookup _hails_cookie cookies of
+    Just user -> return . Right $ req { reqCookies =
+                        filter (not . S8.isPrefixOf _hails_cookie . fst) cookies
+                      , reqHeaders = ("x-hails-user", user) : reqHeaders req }
+    Nothing -> basicAuth (const $ return True) req
 
 --
 -- Cookie authentication
@@ -77,13 +86,19 @@ externalAuth key url req =
       res = do user <- lookup _hails_cookie cookies
                mac0 <- lookup _hails_cookie_hmac cookies
                let mac1 = showDigest $ hmacSha1 key (lazyfy user)
-               if (S8.unpack mac0) == mac1
+               if S8.unpack mac0 == mac1
                  then return $ req { reqCookies =
-                         filter ((/= _hails_cookie) . fst) cookies
-                       , reqHeaders = ("x-hails-user", user) : reqHeaders req}
+                        filter (not . S8.isPrefixOf _hails_cookie . fst) cookies
+                      , reqHeaders = ("x-hails-user", user) : reqHeaders req }
                  else Nothing
   in return $ maybe redirect Right res
     where redirect = Left $ resp303 url
           lazyfy = L8.pack . S8.unpack
-          _hails_cookie = "_hails_user"
-          _hails_cookie_hmac = "_hails_user_hmac"
+
+-- | Cookie user token
+_hails_cookie :: S
+_hails_cookie = "_hails_user"
+
+-- | Cookie user HMAC token
+_hails_cookie_hmac :: S
+_hails_cookie_hmac = "_hails_user_hmac"
