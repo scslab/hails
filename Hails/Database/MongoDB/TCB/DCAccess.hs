@@ -91,9 +91,6 @@ class DatabasePolicy dbp where
   -- | Get the actual underlying @Database@ instance for this policy.
   policyDB :: dbp -> Database DCLabel
 
-  -- | Get the database policy's owner.
-  policyOwner :: dbp -> Principal
-
 -- | Class used to define groups in a policy-specific manner.
 class DatabasePolicy dbp => PolicyGroup dbp where
   -- | Expands a principal of the form \"#group_name\" into a list of
