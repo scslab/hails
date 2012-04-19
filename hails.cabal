@@ -37,6 +37,7 @@ Library
                  mtl >= 2.0 && < 2.1,
                  compact-string-fix >= 0.3.2 && < 0.4,
                  transformers >= 0.2.2.0 && < 0.3,
+                 time >= 1.4 && < 2.0,
                  cereal >= 0.3.5.1 && < 0.4,
                  binary >= 0.5 && < 0.6,
                  HsOpenSSL >= 0.10 && < 2,
@@ -55,6 +56,7 @@ Library
     Hails.Data.LBson.Safe
     Hails.Data.LBson.TCB
     Hails.App
+    Hails.Policy
     Hails.HttpServer
     Hails.HttpServer.Auth
     Hails.IterIO.Conversions
@@ -71,3 +73,4 @@ Library
     Hails.Database.MongoDB.TCB.DCAccess
     Hails.Database.MongoDB.Structured
     Hails.Crypto
+    LIO.Data.Time
