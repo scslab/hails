@@ -3,6 +3,12 @@
 {-# LANGUAGE Trustworthy #-}
 #endif
 
+{- | This module re-exports "Data.Time" wrapped in 'LIO'. It is
+important to note that this module is only safe with the latest
+version of "LIO", where @toLabeled@ has been removed and timing
+attacked have been addressed. In similar vain, when executing a
+piece of code that you do not trust, it is important that the time
+primitives not be directly available. -}
 module LIO.Data.Time ( module Data.Time
                        , getCurrentTime
                        , getZonedTime
@@ -18,8 +24,10 @@ import LIO.TCB
 getCurrentTime :: (LabelState l p s) => LIO l p s UTCTime
 getCurrentTime = rtioTCB T.getCurrentTime
 
+-- | Get the local time together with a TimeZone.
 getZonedTime :: (LabelState l p s) => LIO l p s ZonedTime
 getZonedTime = rtioTCB T.getZonedTime
 
+-- | Convert UTC time to local time with TimzeZone
 utcToLocalZonedTime :: (LabelState l p s) => UTCTime -> LIO l p s ZonedTime
 utcToLocalZonedTime = rtioTCB . T.utcToLocalZonedTime
