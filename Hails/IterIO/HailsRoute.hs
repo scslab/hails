@@ -1,9 +1,8 @@
 {-# LANGUAGE CPP #-}
 #if defined(__GLASGOW_HASKELL__) && (__GLASGOW_HASKELL__ >= 704)
-{-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE Unsafe #-}
 #endif
-module Hails.IterIO.HailsRoute ( routeFileSys
-                               , systemMimeMap) where
+module Hails.IterIO.HailsRoute ( routeFileSys ) where
 
 import Hails.IterIO.Conversions
 import qualified Data.ByteString.Char8 as S8
@@ -14,8 +13,6 @@ import LIO (liftLIO)
 import System.Posix.Files
 import System.Posix.IO
 import System.Posix.Types
-import System.IO.Unsafe
-import Control.Exception (SomeException(..))
 
 routeFileSys :: LabelState l p st =>
                 (String -> S8.ByteString)
@@ -37,20 +34,6 @@ routeFileSys :: LabelState l p st =>
              -- ^ Pathname of directory to serve from file system
              -> HttpRoute (LIO l p st) s
 routeFileSys = routeGenFileSys defaultFileSystemCalls
-
--- | Given a file extension (e.g., \"hs\") return its MIME type (e.g.,
--- \"text\/x-haskell\"). If there is no recognized MIME type (or none
--- of the default paths exist), this function returns
--- \"application\/octet-stream\"
-systemMimeMap :: String -> S8.ByteString
-systemMimeMap = unsafePerformIO $ 
-  foldr1 cat (map enumMimeFile defaultPaths) |$
-    mimeTypesI "application/octet-stream"
-    where defaultPaths = ["mime.types"
-                         , "/etc/mime.types"
-                         , "/var/www/conf/mime.types"]
-          enumMimeFile f = inumCatch (enumFile f) $ \(SomeException _) res ->
-                                                      resumeI res
 
 defaultFileSystemCalls :: LabelState l p st => FileSystemCalls Fd (LIO l p st)
 defaultFileSystemCalls = FileSystemCalls { fs_stat = liftLIO . ioTCB . getFileStatus
