@@ -6,12 +6,17 @@ License-File:   LICENSE
 Author:         HAILS team
 Maintainer:     Amit Levy <levya at cs.stanford dot edu>, Deian Stefan  <deian at cs dot stanford dot edu>
 Stability:      experimental
-Synopsis:       IFC enforcing web application framework and deployment platform
+Synopsis:       IFC enforcing web platform framework
 Category:       Web
 Cabal-Version:  >= 1.6
 
 Description:
-        This module exports a libraries necessary for building HAILS applications.
+        Hails is a framework for building multi-app web platforms.
+        This module exports a library for building Hails platforms.
+
+Source-repository head
+  Type:     git
+  Location: http://www.github.com/scslab/hails.git
 
 Library
   Build-Depends: base >= 4.5 && < 5,
@@ -56,6 +61,7 @@ Library
     Hails.HttpServer.Auth
     Hails.IterIO.Conversions
     Hails.IterIO.HailsRoute
+    Hails.IterIO.Mime
     Hails.IterIO.HttpClient
     Hails.TCB.Types
     Hails.Database

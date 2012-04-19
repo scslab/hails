@@ -18,6 +18,7 @@ import Data.Functor ((<$>))
 
 import Hails.TCB.Types
 
+import Hails.IterIO.Mime
 import Hails.IterIO.Conversions
 import Hails.IterIO.HailsRoute
 import DCLabel.TCB
