@@ -1,5 +1,5 @@
 Name:           hails
-Version:        0.1
+Version:        0.1.1
 build-type:     Simple
 License:        GPL-2
 License-File:   LICENSE
@@ -52,6 +52,7 @@ Library
 
   Exposed-modules:
     Hails.Data.LBson
+    Hails.Data.LBson.Rexports
     Hails.Data.LBson.Rexports.Bson
     Hails.Data.LBson.Safe
     Hails.Data.LBson.TCB
