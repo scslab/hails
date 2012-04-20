@@ -21,6 +21,9 @@ import Hails.Crypto
 
 import LIO.DCLabel
 
+import Control.Applicative (Applicative(..))
+import System.FilePath (takeExtensions)
+
 type S = S8.ByteString
 type L = L8.ByteString
 
@@ -79,7 +82,8 @@ basicNoAuth req =
 -- function simply checks that the cookie exits and the MAC'd
 -- user name is correct. If this is the case, it returns a request
 -- with the cookie removed. Otherwise it retuns a redirect (to the
--- provided url) response.
+-- provided url) response. Before redirecting a cookie @_hails_refer$
+-- is set to the current @scheme://
 externalAuth :: L -> String -> AuthFunction DC s
 externalAuth key url req = 
   let cookies = reqCookies req
@@ -92,8 +96,32 @@ externalAuth key url req =
                       , reqHeaders = ("x-hails-user", user) : reqHeaders req }
                  else Nothing
   in return $ maybe redirect Right res
-    where redirect = Left $ resp303 url
+    where redirect = Left $ addRedirCookie $ resp303 url
           lazyfy = L8.pack . S8.unpack
+          curUrl = S8.unpack $ S8.concat ([ reqScheme', const "://"
+                                          , reqHost, const ":", reqPort'
+                                          , reqPath] <*> pure req)
+          addRedirCookie = respAddHeader
+                ( S8.pack "Set-Cookie"
+                , S8.concat [ _hails_cookie_referer
+                            , "="
+                            , S8.pack $ show curUrl
+                            , ";path=/;domain="
+                            , dropSubDomain (reqHost req)
+                            ])
+          dropSubDomain = S8.pack . takeExtensions . S8.unpack
+          reqScheme' r= let sch  = reqScheme r
+                            port = reqPort r
+                        in case () of
+                            _ | not $ S8.null sch -> sch
+                            _ | S8.null sch && port == Just 443 -> "https"
+                            _ -> "http"
+          reqPort' r= let sch  = reqScheme r
+                          port = reqPort r
+                        in case port of
+                             Just p -> S8.pack . show $ p
+                             Nothing | sch == "https" -> "443"
+                             _ -> "80"
 
 -- | Cookie user token
 _hails_cookie :: S
@@ -102,3 +130,7 @@ _hails_cookie = "_hails_user"
 -- | Cookie user HMAC token
 _hails_cookie_hmac :: S
 _hails_cookie_hmac = "_hails_user_hmac"
+
+-- | Referer needed by authentication service
+_hails_cookie_referer :: S
+_hails_cookie_referer = "_hails_referer"
