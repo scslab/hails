@@ -29,6 +29,8 @@ import Network.Socket as Net
 
 import Hails.HttpServer.Auth
 
+import System.Environment
+
 type L = L8.ByteString
 
 -- | Given an 'App' return handler.
@@ -74,9 +76,18 @@ secureHttpServer :: AuthFunction DC ()
                  -> AppReqHandler
                  -> TCPServer L DC
 secureHttpServer authFunc port appHandler =
-  TCPServer port app dcServerAcceptor handler
-  where handler m = fst <$> evalDC m
-        app = httpApp authFunc appHandler
+  TCPServer port app dcServerAcceptor evalDCWithFS
+  where app = httpApp authFunc appHandler
+
+-- | Run 'DC' action, with filesystem, if filesystem root is supplied.
+evalDCWithFS :: DC a -> IO a
+evalDCWithFS act = do
+  env <- getEnvironment
+  let eval = maybe evalDC
+                   (\fp -> evalDCWithRoot fp (Just lpub)) $
+                   lookup "HAILS_FS_ROOT" env
+  fst <$> eval act
+
 
 -- | Given a socket, return the to/from-browser pipes.
 dcServerAcceptor :: Net.Socket -> DC (Iter L DC (), Onum L DC ())
