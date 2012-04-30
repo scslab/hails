@@ -49,15 +49,22 @@ httpApp authFunc lrh = mkInumM $ do
                    | otherwise -> do
            let userLabel = newDC (appUser appC) (<>)
                req = appReq appC
+           body <- inumHttpBody req .| pureI
            -- Set current label to be public, clearance to the user's label
            -- and privilege to the app's privilege.
-           liftLIO $ do taint lpub
-                        lowerClr userLabel
-                        setPrivileges (appPriv appC)
-           body <- inumHttpBody req .| pureI
-           -- TODO: catch exceptions:
-           resp <- liftLIO $ lrh req (labelTCB (newDC (<>) (appUser appC)) body)
-           resultLabel <- liftLIO getLabel
+           (resp, resultLabel) <- liftLIO $ do
+              lowerClr userLabel
+              setPrivileges (appPriv appC)
+              -- TODO: catch exceptions:
+              respRaw <- lrh req (labelTCB (newDC (<>) (appUser appC)) body)
+              resultLabel <- getLabel
+              let resp = if resultLabel `leq` lpub
+                            then respRaw
+                            else respRaw {
+                                respHeaders =
+                                  ("X-Hails-Sensitive", "Yes"):(respHeaders respRaw)
+                                  }
+              return (resp, resultLabel)
            return $ if resultLabel `leq` userLabel
                       then resp
                       else resp500 "App violated IFC"
