@@ -46,8 +46,8 @@ basicAuth authFunc req =
         if not success
           then return . Left $ respAuthRequired
           else let hdrs = filter ((/=authField) . fst) $ reqHeaders req
-               in return . Right $
-                    req { reqHeaders = ("x-hails-user", user) : hdrs }
+                   req' = req { reqHeaders =  hdrs }
+               in return . Right $ maybeAddXHailsUser user req'
     _ -> return . Left $ respAuthRequired
   where authField = "authorization"
         -- No login, send an auth response-header:
@@ -62,28 +62,37 @@ basicAuth authFunc req =
 
 -- | Basic authentication, that always succeeds. The function uses the
 -- username in the cookie (as in 'externalAuth'), if it is set. If the
--- cookie is not set, 'bsicAuth' is used.
+-- cookie is not set, 'basicAuth' is used.
 basicNoAuth :: Monad m => AuthFunction m s
 basicNoAuth req =
-  let cookies = reqCookies req
+  let cookies     = reqCookies req
+      f           = not . S8.isPrefixOf _hails_cookie . fst
+      reqNoCookie = req { reqCookies = filter f cookies }
   in case lookup _hails_cookie cookies of
-    Just user -> return . Right $ req { reqCookies =
-                        filter (not . S8.isPrefixOf _hails_cookie . fst) cookies
-                      , reqHeaders = ("x-hails-user", user) : reqHeaders req }
-    Nothing -> basicAuth (const $ return True) req
+    Just user -> return . Right $ maybeAddXHailsUser user reqNoCookie
+    Nothing   -> basicAuth (const $ return True) req
+
+-- | Add @x-hails-user@ header if username is not blank. No username
+-- is treated as public.
+maybeAddXHailsUser :: S -> HttpReq s -> HttpReq s
+maybeAddXHailsUser user req =
+  if S8.null user
+    then req
+    else req { reqHeaders = ("x-hails-user", user) : reqHeaders req }
 
 --
 -- Cookie authentication
 --
 
--- | Use an external authentication service that sets a cookie.
--- The cookie name is @_hails_user@, and its contents contain
--- a string of the form @user-name:HMAC-SHA1(user-name)@. This
--- function simply checks that the cookie exits and the MAC'd
--- user name is correct. If this is the case, it returns a request
--- with the cookie removed. Otherwise it retuns a redirect (to the
--- provided url) response. Before redirecting a cookie @_hails_refer$
--- is set to the current @scheme://
+-- | Use an external authentication service that sets cookies.
+-- The cookie names are @_hails_user@, whose contents contains the
+-- @user-name@, and @_hails_user_hmac@, whose contents contains
+-- @HMAC-SHA1(user-name)@. This function simply checks that the cookie
+-- exits and the MAC'd user name is correct. If this is the case, it
+-- returns a request with the cookie removed and @x-hails-user@ header
+-- set. Otherwise it retuns a redirect (to the provided url) response.
+-- Before redirecting a cookie @_hails_refer$ is set to the current
+-- URL (@scheme://domain:port/path@).
 externalAuth :: L -> String -> AuthFunction DC s
 externalAuth key url req = 
   let cookies = reqCookies req
@@ -110,18 +119,18 @@ externalAuth key url req =
                             , dropSubDomain (reqHost req)
                             ])
           dropSubDomain = S8.pack . takeExtensions . S8.unpack
-          reqScheme' r= let sch  = reqScheme r
-                            port = reqPort r
-                        in case () of
-                            _ | not $ S8.null sch -> sch
-                            _ | S8.null sch && port == Just 443 -> "https"
-                            _ -> "http"
-          reqPort' r= let sch  = reqScheme r
-                          port = reqPort r
-                        in case port of
-                             Just p -> S8.pack . show $ p
-                             Nothing | sch == "https" -> "443"
-                             _ -> "80"
+          reqScheme' r = let sch  = reqScheme r
+                             port = reqPort r
+                         in case () of
+                             _ | not $ S8.null sch -> sch
+                             _ | S8.null sch && port == Just 443 -> "https"
+                             _ -> "http"
+          reqPort' r = let sch  = reqScheme r
+                           port = reqPort r
+                         in case port of
+                              Just p -> S8.pack . show $ p
+                              Nothing | sch == "https" -> "443"
+                              _ -> "80"
 
 -- | Cookie user token
 _hails_cookie :: S
