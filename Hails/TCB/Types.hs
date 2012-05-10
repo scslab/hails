@@ -24,15 +24,17 @@ type L = L.ByteString
 type AppName = String
 
 -- | Application configuration.
-data AppConf = AppConf { appUser :: !Principal
-                         -- ^ User the app is running on behalf of
-                         , appName :: !AppName
-                         -- ^ The app's name
-                         , appPriv :: !TCBPriv
-                         -- ^ The app's privileges.
-                         , appReq  :: HttpReq ()
-                         -- ^ The request message
-                         }
+data AppConf = AppConf { appBrowserLabel :: !DCLabel
+                       -- ^ Browser label
+                       , appName :: !AppName
+                       -- ^ The app's name
+                       , appPriv :: !TCBPriv
+                       -- ^ The app's privileges.
+                       , appReq  :: HttpReq ()
+                       -- ^ The request message
+                       , appReqLabel :: !DCLabel
+                       -- ^ Label of request body
+                       }
 
 -- | Application handler.
 type AppReqHandler = HttpReq ()

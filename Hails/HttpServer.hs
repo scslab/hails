@@ -35,47 +35,45 @@ type L = L8.ByteString
 
 -- | Given an 'App' return handler.
 httpApp :: AuthFunction DC () -> AppReqHandler -> Inum L L DC ()
-httpApp authFunc lrh = mkInumM $ do
+httpApp authFunc appHndl = mkInumM $ do
   req0 <- httpReqI
   authRes <- liftLIO $ authFunc req0
   case authRes of
     Left resp  -> irun $ enumHttpResp resp
-    Right req1 -> do
-      appState <- getAppConf req1
-      irun . enumHttpResp =<<
-        case appState of
-         Nothing -> return $ resp500 "Missing x-hails-user header"
-         Just appC | isStaticReq appC -> liftI $ respondWithFS (appReq appC)
-                   | otherwise -> do
-           let userLabel = newDC (appUser appC) (<>)
-               req = appReq appC
-           body <- inumHttpBody req .| pureI
-           -- Set current label to be public, clearance to the user's label
-           -- and privilege to the app's privilege.
-           (resp, resultLabel) <- liftLIO $ do
-              lowerClr userLabel
-              setPrivileges (appPriv appC)
-              -- TODO: catch exceptions:
-              respRaw <- lrh req (labelTCB (newDC (<>) (appUser appC)) body)
-              resultLabel <- getLabel
-              let resp = if resultLabel `leq` lpub
-                            then respRaw
-                            else respRaw {
-                                respHeaders =
-                                  ("X-Hails-Sensitive", "Yes"):(respHeaders respRaw)
-                                  }
-              return (resp, resultLabel)
-           return $ if resultLabel `leq` userLabel
-                      then resp
-                      else resp500 "App violated IFC"
-  where isStaticReq appC | null . reqPathLst . appReq $ appC = False
-                         | otherwise =
-                            (head . reqPathLst . appReq $ appC) == "static"
+    Right req1 -> irun . enumHttpResp =<< do
+      let appConf = getAppConf req1
+          req     = appReq appConf
+      if isStaticReq req
+        then liftI $ respondWithFS req
+        else do body <- inumHttpBody req .| pureI
+                let browserLabel = appBrowserLabel appConf
+                    ap           = appPriv appConf
+                -- Set current label to be public, clearance to the user's label
+                -- if looged in (otherwise public) and privilege to the app's
+                -- privilege.
+                (resp, resultLabel) <- liftLIO $ do
+                   lowerClr $ browserLabel
+                   setPrivileges ap
+                   -- TODO: catch exceptions:
+                   respRaw <- appHndl req $ labelTCB (appReqLabel appConf) body
+                   resultLabel <- (\lg -> lostar ap lg lpub) <$> getLabel
+                   -- function to add x-hails-sensitive header:
+                   let respF = if resultLabel `leq` lpub
+                                then id
+                                else addXHailsSensitive
+                   return (respF respRaw, resultLabel)
+                return $ if resultLabel `leq` browserLabel
+                           then resp
+                           else resp403 req -- User can't see (TODO: loop forever)
+  where isStaticReq req | null . reqPathLst $ req = False
+                        | otherwise = (head . reqPathLst $ req) == "static"
         -- if /static, respond by routing files from filesystem
         respondWithFS req = 
           let rh = runHttpRoute $ routeName "static" $
                     routeFileSys systemMimeMap (const mempty) "static"
           in inumHttpBody req .| rh req
+        -- add x-hails-sensitive header
+        addXHailsSensitive = respAddHeader ("x-hails-sensitive", "Yes")
 
 -- | Return a server, given a port number and app.
 secureHttpServer :: AuthFunction DC ()
@@ -107,23 +105,20 @@ dcServerAcceptor sock = do
 -- Helper
 --
 
--- | Get the authenticated user, application name, and new (safe)
+-- | Get the browser label, application name, and new (safe)
 -- request. Note: all cookies are removed.
-getAppConf :: (Monad m)
-            => HttpReq ()
-            -> m (Maybe AppConf)
+getAppConf :: HttpReq () -> AppConf
 getAppConf req =
   let hdrs = reqHeaders req
-  in case lookup "x-hails-user" hdrs of
-       Nothing -> return Nothing
-       Just user ->
-         let usrN  = principal user
-             appN  = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
-             privs = createPrivTCB $ newPriv appN
-         in return . Just $ AppConf { appUser = usrN
-                                    , appName = appN
-                                    , appPriv = privs
-                                    , appReq  = modReq appN hdrs}
+      usrN  = principal `fmap` lookup "x-hails-user" hdrs
+      appN  = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
+      privs = createPrivTCB $ newPriv appN
+  in AppConf { appBrowserLabel = maybe lpub (\u -> newDC u (<>)) usrN
+             , appName         = appN
+             , appPriv         = privs
+             , appReq          = modReq appN hdrs
+             , appReqLabel     = maybe lpub (\u -> newDC (<>) u) usrN
+             }
     where modReq n hdrs =
             req { reqHeaders = ("x-hails-app", S8.pack n) : hdrs
                 , reqCookies = [] }
