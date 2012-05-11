@@ -9,20 +9,29 @@ module Hails.HttpServer.Auth ( AuthFunction
                              , basicAuth, basicNoAuth
                              -- * External authentication
                              , externalAuth
+                             -- * Login action
+                             , withUserOrRedirectToAuth 
                              ) where
 
 import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.ByteString.Char8 as S8
 import Data.ByteString.Base64
 import Data.IterIO.Http
+import Data.IterIO.Http.Support (Action, requestHeader, redirectTo, actionResp)
 import Data.Functor ((<$>))
+import Data.IORef
 
 import Hails.Crypto
 
+import LIO
 import LIO.DCLabel
+import LIO.TCB (ioTCB)
 
+import Control.Monad
+import Control.Monad.Trans.State (modify)
 import Control.Applicative (Applicative(..))
 import System.FilePath (takeExtensions)
+import System.IO.Unsafe
 
 type S = S8.ByteString
 type L = L8.ByteString
@@ -36,10 +45,10 @@ type AuthFunction m s = HttpReq s -- ^ Request
 --
 
 -- | Perform basic authentication
-basicAuth :: Monad m
-          => (HttpReq s -> m Bool) -- ^ Authentication function
-          -> AuthFunction m s
-basicAuth authFunc req = 
+basicAuth :: (HttpReq s -> DC Bool) -- ^ Authentication function
+          -> AuthFunction DC s
+basicAuth authFunc req = do
+  setLoginAction $ respondWithResp respAuthRequired
   case userFromReq of
     Just [user,_] -> do
         success <- authFunc req
@@ -63,7 +72,7 @@ basicAuth authFunc req =
 -- | Basic authentication, that always succeeds. The function uses the
 -- username in the cookie (as in 'externalAuth'), if it is set. If the
 -- cookie is not set, 'basicAuth' is used.
-basicNoAuth :: Monad m => AuthFunction m s
+basicNoAuth :: AuthFunction DC s
 basicNoAuth req =
   let cookies     = reqCookies req
       f           = not . S8.isPrefixOf _hails_cookie . fst
@@ -94,7 +103,8 @@ maybeAddXHailsUser user req =
 -- Before redirecting a cookie @_hails_refer$ is set to the current
 -- URL (@scheme://domain:port/path@).
 externalAuth :: L -> String -> AuthFunction DC s
-externalAuth key url req = 
+externalAuth key url req = do
+  setLoginAction $ redirectTo url
   let cookies = reqCookies req
       res = do user <- lookup _hails_cookie cookies
                mac0 <- lookup _hails_cookie_hmac cookies
@@ -104,7 +114,7 @@ externalAuth key url req =
                         filter (not . S8.isPrefixOf _hails_cookie . fst) cookies
                       , reqHeaders = ("x-hails-user", user) : reqHeaders req }
                  else Nothing
-  in return $ maybe redirect Right res
+  return $ maybe redirect Right res
     where redirect = Left $ addRedirCookie $ resp303 url
           lazyfy = L8.pack . S8.unpack
           curUrl = S8.unpack $ S8.concat ([ reqScheme', const "://"
@@ -143,3 +153,37 @@ _hails_cookie_hmac = "_hails_user_hmac"
 -- | Referer needed by authentication service
 _hails_cookie_referer :: S
 _hails_cookie_referer = "_hails_referer"
+
+--
+-- Handle login
+--
+
+-- TODO: This  is an ugly hack and should be encoded in the Action
+-- monad in the next release
+
+-- | What do do if user is not logged-in with 'withUserOrRedirectToAuth'
+loginActionRef :: IORef (Action t b DC ())
+{-# NOINLINE loginActionRef #-}
+loginActionRef = unsafePerformIO $ newIORef (return ())
+
+-- | Set the login action
+setLoginAction :: Action t b DC () -> DC ()
+setLoginAction act = ioTCB $ writeIORef loginActionRef act
+
+-- | Get the login action
+getLoginAction :: DC (Action t b DC ())
+getLoginAction = ioTCB $ readIORef loginActionRef
+  
+-- | Respond explicitly
+respondWithResp :: HttpResp DC -> Action t b DC ()
+respondWithResp resp = modify $ \s -> s { actionResp = resp }
+
+-- | Execute action with user or redirect to authentication service
+withUserOrRedirectToAuth :: (String -> Action t b DC ()) -> Action t b DC ()
+withUserOrRedirectToAuth act = do
+  muser <- getHailsUser
+  loginAction <- liftLIO getLoginAction
+  maybe loginAction act muser
+    where getHailsUser = fmap S8.unpack `liftM` requestHeader (S8.pack "x-hails-user")
+
+
