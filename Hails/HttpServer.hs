@@ -53,6 +53,7 @@ httpApp authFunc appHndl = mkInumM $ do
                 -- privilege.
                 (resp, resultLabel) <- liftLIO $ do
                    lowerClr $ browserLabel
+                   setLabelTCB lpub
                    setPrivileges ap
                    -- TODO: catch exceptions:
                    respRaw <- appHndl req $ labelTCB (appReqLabel appConf) body
