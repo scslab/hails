@@ -57,7 +57,7 @@ httpApp authFunc appHndl = mkInumM $ do
                    setPrivileges ap
                    -- TODO: catch exceptions:
                    respRaw <- appHndl req $ labelTCB (appReqLabel appConf) body
-                   resultLabel <- (\lg -> lostar ap lg lpub) <$> getLabel
+                   resultLabel <- {-(\lg -> lostar ap lg lpub) <$> -} getLabel
                    -- function to add x-hails-sensitive header:
                    let respF = if resultLabel `leq` lpub
                                 then id
