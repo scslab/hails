@@ -7,6 +7,8 @@
 
 module Hails.HttpServer ( secureHttpServer ) where
 
+import Prelude hiding (catch)
+
 import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.ByteString.Char8 as S8
 import Data.Monoid (mempty)
@@ -37,37 +39,34 @@ type L = L8.ByteString
 httpApp :: AuthFunction DC () -> AppReqHandler -> Inum L L DC ()
 httpApp authFunc lrh = mkInumM $ do
   req0 <- httpReqI
-  authRes <- liftLIO $ authFunc req0
-  case authRes of
-    Left resp  -> irun $ enumHttpResp resp
-    Right req1 -> do
-      appState <- getAppConf req1
-      irun . enumHttpResp =<<
-        case appState of
-         Nothing -> return $ resp500 "Missing x-hails-user header"
-         Just appC | isStaticReq appC -> liftI $ respondWithFS (appReq appC)
-                   | otherwise -> do
-           let userLabel = newDC (appUser appC) (<>)
-               req = appReq appC
-           body <- inumHttpBody req .| pureI
-           -- Set current label to be public, clearance to the user's label
-           -- and privilege to the app's privilege.
-           (resp, resultLabel) <- liftLIO $ do
-              lowerClr userLabel
-              setPrivileges (appPriv appC)
-              -- TODO: catch exceptions:
-              respRaw <- lrh req (labelTCB (newDC (<>) (appUser appC)) body)
-              resultLabel <- getLabel
-              let resp = if resultLabel `leq` lpub
-                            then respRaw
-                            else respRaw {
-                                respHeaders =
-                                  ("X-Hails-Sensitive", "Yes"):(respHeaders respRaw)
-                                  }
-              return (resp, resultLabel)
-           return $ if resultLabel `leq` userLabel
-                      then resp
-                      else resp500 "App violated IFC"
+  (requireAuthResp, req1) <- liftLIO $ authFunc req0
+  appC <- getAppConf req1
+  irun . enumHttpResp =<< do
+    if isStaticReq appC then
+      liftI $ respondWithFS (appReq appC)
+      else do
+        let userLabel = newDC (appUser appC) (<>)
+            req = appReq appC
+        body <- inumHttpBody req .| pureI
+        liftLIO $ do
+          -- Set current label to be public, clearance to the user's label
+          -- and privilege to the app's privilege.
+          taint lpub
+          lowerClr userLabel
+          setPrivileges (appPriv appC)
+          respRaw <- lrh req (labelTCB (newDC (<>) (appUser appC)) body)
+          resultLabel <- getLabel
+          let resp = if resultLabel `leq` lpub
+                       then respRaw
+                       else respRaw {
+                             respHeaders =
+                             ("X-Hails-Sensitive", "Yes"):(respHeaders respRaw)
+                             }
+          return $ if resultLabel `leq` userLabel
+                   then case resp of
+                          _ | respStatus resp == stat401 -> requireAuthResp
+                            | otherwise -> resp
+                   else resp500 "App violated IFC"
   where isStaticReq appC | null . reqPathLst . appReq $ appC = False
                          | otherwise =
                             (head . reqPathLst . appReq $ appC) == "static"
@@ -111,19 +110,18 @@ dcServerAcceptor sock = do
 -- request. Note: all cookies are removed.
 getAppConf :: (Monad m)
             => HttpReq ()
-            -> m (Maybe AppConf)
+            -> m AppConf
 getAppConf req =
   let hdrs = reqHeaders req
-  in case lookup "x-hails-user" hdrs of
-       Nothing -> return Nothing
-       Just user ->
-         let usrN  = principal user
-             appN  = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
-             privs = createPrivTCB $ newPriv appN
-         in return . Just $ AppConf { appUser = usrN
-                                    , appName = appN
-                                    , appPriv = privs
-                                    , appReq  = modReq appN hdrs}
-    where modReq n hdrs =
-            req { reqHeaders = ("x-hails-app", S8.pack n) : hdrs
-                , reqCookies = [] }
+      appN  = S8.unpack . S8.takeWhile (/= '.') $ reqHost req
+      privs = createPrivTCB $ newPriv appN
+      usrN = case lookup "x-hails-user" hdrs of
+       Nothing -> (<>)
+       Just user -> (principal user .\/. (><))
+  in return $ AppConf { appUser = usrN
+                      , appName = appN
+                      , appPriv = privs
+                      , appReq  = modReq appN hdrs}
+  where modReq n hdrs =
+          req { reqHeaders = ("x-hails-app", S8.pack n) : hdrs
+              , reqCookies = [] }
