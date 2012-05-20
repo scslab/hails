@@ -29,7 +29,7 @@ type L = L8.ByteString
 
 -- |Authentication function
 type AuthFunction m s = HttpReq s -- ^ Request
-                      -> m (Either (HttpResp m) (HttpReq s))
+                      -> m (HttpResp m, HttpReq s)
 
 --
 -- Basic authentication
@@ -44,17 +44,18 @@ basicAuth authFunc req =
     Just [user,_] -> do
         success <- authFunc req
         if not success
-          then return . Left $ respAuthRequired
+          then return (respAuthRequired, req)
           else let hdrs = filter ((/=authField) . fst) $ reqHeaders req
-               in return . Right $
-                    req { reqHeaders = ("x-hails-user", user) : hdrs }
-    _ -> return . Left $ respAuthRequired
+                   reqRes = req { reqHeaders = ("x-hails-user", user) : hdrs }
+               in return (resp403 reqRes, reqRes)
+                    
+    _ -> return (respAuthRequired, req)
   where authField = "authorization"
         -- No login, send an auth response-header:
         respAuthRequired =
-         let resp = mkHttpHead stat401
-             authHdr = ("WWW-Authenticate", "Basic realm=\"Hails\"")
-         in respAddHeader authHdr resp
+          let resp = mkHttpHead stat401
+              authHdr = ("WWW-Authenticate", "Basic realm=\"Hails\"")
+          in respAddHeader authHdr resp
         -- Get user and password information from request header:
         userFromReq  = let mAuthCode = lookup authField $ reqHeaders req
                        in extractUser . S8.dropWhile (/= ' ') <$> mAuthCode
@@ -64,13 +65,7 @@ basicAuth authFunc req =
 -- username in the cookie (as in 'externalAuth'), if it is set. If the
 -- cookie is not set, 'bsicAuth' is used.
 basicNoAuth :: Monad m => AuthFunction m s
-basicNoAuth req =
-  let cookies = reqCookies req
-  in case lookup _hails_cookie cookies of
-    Just user -> return . Right $ req { reqCookies =
-                        filter (not . S8.isPrefixOf _hails_cookie . fst) cookies
-                      , reqHeaders = ("x-hails-user", user) : reqHeaders req }
-    Nothing -> basicAuth (const $ return True) req
+basicNoAuth req = basicAuth (const $ return True) req
 
 --
 -- Cookie authentication
@@ -85,7 +80,7 @@ basicNoAuth req =
 -- provided url) response. Before redirecting a cookie @_hails_refer$
 -- is set to the current @scheme://
 externalAuth :: L -> String -> AuthFunction DC s
-externalAuth key url req = 
+externalAuth key url req = do
   let cookies = reqCookies req
       res = do user <- lookup _hails_cookie cookies
                mac0 <- lookup _hails_cookie_hmac cookies
@@ -95,8 +90,9 @@ externalAuth key url req =
                         filter (not . S8.isPrefixOf _hails_cookie . fst) cookies
                       , reqHeaders = ("x-hails-user", user) : reqHeaders req }
                  else Nothing
-  in return $ maybe redirect Right res
-    where redirect = Left $ addRedirCookie $ resp303 url
+  return $ maybe public loggedIn res
+    where public = (addRedirCookie $ resp303 url, req)
+          loggedIn reqRes = (resp403 reqRes, reqRes)
           lazyfy = L8.pack . S8.unpack
           curUrl = S8.unpack $ S8.concat ([ reqScheme', const "://"
                                           , reqHost, const ":", reqPort'

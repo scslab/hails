@@ -24,7 +24,7 @@ type L = L.ByteString
 type AppName = String
 
 -- | Application configuration.
-data AppConf = AppConf { appUser :: !Principal
+data AppConf = AppConf { appUser :: !Component
                          -- ^ User the app is running on behalf of
                          , appName :: !AppName
                          -- ^ The app's name
