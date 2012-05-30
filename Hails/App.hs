@@ -8,11 +8,11 @@ module Hails.App ( module Hails.IterIO.HailsRoute
                  , AppReqHandler, AppRoute
                  -- * Info about app and user
                  , getHailsUser, haveHailsUser
-                 , withUserOrRedirectToAuth 
+                 , withUserOrDoAuth 
                  , getHailsApp
                  ) where
 
-import Hails.HttpServer.Auth (withUserOrRedirectToAuth)
+import Hails.HttpServer.Auth (withUserOrDoAuth)
 import Hails.IterIO.HailsRoute
 import LIO
 import LIO.DCLabel

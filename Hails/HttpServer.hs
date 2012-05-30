@@ -16,6 +16,8 @@ import Data.IterIO.HttpRoute (runHttpRoute, routeName)
 import Data.IterIO.Server.TCPServer
 import Data.Functor ((<$>))
 
+import Control.Monad
+
 import Hails.TCB.Types
 
 import Hails.IterIO.Mime
@@ -34,38 +36,39 @@ import System.Environment
 type L = L8.ByteString
 
 -- | Given an 'App' return handler.
-httpApp :: AuthFunction DC () -> AppReqHandler -> Inum L L DC ()
-httpApp authFunc appHndl = mkInumM $ do
-  req0 <- httpReqI
-  authRes <- liftLIO $ authFunc req0
-  case authRes of
-    Left resp  -> irun $ enumHttpResp resp
-    Right req1 -> irun . enumHttpResp =<< do
-      let appConf = getAppConf req1
-          req     = appReq appConf
-      if isStaticReq req
-        then liftI $ respondWithFS req
-        else do body <- inumHttpBody req .| pureI
-                let browserLabel = appBrowserLabel appConf
-                    ap           = appPriv appConf
-                -- Set current label to be public, clearance to the user's label
-                -- if looged in (otherwise public) and privilege to the app's
-                -- privilege.
-                (resp, resultLabel) <- liftLIO $ do
-                   lowerClr $ browserLabel
-                   setLabelTCB lpub
-                   setPrivileges ap
-                   -- TODO: catch exceptions:
-                   respRaw <- appHndl req $ labelTCB (appReqLabel appConf) body
-                   resultLabel <- {-(\lg -> lostar ap lg lpub) <$> -} getLabel
-                   -- function to add x-hails-sensitive header:
-                   let respF = if resultLabel `leq` lpub
-                                then id
-                                else addXHailsSensitive
-                   return (respF respRaw, resultLabel)
-                return $ if resultLabel `leq` browserLabel
-                           then resp
-                           else resp403 req -- User can't see (TODO: loop forever)
+httpApp :: Auth DC () -> AppReqHandler -> Inum L L DC ()
+httpApp auth appHndl = mkInumM $ do
+  req0 <- rmXHailsHeaders `liftM` httpReqI
+  let authMethod = auth req0
+  -- | Perform authentication, on failure do nothing
+  req1 <- liftLIO $ authValid authMethod
+  irun . enumHttpResp =<< do
+     let appConf = getAppConf req1
+         req     = appReq appConf
+     if isStaticReq req
+       then liftI $ respondWithFS req
+       else do body <- inumHttpBody req .| pureI
+               let browserLabel = appBrowserLabel appConf
+               -- Set current label to be public, clearance to the user's label
+               -- if looged in (otherwise public) and privilege to the app's
+               -- privilege.
+               (resp, resultLabel) <- liftLIO $ do
+                  lowerClr $ browserLabel
+                  setLabelTCB lpub
+                  setPrivileges $ appPriv appConf
+                  -- TODO: catch exceptions:
+                  respRaw <- appHndl req $ labelTCB (appReqLabel appConf) body
+                  resultLabel <- getLabel
+                  -- function to add x-hails-sensitive header:
+                  let addXSensitive = if resultLabel `leq` lpub
+                                        then id
+                                        else addXHailsSensitive
+                      -- login, if necessary:
+                      respFinal = authLogin authMethod . addXSensitive $ respRaw
+                  return (respFinal, resultLabel)
+               return $ if resultLabel `leq` browserLabel
+                          then resp
+                          else resp403 req -- User can't see (TODO: loop forever)
   where isStaticReq req | null . reqPathLst $ req = False
                         | otherwise = (head . reqPathLst $ req) == "static"
         -- if /static, respond by routing files from filesystem
@@ -75,9 +78,14 @@ httpApp authFunc appHndl = mkInumM $ do
           in inumHttpBody req .| rh req
         -- add x-hails-sensitive header
         addXHailsSensitive = respAddHeader ("x-hails-sensitive", "Yes")
+        -- remove x-hails- headers
+        rmXHailsHeaders req =
+          let hs = filter (not . S8.isPrefixOf ("x-hails-") . fst)
+                          (reqHeaders req)
+          in req { reqHeaders = hs }
 
 -- | Return a server, given a port number and app.
-secureHttpServer :: AuthFunction DC ()
+secureHttpServer :: Auth DC ()
                  -> PortNumber
                  -> AppReqHandler
                  -> TCPServer L DC
