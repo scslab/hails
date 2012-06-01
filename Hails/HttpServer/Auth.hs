@@ -31,6 +31,7 @@ import Control.Applicative (Applicative(..))
 import System.FilePath (takeExtensions)
 
 
+type S = S8.ByteString
 type L = L8.ByteString
 
 -- | Authentication function. Given a request return an authentication
@@ -58,7 +59,7 @@ basicAuth authFunc req =
   let aV = case userFromReq of
              Just [user,_] -> do
                success <- authFunc req
-               let hdrs = filter ((/=authField) . fst) $ reqHeaders req
+               let hdrs = filter ((/= "authorization") . fst) $ reqHeaders req
                    req' = req { reqHeaders =  hdrs }
                return $ if success
                           then maybeAddXHailsUser user req'
@@ -66,26 +67,61 @@ basicAuth authFunc req =
              _ -> return req
       aL resp = resp `orIfXHailsLogin` respAuthRequired
   in AuthMethod { authValid = aV, authLogin = aL }
-  where authField = "authorization"
-        -- No login, send an auth response-header:
-        respAuthRequired =
-         let resp = mkHttpHead stat401
-             authHdr = ("WWW-Authenticate", "Basic realm=\"Hails\"")
-         in respAddHeader authHdr resp
+  where respAuthRequired = respBasicAuth "Hails"
         -- Get user and password information from request header:
-        userFromReq  = let mAuthCode = lookup authField $ reqHeaders req
+        userFromReq  = let mAuthCode = lookup "authorization" $ reqHeaders req
                        in extractUser . S8.dropWhile (/= ' ') <$> mAuthCode
         --
         extractUser b64u = S8.split ':' $ decodeLenient b64u
-        -- add x-hails-user if username is not null
-        maybeAddXHailsUser user r =
-          if S8.null user
-            then r
-            else r { reqHeaders = ("x-hails-user", user) : reqHeaders r }
 
--- | Basic authentication, that always succeeds. 
+-- | Basic authentication, that always succeeds. The function uses the
+-- username in the cookie (as in 'externalAuth'), if it is set. If the
+-- cookie is not set, 'bsicAuth' is used. The cookie is useful when in
+-- production mode 'externalAuth' is used can there is a callback to a
+-- hails app. See the gitstar-ssh project.
 basicNoAuth :: Auth DC s
-basicNoAuth = basicAuth (const $ return True)
+basicNoAuth req =
+  let req' = case userFromReq of
+               Just [user,_] -> maybeAddXHailsUser user req
+               _             -> req
+      aL resp = addUserCookie req' resp `orIfXHailsLogin` respAuthRequired
+  in AuthMethod { authValid = return req', authLogin = aL }
+  where respAuthRequired = respBasicAuth "Hails Development"
+        -- Get user and password information from request header:
+        userFromReq  =
+          let mUser     = lookup "_hails_user"   $ reqCookies req
+              mAuthCode = lookup "authorization" $ reqHeaders req
+          in case mUser of
+               Just u -> Just $ [u, undefined]
+               Nothing -> extractUser . S8.dropWhile (/= ' ') <$> mAuthCode
+        --
+        extractUser b64u = S8.split ':' $ decodeLenient b64u
+        --
+        addUserCookie r resp = 
+          let mUser = lookup "x-hails-user"   $ reqHeaders r
+          in case mUser of
+               Nothing -> resp
+               Just u  -> respAddHeader ( S8.pack "Set-Cookie"
+                                        , S8.concat [ "_hails_user="
+                                                    , S8.pack $ show u
+                                                    , ";path=/;domain="
+                                                    , dropSubDomain (reqHost r)
+                                                    ]) resp
+
+
+-- | Send 401 basic authenticate
+respBasicAuth :: Monad m => String -> HttpResp m
+respBasicAuth msg =
+ let resp = mkHttpHead stat401
+     authHdr = ("WWW-Authenticate", "Basic realm=" `S8.append` (S8.pack msg))
+ in respAddHeader authHdr resp
+
+-- Add x-hails-user if username is not null
+maybeAddXHailsUser :: S -> HttpReq s -> HttpReq s
+maybeAddXHailsUser user r =
+  if S8.null user
+    then r
+    else r { reqHeaders = ("x-hails-user", user) : reqHeaders r }
 
 --
 -- Cookie authentication
@@ -131,9 +167,6 @@ externalAuth key url req =
                             , ";path=/;domain="
                             , dropSubDomain (reqHost req)
                             ])
-          -- remove subdomain of host:
-          -- TODO: make sure this does not leave cookie for .com
-          dropSubDomain = S8.pack . takeExtensions . S8.unpack
           -- Request scheme with defaults
           reqScheme' r = let sch  = reqScheme r
                              port = reqPort r
@@ -173,3 +206,7 @@ orIfXHailsLogin :: Monad m
 orIfXHailsLogin resp0 resp1 =
   if not reqLogin then resp0 else resp1
   where reqLogin = isJust $ lookup "x-hails-login" $ respHeaders resp0
+
+-- Remove subdomain of a host
+dropSubDomain :: S -> S
+dropSubDomain = S8.pack . takeExtensions . S8.unpack
