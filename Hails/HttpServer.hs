@@ -41,7 +41,7 @@ httpApp auth appHndl = mkInumM $ do
   req0 <- rmXHailsHeaders `liftM` httpReqI
   let authMethod = auth req0
   -- | Perform authentication, on failure do nothing
-  req1 <- liftLIO $ authValid authMethod
+  req1 <- rmCookies `liftM` (liftLIO $ authValid authMethod)
   irun . enumHttpResp =<< do
      let appConf = getAppConf req1
          req     = appReq appConf
@@ -83,6 +83,10 @@ httpApp auth appHndl = mkInumM $ do
           let hs = filter (not . S8.isPrefixOf ("x-hails-") . fst)
                           (reqHeaders req)
           in req { reqHeaders = hs }
+        -- remove cookies
+        rmCookies req =
+          let hs = filter ((/= "cookie") . fst) $ reqHeaders req
+          in req { reqCookies = [], reqHeaders = hs }
 
 -- | Return a server, given a port number and app.
 secureHttpServer :: Auth DC ()

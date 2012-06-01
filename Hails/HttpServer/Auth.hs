@@ -30,6 +30,7 @@ import Control.Monad.Trans.State (modify)
 import Control.Applicative (Applicative(..))
 import System.FilePath (takeExtensions)
 
+
 type L = L8.ByteString
 
 -- | Authentication function. Given a request return an authentication
@@ -63,7 +64,7 @@ basicAuth authFunc req =
                           then maybeAddXHailsUser user req'
                           else req
              _ -> return req
-      aL resp = resp403IfNoXHailsLogin req resp respAuthRequired
+      aL resp = resp `orIfXHailsLogin` respAuthRequired
   in AuthMethod { authValid = aV, authLogin = aL }
   where authField = "authorization"
         -- No login, send an auth response-header:
@@ -100,19 +101,18 @@ basicNoAuth = basicAuth (const $ return True)
 -- The login service retuns a redirect (to the provided url).
 -- Additionally, cookie @_hails_refer$ is set to the current
 -- URL (@scheme://domain:port/path@).
-externalAuth :: L -> String -> Auth DC s
+externalAuth :: Show s => L -> String -> Auth DC s
 externalAuth key url req =
   let mreqAuth = do
-        mac0 <- lookup "_hails_cookie_hmac" cookies
-        user <- lookup "_hails_cookie" cookies
+        mac0 <- lookup "_hails_user_hmac" cookies
+        user <- lookup "_hails_user" cookies
         let mac1 = showDigest $ hmacSha1 key (lazyfy user)
         if S8.unpack mac0 == mac1
-          then return $ req { reqCookies =
-                 filter (not . S8.isPrefixOf "_hails_cookie" . fst) cookies
-               , reqHeaders = ("x-hails-user", user) : reqHeaders req }
+          then return $ req { reqHeaders = ("x-hails-user", user)
+                                           : reqHeaders req }
           else Nothing
       aV = return $ fromMaybe req mreqAuth
-      aL resp = resp403IfNoXHailsLogin req resp redirectResp
+      aL resp = resp `orIfXHailsLogin` redirectResp
   in AuthMethod { authValid = aV, authLogin = aL }
     where cookies = reqCookies req
           -- redirect to auth service:
@@ -165,13 +165,11 @@ withUserOrDoAuth act = do
 -- Helpers
 --
 
--- | Respond with 403 if the app response does not contain the
--- \"x-hails-login\" header.
-resp403IfNoXHailsLogin :: Monad m 
-                       => HttpReq s  -- ^ Initial request
-                       -> HttpResp m -- ^ App response
-                       -> HttpResp m -- ^ Response containing the login \"form\"
-                       -> HttpResp m
-resp403IfNoXHailsLogin req resp0 resp1 =
-  if reqLogin then resp1 else resp403 req
+-- | Respond with login response action if \"x-hails-login\" header exists.
+orIfXHailsLogin :: Monad m
+                => HttpResp m -- ^ App response
+                -> HttpResp m -- ^ Response containing the login \"form\"
+                -> HttpResp m
+orIfXHailsLogin resp0 resp1 =
+  if not reqLogin then resp0 else resp1
   where reqLogin = isJust $ lookup "x-hails-login" $ respHeaders resp0
