@@ -7,6 +7,7 @@
 {-# LANGUAGE TypeSynonymInstances #-}
 
 module Hails.Database.MongoDB.Structured ( DCRecord(..)
+                                         , findAll, findAllP
                                          , DCLabeledRecord(..)
                                          , MkToLabeledDocument(..)
                                          , toDocumentP
@@ -16,7 +17,7 @@ import LIO
 import LIO.DCLabel
 
 import Hails.Database
-import Hails.Database.MongoDB
+import Hails.Database.MongoDB hiding (reverse)
 
 import Data.Monoid (mappend)
 import Control.Monad (liftM)
@@ -121,6 +122,30 @@ class DCRecord a where
       Right _ -> return mdoc
       _ -> return Nothing
   --
+
+-- | Find all records that satisfy the query and can be read subject
+-- to the current clearance.
+findAll :: (DCRecord a, DatabasePolicy p) => p -> Query DCLabel -> DC [a]
+findAll = findAllP noPrivs
+
+-- | Same as 'findAll', but uses explicit privileges.
+findAllP :: (DCRecord a, DatabasePolicy p)
+         => DCPrivTCB -> p -> Query DCLabel -> DC [a]
+findAllP p policy query = do
+  eRes <- withDB policy $ findP p query >>= cursorToRecords []
+  return $ either (const []) id eRes
+  where cursorToRecords arr cur = do
+          nc <- next cur
+          case nc of
+            Just ldoc -> do
+              post <- liftLIO $ do
+                clearance <- getClearance
+                if leqp p (labelOf ldoc) clearance
+                  then fromDocument `liftM` unlabelP p ldoc
+                  else return Nothing
+              let resarr = maybe arr (:arr) post
+              cursorToRecords resarr cur
+            Nothing -> return $ reverse arr
 
 -- | Class for inserting and saving labeled records.
 class DCRecord a => DCLabeledRecord a where

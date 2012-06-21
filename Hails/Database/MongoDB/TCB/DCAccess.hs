@@ -18,7 +18,6 @@ module Hails.Database.MongoDB.TCB.DCAccess ( DBConf(..)
                                            , withLabel, gateToLabeled
                                            ) where
 
-import Control.Monad (foldM, liftM)
 import Data.Bson (u)
 import qualified Data.Bson as Bson
 import Hails.Data.LBson (Document)
@@ -148,17 +147,16 @@ relabelGroupsP dbp p inp = do
         expandComponent comp = do
           ds <- mapM gocmp $ componentToList comp
           return $ listToComponent ds
-        gocmp d = do
+        --
+        gocmp disjunction | p `owns` disjunction = do
           let db = policyDB dbp
-          result <-
-            if p `owns` d
-              then dcAccess db $ liftM listToDisj $
-                foldM (\res grp -> do next <- expandGroup dbp grp
-                                      return $ res ++ next) [] $ disjToList d
-              else return $ Right d
-          return $ case result of
-            Right dr -> dr
-            Left _ -> d
+          res <- dcAccess db $ mapM (expandGroup dbp) $ disjToList disjunction
+          return $ case res of
+            Left _ -> disjunction
+            Right grps | any null grps -> listToDisj ([] :: [Principal]) -- True
+                       | otherwise     -> listToDisj . concat $ grps
+        -- else:
+        gocmp disjunction = return disjunction
 
 --
 -- Parser for getLastError
