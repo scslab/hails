@@ -38,7 +38,7 @@ type L = L8.ByteString
 -- method
 type Auth m s = HttpReq s -> AuthMethod m s 
 
--- | Authentication method consists of an that validates
+-- | Authentication method consists of a computation that validates
 -- provided credentials in a request, and a computation that given an
 -- app response returns an action that inturn returns a response used
 -- to present the user with a login \"form\".
