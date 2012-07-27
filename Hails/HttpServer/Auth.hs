@@ -1,8 +1,32 @@
 {-# LANGUAGE OverloadedStrings #-}
 module Hails.HttpServer.Auth where
 
+import Data.ByteString.Base64
+import qualified Data.ByteString.Char8 as S8
 import Network.HTTP.Types
 import Network.Wai
+
+authenticatedBasic :: Request -> Maybe (S8.ByteString, S8.ByteString)
+authenticatedBasic req = do
+  case lookup hAuthorization (requestHeaders req) of
+    Nothing -> Nothing
+    Just authStr
+      | S8.take 5 authStr /= "Basic" -> Nothing
+      | otherwise ->
+          let up = fmap (S8.split ':') $ decode $ S8.drop 6 authStr
+          in case up of
+            Right (user:pass:[]) -> Just (user, pass)
+            _ -> Nothing
+
+
+devBasicAuth :: String -> Middleware
+devBasicAuth realm app0 req0 = do
+  let resp = responseLBS status401 [("WWW-Authenticate", "Basic realm=\" ++ realm ++ \"")] ""
+  let req = case authenticatedBasic req0 of
+              Nothing -> req
+              Just (user, _) ->
+                req { requestHeaders = (("X-Hails-User", user):(requestHeaders req)) }
+  requireLoginMiddleware resp app0 req
 
 -- | If if app responds with header X-Hails-Login, respond with authentication
 -- response (Basic Auth, redirect, etc...)

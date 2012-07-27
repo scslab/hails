@@ -1,9 +1,12 @@
-{-# LANGUAGE ScopedTypeVariables #-}
-import Hails.TCB.Load
+{-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
 import Hails.HttpServer
 import Hails.HttpServer.Auth
+import Hails.HttpServer.Types
 
-import Data.IterIO.Server.TCPServer
+import Network.HTTP.Types
+import qualified Network.Wai as W
+import Network.Wai.Handler.Warp
+
 import Data.Functor ((<$>))
 import Data.Maybe (listToMaybe)
 import qualified Data.ByteString.Lazy.Char8 as L8
@@ -30,8 +33,8 @@ about prog ver = "About: " ++ prog ++ " " ++ ver ++
 --
 --
 
-main :: IO ()
-main = do
+runApp :: Application -> IO ()
+runApp app = do
   args <- getArgs
   env  <- getEnvironment
   opts <- hailsOpts args env
@@ -39,10 +42,9 @@ main = do
   let appName = optName opts
       port    = optPort opts
       authF   = if optDev opts
-                  then basicNoAuth
-                  else externalAuth (optKey opts) (optUrl opts)
-  func <- loadApp (optSafe opts) appName
-  runTCPServer $ secureHttpServer authF (fromInteger port) func
+                  then devBasicAuth "Hails"
+                  else undefined
+  runSettings defaultSettings $ authF $ hailsApplication app
 
 --
 -- Helper
