@@ -36,4 +36,5 @@ Library
   ghc-options: -Wall -fno-warn-orphans
 
   Exposed-modules:
+    Hails.Data.Hson
     Hails.Data.Hson.TCB

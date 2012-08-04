@@ -1,20 +1,49 @@
-{-# LANGUAGE DeriveDataTypeable,
-             MultiParamTypeClasses,
-             FlexibleInstances,
-             TypeSynonymInstances,
-             ScopedTypeVariables
-             #-}
+{-# LANGUAGE Unsafe #-}
+{-# LANGUAGE DeriveDataTypeable #-}
 
 {- |
 
-This code is based on "Data.Bson".
+
+This module exports the type for a Hails BSON document, 'HsonDoc'.  A
+Hails document is akin to "Data.Bson"\'s documents, but differs in two
+ways. First, Hails restricts the number of types to a subset of BSON's
+(see 'BsonVal'). This restriction is primarily due to the fact that
+many of the BSON types are redundant and not used (at least within
+Hails). Second, Hails allows for documents to contain policy-labeled
+values.
+
+Policy labeled values ('PolicyLabeled') are permitted only at the
+\"top-level\" of a document. (This is primarily done to keep
+policy-specification simple and may change in the future.)
+Consequently to allow for nested documents and documents containing an
+array of values we separate top-level fields ('HsonField'), that may
+contain policy labeled values, from potentially-nested fields
+('BsonField'). A top-level field 'HsonField' is thus either a
+'BsonField' or a 'PolicyLabled' value.
+
+To keep the TCB compact, this module does not export the combinators
+used to create documents in a friendly fashion. See "Hails.Data.Hson"
+for the safe external API.
 
 
+/Credit:/ Much of this code is based on/reuses "Data.Bson".
 -}
 
-module Hails.Data.Hson.TCB () where
+module Hails.Data.Hson.TCB (
+  -- * Documents
+    HsonDocument, BsonDocument
+  -- * Fields
+  , FieldName, HsonField(..), BsonField(..)
+  -- * Values
+  , HsonValue(..), BsonValue(..)
+  , PolicyLabeled(..), ObjectId(..), Binary(..), S8
+  -- * Marshall to/from "Data.Bson"
+  , hsonDocToDataBsonDocTCB 
+  , dataBsonDocToHsonDocTCB 
+  -- * Internal
+  , add__hails_prefix 
+  ) where
 
-import qualified Data.List as List
 import           Data.Text (Text)
 import qualified Data.Text as T
 import           Data.Int (Int32, Int64)
@@ -34,8 +63,7 @@ import           LIO
 import           LIO.Labeled.TCB (labelTCB, unlabelTCB)
 import           LIO.DCLabel
 
-infix 0 =:
-
+-- | Strict ByeString
 type S8 = S8.ByteString
 
 
@@ -55,41 +83,25 @@ type BsonDocument = [BsonField]
 -- Fields
 --
 
--- | The name of a BSON field
-type HsonName = Text
+-- | The name of a field.
+type FieldName = Text
 
 -- | A field containing a named 'BsonValue'
-data BsonField = BsonField !HsonName BsonValue
+data BsonField = BsonField !FieldName BsonValue
   deriving (Typeable, Eq, Ord)
-
-instance Show BsonField where
-  show (BsonField n v) = T.unpack n ++ " =: " ++ show v
 
 -- | A field containing a named 'HsonValue'
-data HsonField = HsonField !HsonName HsonValue
+data HsonField = HsonField !FieldName HsonValue
   deriving (Typeable, Eq, Ord)
-
-instance Show HsonField where
-  show (HsonField n v) = T.unpack n ++ " =: " ++ show v
-
--- | Class used to define fields.
-class (Show v, Show f) => Field v f where
-  -- | Given a name and value construct either a 'HsonField' or
-  -- 'BsonField'
-  (=:) :: HsonName -> v -> f
-
-instance Field BsonValue BsonField where
-  (=:) = BsonField
-instance Field BsonValue HsonField where
-  n =: v = n =: HsonValue v
-instance Field HsonValue HsonField where
-  (=:) = HsonField
 
 --
 -- Values
 --
 
--- | A @BsonValue@ is a subset of BSON values.
+-- | A @BsonValue@ is a subset of BSON ("Data.Bson") values.  Note that a
+-- @BsonValue@ cannot contain any labeled values; all labeled values
+-- occur in a document as 'HsonValue's.  Correspondingly, @BsonValue@s
+-- may be arbitrarily nested.
 data BsonValue = BsonFloat Double
                -- ^ Float value
                | BsonString Text
@@ -114,39 +126,16 @@ data BsonValue = BsonFloat Double
                -- ^ 64-bit integer
                deriving (Typeable, Eq, Ord)
 
-instance Show BsonValue where
-  show (BsonFloat v)  = show v
-  show (BsonString v) = show v
-  show (BsonDoc v)    = show v
-  show (BsonArray v)  = show v
-  show (BsonBlob v)   = show v
-  show (BsonObjId v)  = show v
-  show (BsonBool v)   = show v
-  show (BsonUTC v)    = show v
-  show BsonNull       = "NULL"
-  show (BsonInt32 v)  = show v
-  show (BsonInt64 v)  = show v
-
 -- | An @HsonValue@ is a top-level value that may either be a
 -- 'BsonValue' or a policy labeled value. The separation of values
 -- into 'BsonValue' and 'HsonValue' is solely due to the restriction
 -- that policy-labeled values may only occur at the top level and
--- 'BsonValue's may be nested (see 'BsonArray' and 'BsonDoc').
+-- 'BsonValue's may be nested (e.g. using 'BsonArray' and 'BsonDoc').
 data HsonValue = HsonValue BsonValue
                  -- ^ Bson value
                | HsonLabeled PolicyLabeled
                  -- ^ Policy labeled value
                  deriving (Typeable, Eq, Ord)
-
-instance Show HsonValue where
-  show (HsonValue   h) = show h
-  show (HsonLabeled _) = "HsonLabeled"
-
-
-
---
--- Policy labeled values
---
 
 -- | A @PolicyLabeled@ value can be either an unlabeled value for which
 -- the policy needs to be applied (@NeedPolicyTCB@), or an already
@@ -158,22 +147,10 @@ data PolicyLabeled = NeedPolicyTCB BsonValue
                    | HasPolicyTCB (DCLabeled BsonValue)
                      -- ^ Policy applied
                    deriving (Typeable)
-instance Eq PolicyLabeled  where (==) _ _ = False
-instance Ord PolicyLabeled where (<=) _ _ = False
-instance Show PolicyLabeled where show _ = "PolicyLabeled"
+instance Eq PolicyLabeled   where (==) _ _ = False
+instance Ord PolicyLabeled  where (<=) _ _ = False
+instance Show PolicyLabeled where show _   = "PolicyLabeled"
 
-
--- | Create a policy labeled value given an unlabeled 'HsonValue'.
-needPolicy :: BsonValue-> PolicyLabeled
-needPolicy = NeedPolicyTCB
-
--- | Create a policy labeled value a labeled 'HsonValue'.
-hasPolicy :: DCLabeled BsonValue -> PolicyLabeled
-hasPolicy = HasPolicyTCB
-
---
--- Binary values
---
 
 -- | Arbitrary binary blob
 newtype Binary = Binary { unBinary :: S8 }
@@ -184,16 +161,19 @@ newtype Binary = Binary { unBinary :: S8 }
 -- Convert to "Data.Bson"
 --
 
--- | Convert 'HsonValue' to a "Data.Bson" @Value@.
+-- | Convert 'HsonValue' to a "Data.Bson" @Value@. Note that
+-- 'PolicyLabeled' values are marshalled out as "Data.Bson" @UserDefined@
+-- values. This means that the @UserDefined@ type is reserved and
+-- exposing it as a type in 'BsonValue' would potentially lead to
+-- vulnerabilities in which labeled values can be marshalled in from
+-- well-crafted ByteStrings.
 hsonToDataBsonTCB :: HsonValue -> Bson.Value
 hsonToDataBsonTCB (HsonValue b) = bsonToDataBsonTCB b
 hsonToDataBsonTCB (HsonLabeled (HasPolicyTCB lv)) =
   toUserDef . hsonDocToDataBsonDocTCB $ 
-     [ __hails_HsonLabeled_label =: (BsonBlob .
-                                     Binary  .
-                                     encode  .
-                                     labelOf $ lv)
-     , __hails_HsonLabeled_value =: unlabelTCB lv ]
+     [ HsonField __hails_HsonLabeled_label $
+         HsonValue (BsonBlob . Binary . encode . labelOf $ lv)
+     , HsonField __hails_HsonLabeled_value $ HsonValue (unlabelTCB lv) ]
     where toUserDef = Bson.UserDef
                     . Bson.UserDefined
                     . strictify
@@ -220,21 +200,29 @@ bsonToDataBsonTCB bv = case bv of
   (BsonInt64 i)   -> Bson.Int64 i
 
 
--- | Convert a 'HsonField' to a Bson @Field@.
+-- | Convert an 'HsonField' to a "Data.Bson" @Field@.
 hsonFieldToDataBsonFieldTCB :: HsonField -> Bson.Field
 hsonFieldToDataBsonFieldTCB (HsonField n v) =
   (Bson.:=) n (hsonToDataBsonTCB v)
 
--- | Convert a 'HsonDocument' to a Bson @Document@.
+-- | Convert a top-level document (i.e., 'HsonDocument') to a "Data.Bson"
+-- @Document@. This is the primary marshall-out function.  All
+-- 'PolicyLabeled' values are marshalled out as "Data.Bson" @UserDefined@
+-- values. This means that the @UserDefined@ type is reserved and
+-- exposing it as a type in 'BsonValue' would potentially lead to
+-- vulnerabilities in which labeled values can be marshalled in from
+-- well-crafted ByteStrings. Moreover, untrusted code should not have
+-- access to this function; having such access would allow it to
+-- inspect the serialized labeled values and thus violate IFC.
 hsonDocToDataBsonDocTCB :: HsonDocument -> Bson.Document
 hsonDocToDataBsonDocTCB = map hsonFieldToDataBsonFieldTCB
 
--- | Convert a 'BsonField' to a Bson @Field@.
+-- | Convert a 'BsonField' to a "Data.Bson" @Field@.
 bsonFieldToDataBsonFieldTCB :: BsonField -> Bson.Field
 bsonFieldToDataBsonFieldTCB (BsonField n v) =
   (Bson.:=) n (bsonToDataBsonTCB v)
 
--- | Convert a 'BsonDocument' to a Bson @Document@.
+-- | Convert a 'BsonDocument' to a "Data.Bson" @Document@.
 bsonDocToDataBsonDocTCB :: BsonDocument -> Bson.Document
 bsonDocToDataBsonDocTCB = map bsonFieldToDataBsonFieldTCB
 
@@ -245,13 +233,13 @@ bsonDocToDataBsonDocTCB = map bsonFieldToDataBsonFieldTCB
 
 -- | Convert a "Data.Bson" @Field@ to 'BsonField'.
 dataBsonFieldToBsonFieldTCB :: Bson.Field -> BsonField
-dataBsonFieldToBsonFieldTCB ((Bson.:=) n v) = n =: (dataBsonToBsonTCB v)
+dataBsonFieldToBsonFieldTCB ((Bson.:=) n v) = BsonField n (dataBsonToBsonTCB v)
 
--- | Convert a "Data.Bson" @Document@.  to a 'BsonDocument'.
+-- | Convert a "Data.Bson" @Document@  to a 'BsonDocument'.
 dataBsonDocToBsonDocTCB :: Bson.Document -> BsonDocument
 dataBsonDocToBsonDocTCB = map dataBsonFieldToBsonFieldTCB
 
--- | Convert 'BsonValue' to a "Data.Bson" @Value@.
+-- | Convert "Data.Bson" @Value@ to a 'BsonValue'.
 dataBsonToBsonTCB :: Bson.Value -> BsonValue
 dataBsonToBsonTCB bv = case bv of
   (Bson.Float d)   -> BsonFloat d
@@ -268,311 +256,46 @@ dataBsonToBsonTCB bv = case bv of
   _                -> error "dataBsonToBsonTCB: only support subset of BSON"
 
 
+-- | Convert "Data.Bson" @Document@ to a 'HsonDocument'. This is the
+-- top-level function that marshalls BSON documents to Hails
+-- documents. This function assumes that all documents have been
+-- marshalled out using 'hsonDocToDataBsonDocTCB'. Otherwise, the
+-- 'PolicyLabled' values that are created from the document may be
+-- forged.
 dataBsonDocToHsonDocTCB :: Bson.Document -> HsonDocument
 dataBsonDocToHsonDocTCB = map toHson
   where toHson ((Bson.:=) n (Bson.UserDef (Bson.UserDefined b))) = 
           let bdoc = Binary.runGet Bson.getDocument (lazyfy b)
           in case maybePolicyLabeledTCB bdoc of
                Nothing -> error "dataBsonDocToHsonDocTCB: Expected PolicyLabeled"
-               Just lv -> n =: HsonLabeled lv
-        toHson ((Bson.:=) n v) = n =: dataBsonToBsonTCB v
+               Just lv -> HsonField n (HsonLabeled lv)
+        toHson ((Bson.:=) n v) = HsonField n (HsonValue $ dataBsonToBsonTCB v)
         lazyfy x = L8.fromChunks [x]
 
 
 
 -- | Hails internal field name for a policy labeled value (label part)
 -- (label part).
-__hails_HsonLabeled_label :: HsonName
+__hails_HsonLabeled_label :: FieldName
 __hails_HsonLabeled_label = add__hails_prefix $ T.pack "HsonLabeled_label"
 
 -- | Hails internal field name for a policy labeled value (label part)
 -- (name part).
-__hails_HsonLabeled_value :: HsonName
+__hails_HsonLabeled_value :: FieldName
 __hails_HsonLabeled_value = add__hails_prefix $ T.pack "HsonLabeled_value"
 
 -- | Hails internal prefix that is used to serialized labeled values.
-add__hails_prefix :: Text -> Text
+add__hails_prefix :: FieldName -> FieldName
 add__hails_prefix t = T.pack "__hails_" `T.append` t
 
 
--- | Turn a hails-internal document to a policy labeled value.
+-- | Convert a "Data.Bson" @Document@ to a policy labeled value.
 maybePolicyLabeledTCB :: Bson.Document -> Maybe PolicyLabeled
 maybePolicyLabeledTCB doc = do
   (Bson.Binary b) <- Bson.lookup __hails_HsonLabeled_label doc
   l <- decode' b
   v <- Bson.look __hails_HsonLabeled_value doc
-  return . hasPolicy $ labelTCB l (dataBsonToBsonTCB v)
+  return . HasPolicyTCB $ labelTCB l (dataBsonToBsonTCB v)
     where decode' b = case decode b of
                         Left _ -> Nothing
                         Right v -> v
-
-look :: Monad m => HsonName -> BsonDocument -> m BsonValue
-look n doc = case List.find f doc of
-               Just (BsonField _ v) -> return v
-               _                    -> fail $ "look: Not found " ++ show n
-  where f (BsonField n' _) = n == n'
-
---
--- Helpers
---
-
--- | Convert 'BsonDocument' to 'HsonDocument'
-bsonDocToHsonDoc :: BsonDocument -> HsonDocument
-bsonDocToHsonDoc = map bsonFieldToHsonField 
-
--- | Convert 'BsonField' to 'HsonField'
-bsonFieldToHsonField :: BsonField -> HsonField
-bsonFieldToHsonField (BsonField n v) = n =: v
-
--------------------------------------------------------------------------------
--- "Friendly" interface -------------------------------------------------------
--------------------------------------------------------------------------------
-
-{-
-instance BsonVal v => Field v BsonField where
-  n =: v = n =: toBsonValue v
-instance HsonVal v => Field v HsonField where
-  n =: v = n =: toHsonValue v
--}
-
---
--- To/From BsonValue
---
-
-class (Typeable a, Show a) => BsonVal a where
-  toBsonValue   :: a -> BsonValue
-  fromBsonValue :: BsonValue -> Maybe a
-
-
-instance BsonVal Double where
-  toBsonValue = BsonFloat
-  fromBsonValue (BsonFloat x) = Just x
-  fromBsonValue (BsonInt32 x) = Just (fromIntegral x)
-  fromBsonValue (BsonInt64 x) = Just (fromIntegral x)
-  fromBsonValue _ = Nothing
-
-instance BsonVal Float where
-  toBsonValue = BsonFloat . realToFrac
-  fromBsonValue (BsonFloat x) = Just (realToFrac x)
-  fromBsonValue (BsonInt32 x) = Just (fromIntegral x)
-  fromBsonValue (BsonInt64 x) = Just (fromIntegral x)
-  fromBsonValue _ = Nothing
-
-instance BsonVal Text where
-  toBsonValue = BsonString
-  fromBsonValue (BsonString x) = Just x
-  fromBsonValue _ = Nothing
-
-instance BsonVal String where
-  toBsonValue = BsonString . T.pack
-  fromBsonValue (BsonString x) = Just $ T.unpack x
-  fromBsonValue _ = Nothing
-
-instance BsonVal BsonDocument where
-  toBsonValue = BsonDoc
-  fromBsonValue (BsonDoc x) = Just x
-  fromBsonValue _ = Nothing
-
-instance BsonVal [BsonValue] where
-  toBsonValue = BsonArray
-  fromBsonValue (BsonArray x) = Just x
-  fromBsonValue _ = Nothing
-
-instance (BsonVal a) => BsonVal [a] where
-  toBsonValue = BsonArray . map toBsonValue
-  fromBsonValue (BsonArray x) = mapM cast x
-  fromBsonValue _ = Nothing
-
-instance BsonVal Binary where
-  toBsonValue = BsonBlob
-  fromBsonValue (BsonBlob x) = Just x
-  fromBsonValue _ = Nothing
-
-
-instance BsonVal ObjectId where
-  toBsonValue = BsonObjId
-  fromBsonValue (BsonObjId x) = Just x
-  fromBsonValue _ = Nothing
-
-instance BsonVal Bool where
-  toBsonValue = BsonBool
-  fromBsonValue (BsonBool x) = Just x
-  fromBsonValue _ = Nothing
-
-instance BsonVal UTCTime where
-  toBsonValue = BsonUTC
-  fromBsonValue (BsonUTC x) = Just x
-  fromBsonValue _ = Nothing
-
-instance BsonVal (Maybe BsonValue) where
-  toBsonValue Nothing  = BsonNull
-  toBsonValue (Just v) = v
-  fromBsonValue BsonNull = Just Nothing
-  fromBsonValue v        = Just (Just v)
-
-instance (BsonVal a) => BsonVal (Maybe a) where
-  toBsonValue Nothing  = BsonNull
-  toBsonValue (Just a) = toBsonValue a
-  fromBsonValue BsonNull = Just Nothing
-  fromBsonValue v        = fmap Just (fromBsonValue v)
-
-instance BsonVal Int32 where
-  toBsonValue = BsonInt32
-  fromBsonValue (BsonInt32 x) = Just x
-  fromBsonValue (BsonInt64 x) = fitInt x
-  fromBsonValue (BsonFloat x) = Just (round x)
-  fromBsonValue _ = Nothing
-
-
-instance BsonVal Int64 where
-  toBsonValue = BsonInt64
-  fromBsonValue (BsonInt64 x) = Just x
-  fromBsonValue (BsonInt32 x) = Just (fromIntegral x)
-  fromBsonValue (BsonFloat x) = Just (round x)
-  fromBsonValue _ = Nothing
-
-instance BsonVal Int where
-  toBsonValue n = maybe (BsonInt64 $ fromIntegral n) BsonInt32 (fitInt n)
-  fromBsonValue (BsonInt32 x) = Just (fromIntegral x)
-  fromBsonValue (BsonInt64 x) = Just (fromEnum x)
-  fromBsonValue (BsonFloat x) = Just (round x)
-  fromBsonValue _ = Nothing
-
-instance BsonVal Integer where
-  toBsonValue n = maybe (maybe err BsonInt64 $ fitInt n)
-                        BsonInt32 (fitInt n) 
-    where err = error $ show n ++ " is too large for BsonInt{32,64}"
-  fromBsonValue (BsonInt32 x) = Just (fromIntegral x)
-  fromBsonValue (BsonInt64 x) = Just (fromIntegral x)
-  fromBsonValue (BsonFloat x) = Just (round x)
-  fromBsonValue _ = Nothing
-
---
--- To/From HsonValue
---
--- Lot of redundant instances to avoid unecessary extensions
-
-class (Typeable a, Show a) => HsonVal a where
-  toHsonValue   :: a -> HsonValue
-  fromHsonValue :: HsonValue -> Maybe a
-
-instance HsonVal Double where
-  toHsonValue = HsonValue . BsonFloat
-  fromHsonValue (HsonValue (BsonFloat x)) = Just x
-  fromHsonValue (HsonValue (BsonInt32 x)) = Just (fromIntegral x)
-  fromHsonValue (HsonValue (BsonInt64 x)) = Just (fromIntegral x)
-  fromHsonValue _ = Nothing
-
-instance HsonVal Float where
-  toHsonValue = HsonValue . BsonFloat . realToFrac
-  fromHsonValue (HsonValue (BsonFloat x)) = Just (realToFrac x)
-  fromHsonValue (HsonValue (BsonInt32 x)) = Just (fromIntegral x)
-  fromHsonValue (HsonValue (BsonInt64 x)) = Just (fromIntegral x)
-  fromHsonValue _ = Nothing
-
-instance HsonVal Text where
-  toHsonValue = HsonValue . BsonString
-  fromHsonValue (HsonValue (BsonString x)) = Just x
-  fromHsonValue _ = Nothing
-
-instance HsonVal String where
-  toHsonValue = HsonValue . BsonString . T.pack
-  fromHsonValue (HsonValue (BsonString x)) = Just $ T.unpack x
-  fromHsonValue _ = Nothing
-
-instance HsonVal BsonDocument where
-  toHsonValue = HsonValue . BsonDoc
-  fromHsonValue (HsonValue (BsonDoc x)) = Just x
-  fromHsonValue _ = Nothing
-
-instance HsonVal [BsonValue] where
-  toHsonValue = HsonValue . BsonArray
-  fromHsonValue (HsonValue (BsonArray x)) = Just x
-  fromHsonValue _ = Nothing
-
-instance (HsonVal a, BsonVal a) => HsonVal [a] where
-  toHsonValue = HsonValue . BsonArray . map toBsonValue
-  fromHsonValue (HsonValue (BsonArray x)) = mapM cast x
-  fromHsonValue _ = Nothing
-
-instance HsonVal Binary where
-  toHsonValue = HsonValue . BsonBlob
-  fromHsonValue (HsonValue (BsonBlob x)) = Just x
-  fromHsonValue _ = Nothing
-
-
-instance HsonVal ObjectId where
-  toHsonValue = HsonValue . BsonObjId
-  fromHsonValue (HsonValue (BsonObjId x)) = Just x
-  fromHsonValue _ = Nothing
-
-instance HsonVal Bool where
-  toHsonValue = HsonValue . BsonBool
-  fromHsonValue (HsonValue (BsonBool x)) = Just x
-  fromHsonValue _ = Nothing
-
-instance HsonVal UTCTime where
-  toHsonValue = HsonValue . BsonUTC
-  fromHsonValue (HsonValue (BsonUTC x)) = Just x
-  fromHsonValue _ = Nothing
-
-instance HsonVal (Maybe BsonValue) where
-  toHsonValue Nothing  = HsonValue BsonNull
-  toHsonValue (Just v) = HsonValue v
-  fromHsonValue (HsonValue BsonNull) = Just Nothing
-  fromHsonValue (HsonValue v)        = Just (Just v)
-  fromHsonValue _ = Nothing
-
-instance (HsonVal a, BsonVal a) => HsonVal (Maybe a) where
-  toHsonValue Nothing  = HsonValue BsonNull
-  toHsonValue (Just a) = HsonValue $ toBsonValue a
-  fromHsonValue (HsonValue BsonNull) = Just Nothing
-  fromHsonValue (HsonValue v)        = fmap Just (fromBsonValue v)
-  fromHsonValue _ = Nothing
-
-instance HsonVal Int32 where
-  toHsonValue = HsonValue . BsonInt32
-  fromHsonValue (HsonValue (BsonInt32 x)) = Just x
-  fromHsonValue (HsonValue (BsonInt64 x)) = fitInt x
-  fromHsonValue (HsonValue (BsonFloat x)) = Just (round x)
-  fromHsonValue _ = Nothing
-
-instance HsonVal Int64 where
-  toHsonValue = HsonValue . BsonInt64
-  fromHsonValue (HsonValue (BsonInt64 x)) = Just x
-  fromHsonValue (HsonValue (BsonInt32 x)) = Just (fromIntegral x)
-  fromHsonValue (HsonValue (BsonFloat x)) = Just (round x)
-  fromHsonValue _ = Nothing
-
-instance HsonVal Int where
-  toHsonValue n = HsonValue $ maybe (BsonInt64 $ fromIntegral n) BsonInt32 (fitInt n)
-  fromHsonValue (HsonValue (BsonInt32 x)) = Just (fromIntegral x)
-  fromHsonValue (HsonValue (BsonInt64 x)) = Just (fromEnum x)
-  fromHsonValue (HsonValue (BsonFloat x)) = Just (round x)
-  fromHsonValue _ = Nothing
-
-instance HsonVal Integer where
-  toHsonValue n = HsonValue $ maybe (maybe err BsonInt64 $ fitInt n)
-                                    BsonInt32 (fitInt n) 
-    where err = error $ show n ++ " is too large for HsonInt{32,64}"
-  fromHsonValue (HsonValue (BsonInt32 x)) = Just (fromIntegral x)
-  fromHsonValue (HsonValue (BsonInt64 x)) = Just (fromIntegral x)
-  fromHsonValue (HsonValue (BsonFloat x)) = Just (round x)
-  fromHsonValue _ = Nothing
-
-instance HsonVal PolicyLabeled where
-  toHsonValue   = HsonLabeled
-  fromHsonValue (HsonLabeled v) = Just v
-  fromHsonValue _               = Nothing
-
---
--- Helpers
---
-  
-
--- | From "Data.Bson": Cast number to end type, if it \"fits\".
-fitInt :: forall n m. (Integral n, Integral m, Bounded m) => n -> Maybe m
-fitInt n = if fromIntegral (minBound :: m) <= n
-              && n <= fromIntegral (maxBound :: m)
-             then Just (fromIntegral n)
-             else Nothing
