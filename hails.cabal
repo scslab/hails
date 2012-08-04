@@ -31,6 +31,8 @@ Library
                  transformers,
 --                 bson-generic,
                  time,
+                 constraints,
+                 monad-control,
                  ghc-prim
 
   ghc-options: -Wall -fno-warn-orphans
