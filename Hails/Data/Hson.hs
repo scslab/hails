@@ -6,7 +6,8 @@
              FlexibleInstances,
              TypeSynonymInstances,
              ScopedTypeVariables,
-             OverlappingInstances
+             OverlappingInstances,
+             FunctionalDependencies
              #-}
 
 {- |
@@ -63,7 +64,7 @@ module Hails.Data.Hson (
   -- * Documents
     HsonDocument, BsonDocument
   -- ** Operations on documents
-  , look, valueAt
+  , DocOps(..)
   , DocValOps(..)
   , include, exclude
   , merge
@@ -183,15 +184,26 @@ hasPolicy = HasPolicyTCB
 -- Document operations
 --
 
--- | Find value of field in document, or fail not found.
-look :: (Field v f, Monad m) => FieldName -> [f] -> m v
-look n doc = case List.find ((==n) . fieldName) doc of
-               Just v -> fieldValue v
-               _      -> fail $ "look: Not found " ++ show n
+-- | Class used to implement operatoins on documents that return
+-- 'HsonValue's or 'BsonValue's. The main role of this function is to
+-- impose the functional dependency between values and fields.  As a
+-- consequence 'look'ing up and getting 'valueAt' in a 'HsonDocument'
+-- (resp. 'BsonDocument') will return a 'HsonValue' (resp. 'BsonValue').
+-- This eliminates the need to specify the end type of very query, but
+-- forces the programmer to cast between Hson and Bson values.
+class Field v f => DocOps v f | v -> f, f -> v where
+  -- | Find value of field in document, or fail not found.
+  look :: (Field v f, Monad m) => FieldName -> [f] -> m v
+  look n doc = case List.find ((==n) . fieldName) doc of
+                 Just v -> fieldValue v
+                 _      -> fail $ "look: Not found " ++ show n
 
--- | Same as 'look', but 'fail's if the value is not found.
-valueAt :: Field v f => FieldName -> [f] -> v
-valueAt n = runIdentity . look n
+  -- | Same as 'look', but 'fail's if the value is not found.
+  valueAt :: Field v f => FieldName -> [f] -> v
+  valueAt n = runIdentity . look n
+
+instance DocOps HsonValue HsonField where
+instance DocOps BsonValue BsonField where
 
 -- | Only include fields specified.
 include :: IsField f => [FieldName] -> [f] -> [f]
