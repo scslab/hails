@@ -22,6 +22,14 @@ browserGuardMiddleware hailsApp conf req = do
       then response
       else Response status403 [] ""
 
+-- Remove anything from the response that could cause inadvertant\
+-- declasification (e.g. Cookies)
+sanitizeResp :: Middleware
+sanitizeResp hailsApp conf req = do
+  response <- hailsApp conf req
+  return $ removeResponseHeader response hCookie
+  
+
 transformHailsApp :: Application -> W.Application
 transformHailsApp hailsApp req0 = do
   hailsRequest <- waiToHailsReq req0
@@ -40,7 +48,7 @@ addXHailsSensitive happ p req = do
     else return $ addResponseHeader response ("X-Hails-Sensitive", "Yes")
 
 secureApplication :: Middleware
-secureApplication = addXHailsSensitive . browserGuardMiddleware
+secureApplication = addXHailsSensitive . browserGuardMiddleware . sanitizeResp
 
 hailsApplication :: Application -> W.Application
 hailsApplication = transformHailsApp . secureApplication

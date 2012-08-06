@@ -8,6 +8,7 @@ import Data.Conduit
 import Data.Conduit.List
 import Network.Socket (SockAddr)
 import qualified Network.HTTP.Types as H
+import qualified Network.HTTP.Types.Header as H
 import Data.Text (Text)
 import LIO.DCLabel
 
@@ -62,7 +63,11 @@ data Response = Response H.Status H.ResponseHeaders L.ByteString
 
 addResponseHeader :: Response -> H.Header -> Response
 addResponseHeader (Response s hdrs body) hdr@(hname, _) = Response s (hdr:headers) body
-  where headers = Prelude.filter (\(n, _) -> n /= hname) hdrs
+  where headers = Prelude.filter ((/= hname) . fst) hdrs
+
+removeResponseHeader :: Response -> H.HeaderName -> Response
+removeResponseHeader (Response s hdrs body) hname = Response s headers body
+  where headers = Prelude.filter ((/= hname) . fst) hdrs
 
 hailsToWaiResponse :: Response -> W.Response
 hailsToWaiResponse (Response stat rhd body) = W.responseLBS stat rhd body
