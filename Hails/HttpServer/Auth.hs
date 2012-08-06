@@ -11,7 +11,7 @@ authenticatedBasic req = do
   case lookup hAuthorization (requestHeaders req) of
     Nothing -> Nothing
     Just authStr
-      | S8.take 5 authStr /= "Basic" -> Nothing
+      | "Basic" `S8.isPrefixOf` authStr -> Nothing
       | otherwise ->
           let up = fmap (S8.split ':') $ decode $ S8.drop 6 authStr
           in case up of
@@ -21,7 +21,9 @@ authenticatedBasic req = do
 
 devBasicAuth :: String -> Middleware
 devBasicAuth realm app0 req0 = do
-  let resp = responseLBS status401 [("WWW-Authenticate", "Basic realm=\" ++ realm ++ \"")] ""
+  let resp = responseLBS status401
+               [( "WWW-Authenticate"
+                , S8.pack $ "Basic realm=\"" ++ realm ++ "\"")] ""
   let req = case authenticatedBasic req0 of
               Nothing -> req
               Just (user, _) ->

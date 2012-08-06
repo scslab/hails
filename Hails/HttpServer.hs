@@ -11,18 +11,25 @@ import DCLabel.TCB
 import LIO.TCB
 import LIO.DCLabel
 
-hailsApplication :: Application -> W.Application
-hailsApplication hailsApp req0 = do
-  hailsRequest <- waiToHailsReq req0
-  let (RequestConfig browserLabel requestLabel appPrivilege) = getRequestConf hailsRequest
-  (response, resultLabel) <- liftIO . evalDC $ do
-    lowerClr browserLabel
-    setLabelTCB lpub
-    let lreq = labelTCB requestLabel hailsRequest
-    addXHailsSensitive hailsApp appPrivilege lreq
+browserGuardMiddleware :: Middleware
+browserGuardMiddleware hailsApp conf req = do
+  lowerClr $ browserLabel conf
+  setLabelTCB lpub
+  response <- hailsApp conf req
+  resultLabel <- getLabel
   return $
-    if resultLabel `leq` browserLabel then hailsToWaiResponse response
-      else W.responseLBS status403 [] ""
+    if resultLabel `canflowto` (browserLabel conf)
+      then response
+      else Response status403 [] ""
+
+transformHailsApp :: Application -> W.Application
+transformHailsApp hailsApp req0 = do
+  hailsRequest <- waiToHailsReq req0
+  let conf = getRequestConf hailsRequest
+  (response, _) <- liftIO . evalDC $ do
+    let lreq = labelTCB (requestLabel conf) hailsRequest
+    hailsApp conf lreq
+  return $ hailsToWaiResponse response
 
 addXHailsSensitive :: Middleware
 addXHailsSensitive happ p req = do
@@ -32,16 +39,18 @@ addXHailsSensitive happ p req = do
     then return response
     else return $ addResponseHeader response ("X-Hails-Sensitive", "Yes")
 
-data RequestConfig = RequestConfig { browserLabel :: DCLabel
-                                   , requestLabel :: DCLabel
-                                   , appPrivilege :: DCPrivTCB }
+secureApplication :: Middleware
+secureApplication = addXHailsSensitive . browserGuardMiddleware
+
+hailsApplication :: Application -> W.Application
+hailsApplication = transformHailsApp . secureApplication
 
 --
 -- Helper
 --
 
--- | Get the browser label, application name, and new (safe)
--- request. Note: all cookies are removed.
+-- | Get the browser label (secrecy of the user), request label (integrity of
+-- the user), and application privilege (minted with the app's cannonical name)
 getRequestConf :: Request -> RequestConfig
 getRequestConf req =
   let headers = requestHeaders req

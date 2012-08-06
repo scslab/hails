@@ -2,7 +2,7 @@ module Hails.HttpServer.Types where
 
 import qualified Network.Wai as W
 
-import qualified Data.ByteString as B
+import qualified Data.ByteString as S
 import qualified Data.ByteString.Lazy as L
 import Data.Conduit
 import Data.Conduit.List
@@ -16,15 +16,15 @@ data Request = Request
   {  requestMethod  :: H.Method
   ,  httpVersion    :: H.HttpVersion
   -- | Extra path information sent by the client.
-  ,  rawPathInfo    :: B.ByteString
+  ,  rawPathInfo    :: S.ByteString
   -- | If no query string was specified, this should be empty. This value
   -- /will/ include the leading question mark.
   -- Do not modify this raw value- modify queryString instead.
-  ,  rawQueryString :: B.ByteString
+  ,  rawQueryString :: S.ByteString
   -- | Generally the host requested by the user via the Host request header.
   -- Backends are free to provide alternative values as necessary. This value
   -- should not be used to construct URLs.
-  ,  serverName     :: B.ByteString
+  ,  serverName     :: S.ByteString
   -- | The listening port that the server received this request on. It is
   -- possible for a server to listen on a non-numeric port (i.e., Unix named
   -- socket), in which case this value will be arbitrary. Like 'serverName',
@@ -43,20 +43,35 @@ data Request = Request
   }
 
 waiToHailsReq :: W.Request -> ResourceT IO Request
-waiToHailsReq (W.Request m ver rp rqs sn sp rhs isS rh pi qs rb _) = do
-  body <- fmap L.fromChunks $ rb $$ consume
-  return $ Request m ver rp rqs sn sp rhs isS rh pi qs body
+waiToHailsReq req = do
+  body <- fmap L.fromChunks $ W.requestBody req $$ consume
+  return $ Request { requestMethod = W.requestMethod req
+                   , httpVersion = W.httpVersion req
+                   , rawPathInfo = W.rawPathInfo req
+                   , rawQueryString = W.rawQueryString req
+                   , serverName = W.serverName req
+                   , serverPort = W.serverPort req
+                   , requestHeaders = W.requestHeaders req
+                   , isSecure = W.isSecure req
+                   , remoteHost = W.remoteHost req
+                   , pathInfo = W.pathInfo req
+                   , queryString = W.queryString req
+                   , requestBody = body }
 
 data Response = Response H.Status H.ResponseHeaders L.ByteString
 
 addResponseHeader :: Response -> H.Header -> Response
-addResponseHeader (Response s hdrs body) hdr@(name, val) = Response s (hdr:headers) body
-  where headers = Prelude.filter (\(n, _) -> n /= name) hdrs
+addResponseHeader (Response s hdrs body) hdr@(hname, _) = Response s (hdr:headers) body
+  where headers = Prelude.filter (\(n, _) -> n /= hname) hdrs
 
 hailsToWaiResponse :: Response -> W.Response
 hailsToWaiResponse (Response stat rhd body) = W.responseLBS stat rhd body
 
-type Application = DCPrivTCB -> DCLabeled Request -> DC Response
+data RequestConfig = RequestConfig { browserLabel :: DCLabel
+                                   , requestLabel :: DCLabel
+                                   , appPrivilege :: DCPrivTCB }
+
+type Application = RequestConfig -> DCLabeled Request -> DC Response
 
 type Middleware = Application -> Application
 
