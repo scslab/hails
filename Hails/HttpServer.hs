@@ -1,16 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Hails.HttpServer (hailsApplication) where
+{- |
+
+This module exports methods for constructing a WAI-based HTTP server to serve
+Hails 'Application's.
+
+-}
+module Hails.HttpServer
+  ( devHailsHandler
+  , hailsApplication
+  ) where
 
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.ByteString.Char8 as S8
 import Network.HTTP.Types
 import qualified Network.Wai as W
 
+import Hails.HttpServer.Auth
 import Hails.HttpServer.Types
 import DCLabel.TCB
 import LIO.TCB
 import LIO.DCLabel
 
+-- | Hails 'Middleware' that ensures the 'Response' from the application is
+-- readable by the client's browser (as determined by the result label of the
+-- app computation and the label of the browser). If the response is not
+-- readable by the browser, the middleware sends a 403 (unauthorized) response
+-- instead.
 browserGuardMiddleware :: Middleware
 browserGuardMiddleware hailsApp conf req = do
   lowerClr $ browserLabel conf
@@ -30,6 +45,10 @@ sanitizeResp hailsApp conf req = do
   return $ removeResponseHeader response hCookie
   
 
+-- | Dumly run a Hails 'Application' and return a corresponding WAI
+-- 'W.Applicaiton'. Should generally not be run alone by combined with
+-- middleware (e.g. 'browserGuardMiddleware') that ensures the safety of the
+-- computation and response.
 transformHailsApp :: Application -> W.Application
 transformHailsApp hailsApp req0 = do
   hailsRequest <- waiToHailsReq req0
@@ -39,6 +58,8 @@ transformHailsApp hailsApp req0 = do
     hailsApp conf lreq
   return $ hailsToWaiResponse response
 
+-- | Adds the header \"X-Hails-Sensitive: Yes\" to the response if the label of
+-- the computation is above 'lpub'.
 addXHailsSensitive :: Middleware
 addXHailsSensitive happ p req = do
   response <- happ p req
@@ -47,11 +68,21 @@ addXHailsSensitive happ p req = do
     then return response
     else return $ addResponseHeader response ("X-Hails-Sensitive", "Yes")
 
+-- | Returns a secure Hails app such that the result 'Response' is guaranteed
+-- to be safe to transmit to the client's browser.
 secureApplication :: Middleware
 secureApplication = addXHailsSensitive . browserGuardMiddleware . sanitizeResp
 
+-- | Safely wraps a Hails 'Application' in a WAI 'W.Application' that can be
+-- run by an application server.
 hailsApplication :: Application -> W.Application
 hailsApplication = transformHailsApp . secureApplication
+
+-- | A default Hails handler for development environments. Safely runs a Hails
+-- 'Application', using basic HTTP authentication for authenticating users.
+-- However, authentication will accept any username/password pair.
+devHailsHandler :: Application -> W.Application
+devHailsHandler = devBasicAuth "Hails" . hailsApplication
 
 --
 -- Helper

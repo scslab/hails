@@ -1,11 +1,31 @@
 {-# LANGUAGE OverloadedStrings #-}
-module Hails.HttpServer.Auth where
+{- |
+
+Generic definitions for authentication pipelines in Hails.
+'requireLoginMiddleware' looks for the \"X-Hails-Login\" header from an
+'Application's 'Response' and, if present, responds
+to the user with an authentication request instead (e.g. a redirect to a login
+page or an HTTP response with status 401). 
+
+In addition, authentication middlewares for basic HTTP authentication (useful
+in development environments) and federated (OpenID) authentication. In general,
+authentication middlewares are expected to set the \"X-Hails-User\" header on
+the request if it is from an authenticated user.
+
+-}
+module Hails.HttpServer.Auth
+  ( requireLoginMiddleware
+  , devBasicAuth, authenticatedBasic
+  ) where
 
 import Data.ByteString.Base64
 import qualified Data.ByteString.Char8 as S8
 import Network.HTTP.Types
 import Network.Wai
 
+-- | Helper method for implementing basic authentication. Given a 'Request'
+-- returns a username-password pair from the basic authentication header if
+-- present and valid.
 authenticatedBasic :: Request -> Maybe (S8.ByteString, S8.ByteString)
 authenticatedBasic req = do
   case lookup hAuthorization (requestHeaders req) of
@@ -19,7 +39,9 @@ authenticatedBasic req = do
             _ -> Nothing
 
 
-devBasicAuth :: String -> Middleware
+-- | Basic HTTP authentication middleware for development. Accepts any username
+-- and password.
+devBasicAuth :: String {- ^ Realm -} -> Middleware
 devBasicAuth realm app0 req0 = do
   let resp = responseLBS status401
                [( "WWW-Authenticate"

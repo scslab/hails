@@ -1,4 +1,18 @@
-module Hails.HttpServer.Types where
+{- |
+
+This module defines types for Hails including the base type, 'Application',
+which, at a high level, is a function from 'Request' to 'Response' in the 'DC'
+Monad.
+
+-}
+module Hails.HttpServer.Types
+  ( Application
+  , Request(..), RequestConfig(..), waiToHailsReq
+  , Response(..), hailsToWaiResponse
+  , addResponseHeader
+  , removeResponseHeader
+  , Middleware
+  ) where
 
 import qualified Network.Wai as W
 
@@ -43,6 +57,9 @@ data Request = Request
   ,  requestBody    :: L.ByteString
   }
 
+
+-- | Convert a WAI 'W.Request' to a Hails 'Request' by consuming the body into
+-- a 'L.ByteString'.
 waiToHailsReq :: W.Request -> ResourceT IO Request
 waiToHailsReq req = do
   body <- fmap L.fromChunks $ W.requestBody req $$ consume
@@ -59,24 +76,38 @@ waiToHailsReq req = do
                    , queryString = W.queryString req
                    , requestBody = body }
 
+-- | Contains the HTTP response 'Status', a list of 'Header's and the response
+-- body as a 'L.ByteString'
 data Response = Response H.Status H.ResponseHeaders L.ByteString
 
+-- | Add/replace a 'H.Header' to the 'Response'
 addResponseHeader :: Response -> H.Header -> Response
 addResponseHeader (Response s hdrs body) hdr@(hname, _) = Response s (hdr:headers) body
   where headers = Prelude.filter ((/= hname) . fst) hdrs
 
+-- | Remove a header (if it exists) from the 'Response'
 removeResponseHeader :: Response -> H.HeaderName -> Response
 removeResponseHeader (Response s hdrs body) hname = Response s headers body
   where headers = Prelude.filter ((/= hname) . fst) hdrs
 
+-- | Convert a Hails 'Response' to a WAI 'W.Response'
 hailsToWaiResponse :: Response -> W.Response
 hailsToWaiResponse (Response stat rhd body) = W.responseLBS stat rhd body
 
+-- | The settings with which the application will run:
+--
+--   * The label of the browser the reponse will be sent to
+--
+--   * The label of the incoming request (with the logged in user's integrity)
+--
+--   * A privilege minted for the app
 data RequestConfig = RequestConfig { browserLabel :: DCLabel
                                    , requestLabel :: DCLabel
                                    , appPrivilege :: DCPrivTCB }
 
+-- | Base Hails type implemented by untrusted applications.
 type Application = RequestConfig -> DCLabeled Request -> DC Response
 
+-- | Convenience type for middleware components.
 type Middleware = Application -> Application
 
