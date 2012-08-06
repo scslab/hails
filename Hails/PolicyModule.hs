@@ -35,9 +35,9 @@ module Hails.PolicyModule (
  , PolicyModule(..)
  ) where
 
-import           LIO.DCLabel
 import           Hails.PolicyModule.TCB
-import           Hails.Database.Core (Database)
+import           Hails.Database.Access
+import           Hails.Database.Core
 
 -- | A policy module is specified as an instance of the @PolicyModule@
 -- class. The role of this class is two-fold.
@@ -74,7 +74,7 @@ class PolicyModule pm where
   -- Within this module, the policy module's privilges are available
   -- since the value constructor 'MyPolicyModuleTCB' is visible.
   -- However, application code cannot access these privileges.
-  createPolicyModule :: MonadDC m => PolicyModuleConf -> m pm
+  createPolicyModule :: PolicyModuleConf -> HailsAction pm
 
   -- | Retrieve the policy module's database. To restrict access to
   -- the database \"handle\" should be labeled

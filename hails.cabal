@@ -1,5 +1,5 @@
 Name:           hails
-Version:        0.2
+Version:        0.9.0.0
 build-type:     Simple
 License:        GPL-2
 License-File:   LICENSE
@@ -29,6 +29,7 @@ Library
                  lio,
                  text,
                  transformers,
+                 transformers-base,
 --                 bson-generic,
                  time,
                  constraints,
@@ -40,3 +41,10 @@ Library
   Exposed-modules:
     Hails.Data.Hson
     Hails.Data.Hson.TCB
+    Hails.Database.Core
+    Hails.Database.TCB
+    Hails.Database.Access
+    Hails.Database.Access.TCB
+    Hails.Database.Query
+    Hails.PolicyModule
+    Hails.PolicyModule.TCB
