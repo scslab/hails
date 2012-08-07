@@ -1,4 +1,4 @@
-{-# LANGUAGE Unsafe #-}
+{-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE ConstraintKinds,
              FlexibleContexts #-}
 
@@ -34,6 +34,8 @@ module Hails.PolicyModule (
  ) where
 
 
+import           Data.Typeable
+
 import           LIO.DCLabel
 import           Hails.Database.Core
 
@@ -60,10 +62,11 @@ import           Hails.Database.Core
 --
 -- >  import LIO
 -- >  import LIO.DCLabel
+-- >  import Data.Typeable
 -- >  import Hails.PolicyModule
 -- >  
 -- >  -- | Handle to policy module, not exporting @MyPolicyModuleTCB@
--- >  data MyPolicyModule = MyPolicyModuleTCB DCPriv
+-- >  data MyPolicyModule = MyPolicyModuleTCB DCPriv deriving Typeable
 -- >  
 -- >  instance PolicyModule MyPolicyModule where
 -- >    initPolicyModule priv = do
@@ -80,7 +83,7 @@ import           Hails.Database.Core
 -- >      return (MyPolicyModuleTCB priv)
 --
 -- TODO: add doc on \"handle\"
-class PolicyModule pm where
+class Typeable pm => PolicyModule pm where
   -- | Entry point for policy module.
   initPolicyModule :: DCPriv -> DBAction pm
 
