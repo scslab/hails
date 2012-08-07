@@ -27,55 +27,79 @@ a database and relevant collections with a set of policies.
 
 
 module Hails.PolicyModule (
- -- * Policy module configurations
-    PolicyModuleConf
- , policyModuleDBName
- , policyModulePriv
- -- * Policy module class
- , PolicyModule(..)
+   PolicyModule(..)
+ -- * Helper functions
+ , labelDatabaseP
+ , associateCollectionsP 
  ) where
 
-import           Hails.PolicyModule.TCB
-import           Hails.Database.Access
+
+import           LIO.DCLabel
 import           Hails.Database.Core
 
 -- | A policy module is specified as an instance of the @PolicyModule@
--- class. The role of this class is two-fold.
+-- class. The role of this class is to define an entry point for
+-- policy modules. The policy module author should set up the database
+-- labels and define all the database collections in 'initPolicyModule'.
+-- It is these collections and corresponding policies that apps and
+-- other policy modules use when interacting with the policy module's
+-- database.
 --
--- * Each policy module may create a database and collection by
---   providing a definintion of 'createPolicyModule'
+-- The Hails runtime system relies on the policy module's type @pm@
+-- to load the corresponding 'initPolicyModule' when some code
+-- \"invokes\" the policy module. Hence, a value of this type may be
+-- used by apps and other policy modules as a \"handle\" to the policy
+-- module database. Additinoally, and more interestingly, the policy
+-- module can use a type for which it does not export the value
+-- constructor to hide the Hails supplied privilege. In doing so,
+-- policy module code can request a \"handle\" to itself and use the
+-- privileges to perform otherwise non-permitted databse actions.
+-- By not exporting the value constructor, other code is restricted to
+-- the policies imposed in 'initPolicyModule'. The example below show
+-- a use case:
 --
--- * An application may interact with a policy module's database with
---   'getPolicyModuleDB'.
+-- >  import LIO
+-- >  import LIO.DCLabel
+-- >  import Hails.PolicyModule
+-- >  
+-- >  -- | Handle to policy module, not exporting @MyPolicyModuleTCB@
+-- >  data MyPolicyModule = MyPolicyModuleTCB DCPriv
+-- >  
+-- >  instance PolicyModule MyPolicyModule where
+-- >    initPolicyModule priv = do
+-- >          -- Get the policy module principal:
+-- >      let this = privDesc priv
+-- >          -- Create label:
+-- >          l    = dcLabel dcTrue -- Everybody can read
+-- >                         this   -- Only policy module can modify
+-- >      -- Label database and collection map:
+-- >      labelDatabaseP priv l l
+-- >      -- Associate collections with database
+-- >      associateCollectionsP priv [ {- ... my collections ... -} ]
+-- >      -- Return "handle" to this policy jodule
+-- >      return (MyPolicyModuleTCB priv)
+--
+-- TODO: add doc on \"handle\"
 class PolicyModule pm where
-  -- | Each policy module is provided a unique policy module configuration
-  -- value ('PolicyModuleConf') which contains the policy module's underlying
-  -- database name and privilege. This value should be treated as
-  -- sensitive by the policy module code since the value encapsulates
-  -- the policy module's privileges.
-  --
-  -- Example use case:
-  --
-  -- > module MyPolicyModule ( MyPolicyModule ) where
-  -- >
-  -- > data MyPolicyModule = MyPolicyModuleTCB DCPriv Database
-  -- >   deriving Typeable
-  -- >
-  -- > instance PolicyModule MyPolicyModule
-  -- >   createPolicyModule conf = do
-  -- >     let myPrivs = policyModulePriv conf
-  -- >     ...
-  -- >     db <- {- create database -}
-  -- >     ...
-  -- >     return (MyPolicyModuleTCB priv db)
-  -- >
-  -- >   getPolicyModuleDB (MyPolicyModuleTCB _ db) = db
-  -- 
-  -- Within this module, the policy module's privilges are available
-  -- since the value constructor 'MyPolicyModuleTCB' is visible.
-  -- However, application code cannot access these privileges.
-  createPolicyModule :: PolicyModuleConf -> HailsAction pm
+  -- | Entry point for policy module.
+  initPolicyModule :: DCPriv -> DBAction pm
 
-  -- | Retrieve the policy module's database. To restrict access to
-  -- the database \"handle\" should be labeled
-  getPolicyModuleDB :: pm -> Database
+-- | This is the first action that any policy module should execute.
+-- Given the policy module's privilges, label for the databse, and
+-- label for the collection map @labelDatabaseP@ accordingly sets the
+-- labels on the policy module's database.
+labelDatabaseP :: DCPriv    -- ^ Policy module privilges
+               -> DCLabel   -- ^ Database label
+               -> DCLabel   -- ^ Collections label
+               -> DBAction ()
+labelDatabaseP p ldb lcol = do
+  setDatabaseLabelP p ldb
+  setCollectionsLabelP p lcol
+
+-- | Given the policy module's privileges and list of collections,
+-- associate the collections with the policy module's database.
+associateCollectionsP :: DCPriv         -- ^ Policy module privileges
+                      -> [Collection]   -- ^ List of collections
+                      -> DBAction ()
+associateCollectionsP p cs = mapM_ (associateCollectionP p) cs
+

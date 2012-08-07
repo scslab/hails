@@ -147,7 +147,8 @@ data PolicyLabeled = NeedPolicyTCB BsonValue
                    | HasPolicyTCB (DCLabeled BsonValue)
                      -- ^ Policy applied
                    deriving (Typeable)
-instance Eq PolicyLabeled   where (==) _ _ = False
+
+instance Eq PolicyLabeled   where (==) _ _ = True
 instance Ord PolicyLabeled  where (<=) _ _ = False
 instance Show PolicyLabeled where show _   = "PolicyLabeled"
 

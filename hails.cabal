@@ -30,11 +30,14 @@ Library
                  text,
                  transformers,
                  transformers-base,
---                 bson-generic,
                  time,
-                 constraints,
                  monad-control,
-                 ghc-prim
+                 --
+                 QuickCheck,
+                 HUnit,
+                 quickcheck-instances,
+                 test-framework,
+                 test-framework-quickcheck2
 
   ghc-options: -Wall -fno-warn-orphans
 
@@ -43,8 +46,35 @@ Library
     Hails.Data.Hson.TCB
     Hails.Database.Core
     Hails.Database.TCB
-    Hails.Database.Access
-    Hails.Database.Access.TCB
-    Hails.Database.Query
+    --Hails.Database.Query
     Hails.PolicyModule
-    Hails.PolicyModule.TCB
+
+test-suite tests
+  type: exitcode-stdio-1.0
+  hs-source-dirs: tests
+  main-is: Tests.hs
+
+  ghc-options:
+    -threaded -rtsopts
+
+  build-depends:
+    QuickCheck,
+    HUnit,
+    quickcheck-instances,
+    test-framework,
+    test-framework-quickcheck2,
+    --test-framework-hunit,
+    base,
+    lio,
+    containers,
+    bytestring,
+    bson,
+    mongoDB,
+    binary,
+    cereal,
+    text,
+    transformers,
+    transformers-base,
+    time,
+    monad-control,
+    hails

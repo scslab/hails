@@ -17,8 +17,6 @@ module Hails.Database.Core (
   -- * Database
   , DatabaseName
   , Database, databaseName, databaseLabel, databaseCollections
-  , database
-  , associateCollection, associateCollectionP
   -- * Policies
   , CollectionPolicy(..)
   , FieldPolicy(..)
@@ -30,10 +28,19 @@ module Hails.Database.Core (
   , PolicyError(..)
   -- * Labeled documents
   , LabeledHsonDocument 
+  -- * Hails DB monad
+  , DBAction, DBActionState(..)
+  , runDBAction, evalDBAction
+  , associateCollection, associateCollectionP
+  , setDatabaseLabel, setDatabaseLabelP
+  , setCollectionsLabel, setCollectionsLabelP
+  -- ** Database system configuration
+  , Pipe, AccessMode(..), master, slaveOk
+  -- ** Exception thrown by failed database actions
+  , Failure(..)
   ) where
 
 import qualified Data.List as List
-import qualified Data.Set as Set
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Traversable as T
@@ -41,6 +48,7 @@ import           Data.Maybe
 import           Data.Typeable
 
 import           Control.Monad
+import           Control.Monad.Trans.State
 import           Control.Exception (Exception(..))
 
 import           LIO
@@ -48,7 +56,6 @@ import           LIO.DCLabel
 
 import           Hails.Data.Hson
 import           Hails.Data.Hson.TCB
-import           Hails.PolicyModule.TCB
 import           Hails.Database.TCB
 
 --
@@ -80,50 +87,6 @@ collectionP p n l c pol = do
   guardAllocP p l
   guardAllocP p c
   return $ collectionTCB n l c pol
-
---
--- Database
---
-
--- | Given a policy module configuration, the label of the database and
--- label on collection set create the policy module's database.  Note
--- that the label of the database and collection set must be above the
--- current label (modulo the policy module's privileges) and below the
--- current clearance as imposed by 'guardAllocP'.
-database :: MonadDC m 
-         => PolicyModuleConf  -- ^ Policy module configuration
-         -> DCLabel           -- ^ Label of database
-         -> DCLabel           -- ^ Label of collection set
-         -> m Database
-database conf ldb lcoll = do
-  guardAllocP p ldb
-  cs <- labelP p lcoll Set.empty
-  return $ databaseTCB n ldb cs
-   where n = policyModuleDBName conf
-         p = policyModulePriv conf
-
--- | Given a newly created collection and an existing database,
--- associate the collection with the database. To do so, the current
--- computation must be able to modify the database's collection set.
--- Specifically, the current label must equal to the collection set's
--- label as specified by the policy module. This is enforced by
--- 'guardWrite'.
-associateCollection :: MonadDC m
-                    => Collection  -- ^ New collection
-                    -> Database    -- ^ Existing database
-                    -> m Database  -- ^ New database
-associateCollection = associateCollectionP noPriv
-
--- | Same as 'associateCollection', but uses privileges when
--- performing label comparisons and raising the current label.
-associateCollectionP :: MonadDC m
-                     => DCPriv      -- ^ Privileges
-                     -> Collection  -- ^ New collection
-                     -> Database    -- ^ Existing database
-                     -> m Database  -- ^ New database
-associateCollectionP p c db = do
-  guardWriteP p $ labelOf (databaseCollections db)
-  return $ associateCollectionTCB c db
 
 --
 -- Policies
@@ -243,3 +206,103 @@ instance Exception PolicyError
 --
 -- | A labeled 'HsonDocument'.
 type LabeledHsonDocument = DCLabeled HsonDocument
+
+--
+-- DB monad
+--
+
+-- | Execute a database action returning the final result and state.
+-- In general, code should instead use 'evalDBAction'. This function
+-- is primarily used by trusted code to initialize a policy module
+-- which may have modified the underlying database.
+runDBAction :: DBAction a -> DBActionState -> DC (a, DBActionState)
+runDBAction = runStateT . unDBAction
+
+-- | Execute a database action returning the final result.
+evalDBAction :: DBAction a -> DBActionState -> DC a
+evalDBAction a s = fst `liftM` runDBAction a s
+
+-- | Set the label of the underlying databse. The supplied label must
+-- be bounded by the current label and clearance as enforced by
+-- 'guardAlloc'. In addition, the code modying the database label must
+-- be permitted by the policy module that owns the databse.
+-- Specifically, the new label must be equivalent to the existing
+-- database label. As such, most code should use 'setDatbaseLabelP',
+-- which takes aprivilege argument that can be used in this
+-- comparison.
+setDatabaseLabel :: DCLabel -> DBAction ()
+setDatabaseLabel = setDatabaseLabelP noPriv
+
+-- | Same as 'setDatabaseLabel', but uses privileges when performing
+-- label comparisons. If a policy module wishes to allow other policy
+-- modules or apps to access the underlying databse it must use 
+-- @setDatabaseLabelP@ to \"downgrade\" the database label, which by
+-- default only allows the policy module to access any of the
+-- contents (including collection map).
+setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
+                  -> DCLabel   -- ^ New database label
+                  -> DBAction ()
+setDatabaseLabelP p l = do
+  guardAllocP p l
+  ldb <- (databaseLabel . dbActionDB) `liftM` getActionStateTCB
+  unless (ldb `flowsTo` l && l `flowsTo` ldb) $ throwLIO InsufficientPrivs
+  setDatabaseLabelTCB l
+    where flowsTo l1 l2 = canFlowToP p l1 l2
+
+-- | The collections label protects the collection map of the
+-- database. It is used to restrict who can name a collection in the
+-- database and who can modify the underlying collection map (e.g., by
+-- associating a new collection with the database). The policy module
+-- may change the default collections label, which limits access to
+-- the policy module alone, using @setCollectionsLabel@.
+--
+-- The new label must be bounded by the current label and clearance as
+-- checked by 'guardAlloc', the current label must flow to the label of
+-- the database, and finally the new collection label must be equivalent
+-- to the existing one. The last requirement is imposed so as to
+-- prevent code other than the policy module from changing the label
+-- on first account. Hence, in most cases code should use
+-- 'setCollectionsLabelP'.
+setCollectionsLabel :: DCLabel -> DBAction ()
+setCollectionsLabel = setCollectionsLabelP noPriv
+
+-- | Same as 'setCollectionsLabel', but uses the supplied privileges
+-- when performing label comparisons.
+setCollectionsLabelP :: DCPriv      -- ^ Set of privileges
+                     -> DCLabel     -- ^ New collections label
+                     -> DBAction ()
+setCollectionsLabelP p l = do
+  guardAllocP p l
+  db  <-  dbActionDB `liftM` getActionStateTCB
+  guardWriteP p (databaseLabel db)
+  let lcs = labelOf . databaseCollections $ db
+  unless (lcs `flowsTo` l && l `flowsTo` lcs) $ throwLIO InsufficientPrivs
+  setCollectionsLabelTCB l
+    where flowsTo l1 l2 = canFlowToP p l1 l2
+  
+
+-- | Given a newly created collection, associate the collection with the
+-- underlying database. Several IFC rules must be respected for this
+-- function to succeed:
+-- 
+-- 1. The computation must be able to read the database collection map
+--    protected by the database label. The guard 'taint' is used to
+--    guarantee this and raise the current label appropriately.
+-- 
+-- 2. The computation must be able to modify the database collection map.
+--    The guard 'guardWrite' is used to guarantee that the current label
+--    is essentially equal to the collection map label.
+associateCollection :: Collection   -- ^ New collection
+                    -> DBAction ()
+associateCollection = associateCollectionP noPriv
+
+-- | Same as 'associateCollection', but uses privileges when
+-- performing label comparisons and raising the current label.
+associateCollectionP :: DCPriv       -- ^ Privileges
+                     -> Collection   -- ^ New collection
+                     -> DBAction ()  -- ^ New database
+associateCollectionP p col = do
+  db <- dbActionDB `liftM` getActionStateTCB
+  taintP p $ databaseLabel db
+  guardWriteP p $ labelOf (databaseCollections db)
+  associateCollectionTCB col

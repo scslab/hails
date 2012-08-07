@@ -95,8 +95,6 @@ import           Data.Typeable
 import           Data.Functor.Identity (runIdentity)
 import qualified Data.Bson as Bson
 
-import           Control.Monad (liftM)
-
 import           LIO
 import           LIO.DCLabel
 import           LIO.TCB (ioTCB)
@@ -373,7 +371,7 @@ instance (BsonVal a) => BsonVal (Maybe a) where
   toBsonValue Nothing  = BsonNull
   toBsonValue (Just a) = toBsonValue a
   fromBsonValue BsonNull = return Nothing
-  fromBsonValue v        = return `liftM` fromBsonValue v
+  fromBsonValue v        = fromBsonValue v
 
 instance BsonVal Int32 where
   toBsonValue = BsonInt32
@@ -488,7 +486,7 @@ instance (HsonVal a, BsonVal a) => HsonVal (Maybe a) where
   toHsonValue Nothing  = HsonValue BsonNull
   toHsonValue (Just a) = HsonValue $ toBsonValue a
   fromHsonValue (HsonValue BsonNull) = return Nothing
-  fromHsonValue (HsonValue v)        = return `liftM` fromBsonValue v
+  fromHsonValue (HsonValue v)        = fromBsonValue v
   fromHsonValue _ = fail "fromHsonValue: no conversion"
 
 instance HsonVal Int32 where
