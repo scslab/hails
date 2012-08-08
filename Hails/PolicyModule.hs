@@ -1,6 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE ConstraintKinds,
-             FlexibleContexts #-}
+             FlexibleContexts,
+             ScopedTypeVariables #-}
 
 {- |
 
@@ -28,6 +29,7 @@ a database and relevant collections with a set of policies.
 
 module Hails.PolicyModule (
    PolicyModule(..), TypeName
+ , withPolicyModule 
  , availablePolicyModules 
  -- * Helper functions
  , labelDatabaseP
@@ -35,15 +37,29 @@ module Hails.PolicyModule (
  ) where
 
 
+import           Data.Maybe
+import qualified Data.List as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Typeable
 import qualified Data.ByteString.Char8 as S8
+import qualified Data.Text as T
+import qualified Data.Bson as Bson
 
 import           Control.Monad
 
+import qualified Database.MongoDB as Mongo
+import           Database.MongoDB (GetLastError)
+
+import           LIO
+import           LIO.Privs.TCB (mintTCB)
+import           LIO.TCB (ioTCB, rethrowIoTCB)
 import           LIO.DCLabel
 import           Hails.Database.Core
+import           Hails.Database.TCB (makeDBActionStateTCB)
+import           Hails.Database.Query
+
+import           Text.Parsec hiding (label)
 
 import           System.Environment
 import           System.IO.Unsafe
@@ -119,7 +135,9 @@ associateCollectionsP p cs = mapM_ (associateCollectionP p) cs
 -- Managing databases
 --
 
--- | Policy type name.
+-- | Policy type name. Has the form:
+--
+-- > <Policy module package>:<Fully qualified module>.<Policy module type>
 type TypeName = String
 
 -- | This contains a map of all the policy modules. Specifically, it
@@ -131,7 +149,7 @@ type TypeName = String
 -- variable @DATABASE_CONFIG_FILE@. Each line in the file corresponds
 -- to a policy module. The format of a line is as follows
 --
--- > ("<Policy module package>:<Fully qualified type for policy module>", "<Policy module principal>", "<Policy module database name>")
+-- > ("<Policy module package>:<Fully qualified module>.<Policy module type>", "<Policy module principal>", "<Policy module database name>")
 -- 
 -- Example of valid line is:
 --
@@ -145,3 +163,79 @@ availablePolicyModules = unsafePerformIO $ do
   Map.fromList `liftM` mapM xfmLine ls
     where xfmLine l = do (tn, p, dn) <- readIO l
                          return (tn,(principal (S8.pack p), dn))
+
+
+-- | Execute a database action against the policy module.
+-- TODO: doc
+withPolicyModule :: forall a pm. PolicyModule pm => pm -> DBAction a -> DC a
+withPolicyModule _ act = do
+  case Map.lookup tn availablePolicyModules of
+    Nothing -> throwLIO UnknownPolicyModule 
+    Just (pmOwner, dbName) -> do
+      env <- ioTCB $ getEnvironment
+      let hostName = fromMaybe "localhost" (List.lookup "HAILS_MONGODB_SERVER" env)
+          mode     = maybe master parseMode (List.lookup "HAILS_MONGODB_MODE" env)
+      pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
+      let priv = mintTCB (toComponent pmOwner)
+          initState = makeDBActionStateTCB priv dbName pipe mode
+      s <- snd `liftM` runDBAction (initPolicyModule priv :: DBAction pm) initState
+      evalDBAction act initState { dbActionDB = dbActionDB s }
+  where tp = typeRepTyCon $ typeOf $ (undefined :: pm)
+        tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
+
+--
+-- Parser for getLastError
+--
+
+-- | Parse the access mode.
+--
+--  > slaveOk                : slaveOk
+--  > unconfirmedWrites      : UnconfirmedWrites
+--  > onfirmWrites <options> : ConfirmWrites [corresponding-options]
+--  > _                      : master
+--
+-- where @options@ can be:
+--
+--  > fsync | journal | writes=<N>
+--
+-- separated by \',\', and @N@ is an integer.
+-- Example: 
+--
+-- > HAILS_MONGODB_MODE = "slaveOk"
+-- > HAILS_MONGODB_MODE = "confirmWrites: writes=3, journal"
+-- > HAILS_MONGODB_MODE = "master"
+--
+parseMode :: String -> AccessMode
+parseMode "slaveOk"           = slaveOk
+parseMode "unconfirmedWrites" = UnconfirmedWrites
+parseMode xs = case parse wParser "" xs of
+                 Right le -> ConfirmWrites le
+                 Left _ -> master
+  where wParser = do _ <- string "confirmWrites" 
+                     spaces
+                     _ <- char ':'
+                     spaces
+                     gle_opts
+
+gle_opts :: Stream s m Char => ParsecT s u m GetLastError
+gle_opts = do opt_first <- gle_opt
+              opt_rest  <- gle_opts'
+              return $ opt_first ++ opt_rest
+    where gle_opt = gle_opt_fsync <|> gle_opt_journal <|> gle_opt_write   
+          gle_opts' :: Stream s m Char => ParsecT s u m GetLastError
+          gle_opts' = (spaces >> char ',' >> spaces >> gle_opts) <|> (return [])
+
+gle_opt_fsync :: Stream s m Char => ParsecT s u m GetLastError
+gle_opt_fsync = string "fsync" >> return [ (T.pack "fsync") Bson.=: True ]
+
+gle_opt_journal :: Stream s m Char => ParsecT s u m GetLastError
+gle_opt_journal = string "journal" >> return [ (T.pack "j") Bson.=: True ]
+
+gle_opt_write :: Stream s m Char => ParsecT s u m GetLastError
+gle_opt_write   = do _ <- string "write"
+                     spaces
+                     _ <- char '='
+                     spaces
+                     dgt <- many1 digit
+                     return [ (T.pack "w") Bson.=: (read dgt :: Integer) ]
+

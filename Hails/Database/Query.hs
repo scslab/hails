@@ -227,7 +227,8 @@ instance InsertLike HsonDocument where
 
 
 -- | Exceptions thrown by invalid database queries.
-data DBError = UnknownCollection -- ^ Collection does not exist
+data DBError = UnknownCollection   -- ^ Collection does not exist
+             | UnknownPolicyModule -- ^ Policy module not found
                deriving (Show, Typeable)
 
 instance Exception DBError
