@@ -28,12 +28,15 @@ a database and relevant collections with a set of policies.
 
 
 module Hails.PolicyModule (
-   PolicyModule(..), TypeName
- , withPolicyModule 
- , availablePolicyModules 
- -- * Helper functions
+  -- * Creating policy modules
+   PolicyModule(..)
+ -- ** Helpers
  , labelDatabaseP
  , associateCollectionsP 
+ -- * Using policy module databases
+ , withPolicyModule 
+ -- * Internal
+ , availablePolicyModules, TypeName
  ) where
 
 
@@ -72,19 +75,23 @@ import           System.IO.Unsafe
 -- other policy modules use when interacting with the policy module's
 -- database.
 --
--- The Hails runtime system relies on the policy module's type @pm@
--- to load the corresponding 'initPolicyModule' when some code
--- \"invokes\" the policy module. Hence, a value of this type may be
--- used by apps and other policy modules as a \"handle\" to the policy
--- module database. Additinoally, and more interestingly, the policy
--- module can use a type for which it does not export the value
--- constructor to hide the Hails supplied privilege. In doing so,
--- policy module code can request a \"handle\" to itself and use the
--- privileges to perform otherwise non-permitted databse actions.
--- By not exporting the value constructor, other code is restricted to
--- the policies imposed in 'initPolicyModule'. The example below show
--- a use case:
+-- The Hails runtime system relies on the policy module's type @pm@ to
+-- load the corresponding 'initPolicyModule' when some code \"invokes\"
+-- the policy module using 'withPolicyModule'.  In fact when a piece of
+-- code wishes to execute a database action on the policy module,
+-- 'withPolicyModule' first executes the policy modules
+-- 'initPolicyModule' and passes the result (of type @pm@) to the
+-- invoking code. Observe that 'initPolicyModule' has access to the
+-- policy module's privileges, which are passed in as an argument.
+-- This allows the policy module to encapsulate its privileges in its
+-- @pm@ type and allow code it trusts to use its privileges when
+-- executing a database action using 'withPolicyModule'. Of course, 
+-- untrusted code (which is usually the case) should not be allow to
+-- inspect values of type @pm@ to get the encapsulated privileges.
+-- Consider the example below:
 --
+-- >  module My.Policy ( MyPolicyModule ) where
+-- >
 -- >  import LIO
 -- >  import LIO.DCLabel
 -- >  import Data.Typeable
@@ -107,7 +114,34 @@ import           System.IO.Unsafe
 -- >      -- Return "handle" to this policy jodule
 -- >      return (MyPolicyModuleTCB priv)
 --
--- TODO: add doc on \"handle\"
+-- Here the policy module labels the database, labels the list of
+-- collections and finally associates its collections with the
+-- database. The computation returns a value of type @MyPolicyModule@
+-- which wraps the policy module's privileges. As a consequence,
+-- trustworthy code that has access to the value constructor can use
+-- the policy module's privileges:
+--
+-- > -- Trustworthy code within the same module (My.Policy)
+-- >
+-- > alwaysInsert doc = withPolicyModule $ \(MyPolicyModuleTCB priv) ->
+-- >  insertP priv doc
+--
+-- Here @alwaysInsert@ uses the policy module's privileges to insert a
+-- document into the database. As such, if @doc@ is well-formed the
+-- function always succeeds. (Of course, such functions should not be
+-- exported.)
+--
+-- Untrusted code in a different module cannot, however use the policy
+-- module's privilege:
+--
+-- > -- Untrusted code in a separate module
+-- > import My.Policy
+-- >
+-- > maybeInsertIntoDB appPriv doc = withPolicyModule $ (_ :: MyPolicyModule) ->
+-- >  insertP appPriv doc
+--
+-- Depending on the privileges passed to @maybeInsertIntoDB@, the
+-- insertion may or may not succeed.
 class Typeable pm => PolicyModule pm where
   -- | Entry point for policy module.
   initPolicyModule :: DCPriv -> DBAction pm
@@ -164,22 +198,34 @@ availablePolicyModules = unsafePerformIO $ do
     where xfmLine l = do (tn, p, dn) <- readIO l
                          return (tn,(principal (S8.pack p), dn))
 
-
--- | Execute a database action against the policy module.
--- TODO: doc
-withPolicyModule :: forall a pm. PolicyModule pm => pm -> DBAction a -> DC a
-withPolicyModule _ act = do
+-- | This function is the used to execute database queries on policy
+-- module databases. The function firstly invokes the policy module,
+-- determined from the type @pm@, and creates a pipe to the policy
+-- module's database. The supplied database query function is then
+-- applied to the policy module. In most cases, the value of type @pm@ is
+-- opaque and the query is executed without additionally privileges.
+--
+-- > withPolicyModule $ \(_ :: SomePolicyModule) -> do
+-- >  -- Perform database operations: insert, save, find, delete, etc.
+--
+-- Trustworthy code (as deemed by the policy module) may, however, be
+-- passed in additional privileges by encapsulating them in @pm@ (see
+-- 'PolicyModule').
+withPolicyModule :: forall a pm. PolicyModule pm => (pm -> DBAction a) -> DC a
+withPolicyModule act = do
   case Map.lookup tn availablePolicyModules of
     Nothing -> throwLIO UnknownPolicyModule 
     Just (pmOwner, dbName) -> do
       env <- ioTCB $ getEnvironment
-      let hostName = fromMaybe "localhost" (List.lookup "HAILS_MONGODB_SERVER" env)
-          mode     = maybe master parseMode (List.lookup "HAILS_MONGODB_MODE" env)
+      let hostName = fromMaybe "localhost" $
+                               List.lookup "HAILS_MONGODB_SERVER" env
+          mode     = maybe master parseMode $
+                                  List.lookup "HAILS_MONGODB_MODE" env
       pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
       let priv = mintTCB (toComponent pmOwner)
-          initState = makeDBActionStateTCB priv dbName pipe mode
-      s <- snd `liftM` runDBAction (initPolicyModule priv :: DBAction pm) initState
-      evalDBAction act initState { dbActionDB = dbActionDB s }
+          s0 = makeDBActionStateTCB priv dbName pipe mode
+      (policy, s1) <- runDBAction (initPolicyModule priv :: DBAction pm) s0
+      evalDBAction (act policy) s1 { dbActionDB = dbActionDB s1 }
   where tp = typeRepTyCon $ typeOf $ (undefined :: pm)
         tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
 
