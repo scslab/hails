@@ -23,12 +23,14 @@ module Hails.Database.Query (
   , Select(..)
   , Selection(..)
   , Selector
-  -- (* Query
+  -- ** Query
   , Query(..)
   , QueryOption(..)
   , Limit
   , BatchSize
   , Order
+  -- * Query failures
+  , DBError(..)
   ) where
 
 
@@ -218,6 +220,22 @@ instance InsertLike HsonDocument where
                   in i'
   saveP = undefined
 
+
+--
+-- DB failures
+--
+
+
+-- | Exceptions thrown by invalid database queries.
+data DBError = UnknownCollection -- ^ Collection does not exist
+               deriving (Show, Typeable)
+
+instance Exception DBError
+
+--
+-- Helpers
+--
+
 -- | Perform an action against a collection. The current label is
 -- raised to the join of the current label, database label and
 -- collections label before performing the action.
@@ -241,10 +259,3 @@ withCollection priv isWrite cName act = do
   -- Execute action on collection:
   act col
     where getCol = listToMaybe . Set.toList . Set.filter ((==cName) . colName)
-
-
--- | Exceptions thrown by invalid database queries.
-data DBError = UnknownCollection -- ^ Collection does not exist
-               deriving (Show, Typeable)
-
-instance Exception DBError

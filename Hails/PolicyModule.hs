@@ -27,17 +27,26 @@ a database and relevant collections with a set of policies.
 
 
 module Hails.PolicyModule (
-   PolicyModule(..)
+   PolicyModule(..), TypeName
+ , availablePolicyModules 
  -- * Helper functions
  , labelDatabaseP
  , associateCollectionsP 
  ) where
 
 
+import           Data.Map (Map)
+import qualified Data.Map as Map
 import           Data.Typeable
+import qualified Data.ByteString.Char8 as S8
+
+import           Control.Monad
 
 import           LIO.DCLabel
 import           Hails.Database.Core
+
+import           System.Environment
+import           System.IO.Unsafe
 
 -- | A policy module is specified as an instance of the @PolicyModule@
 -- class. The role of this class is to define an entry point for
@@ -106,3 +115,33 @@ associateCollectionsP :: DCPriv         -- ^ Policy module privileges
                       -> DBAction ()
 associateCollectionsP p cs = mapM_ (associateCollectionP p) cs
 
+--
+-- Managing databases
+--
+
+-- | Policy type name.
+type TypeName = String
+
+-- | This contains a map of all the policy modules. Specifically, it
+-- maps the policy moule types to a pair of the policy module
+-- principal and database name.
+--
+-- /For the trusted programmer:/
+-- The map itself is read from the file pointed to by the environment
+-- variable @DATABASE_CONFIG_FILE@. Each line in the file corresponds
+-- to a policy module. The format of a line is as follows
+--
+-- > ("<Policy module package>:<Fully qualified type for policy module>", "<Policy module principal>", "<Policy module database name>")
+-- 
+-- Example of valid line is:
+--
+-- > ("my-policy-0.1.2.3:My.Policy.MyPolicyModule","_my","my_db")
+--
+availablePolicyModules :: Map TypeName (Principal, DatabaseName)
+{-# NOINLINE availablePolicyModules #-}
+availablePolicyModules = unsafePerformIO $ do
+  conf <- getEnv "DATABASE_CONFIG_FILE"
+  ls   <- lines `liftM` readFile conf
+  Map.fromList `liftM` mapM xfmLine ls
+    where xfmLine l = do (tn, p, dn) <- readIO l
+                         return (tn,(principal (S8.pack p), dn))
