@@ -3,10 +3,9 @@
 module Hails.Database ( mkPolicy, withDB ) where
 
 import Data.Typeable
-import LIO.MonadCatch
+import LIO
 import LIO.DCLabel
 import LIO.TCB
-import DCLabel.Core
 import Data.String.Utils
 import Hails.Database.MongoDB.TCB.Types
 import Hails.Database.MongoDB.TCB.DCAccess

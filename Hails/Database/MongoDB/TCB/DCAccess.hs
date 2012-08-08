@@ -32,7 +32,6 @@ import Database.MongoDB ( runIOE
                         , AccessMode(..) )
 import LIO
 import LIO.TCB ( rtioTCB )
-import LIO.MonadCatch
 import LIO.DCLabel
 
 import System.Environment

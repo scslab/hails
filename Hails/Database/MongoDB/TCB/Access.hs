@@ -16,7 +16,6 @@ import LIO.TCB ( getTCB
                , setLabelTCB
                , lowerClrTCB
                )
-import LIO.MonadCatch
 import Hails.Data.LBson.TCB
 import Hails.Database.MongoDB.TCB.Types
 

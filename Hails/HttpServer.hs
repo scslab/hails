@@ -17,9 +17,11 @@ import qualified Network.Wai as W
 
 import Hails.HttpServer.Auth
 import Hails.HttpServer.Types
-import DCLabel.TCB
+import LIO
 import LIO.TCB
 import LIO.DCLabel
+import LIO.DCLabel.Privs.TCB
+import LIO.Labeled.TCB
 
 -- | Hails 'Middleware' that ensures the 'Response' from the application is
 -- readable by the client's browser (as determined by the result label of the
@@ -28,12 +30,11 @@ import LIO.DCLabel
 -- instead.
 browserGuardMiddleware :: Middleware
 browserGuardMiddleware hailsApp conf req = do
-  lowerClr $ browserLabel conf
-  setLabelTCB lpub
+  putLIOStateTCB $ LIOState { lioLabel = dcPub, lioClearance = browserLabel conf}
   response <- hailsApp conf req
   resultLabel <- getLabel
   return $
-    if resultLabel `canflowto` (browserLabel conf)
+    if resultLabel `canFlowTo` (browserLabel conf)
       then response
       else Response status403 [] ""
 
@@ -53,7 +54,7 @@ transformHailsApp :: Application -> W.Application
 transformHailsApp hailsApp req0 = do
   hailsRequest <- waiToHailsReq req0
   let conf = getRequestConf hailsRequest
-  (response, _) <- liftIO . evalDC $ do
+  response <- liftIO . evalDC $ do
     let lreq = labelTCB (requestLabel conf) hailsRequest
     hailsApp conf lreq
   return $ hailsToWaiResponse response
@@ -64,7 +65,7 @@ addXHailsSensitive :: Middleware
 addXHailsSensitive happ p req = do
   response <- happ p req
   resultLabel <- getLabel
-  if resultLabel `leq` lpub
+  if resultLabel `canFlowTo` dcPub
     then return response
     else return $ addResponseHeader response ("X-Hails-Sensitive", "Yes")
 
@@ -93,11 +94,11 @@ devHailsHandler = devBasicAuth "Hails" . hailsApplication
 getRequestConf :: Request -> RequestConfig
 getRequestConf req =
   let headers = requestHeaders req
-      userName  = principal `fmap` lookup "x-hails-user" headers
+      userName  = toComponent `fmap` lookup "x-hails-user" headers
       appName  = S8.unpack . S8.takeWhile (/= '.') $ serverName req
-      appPriv = createPrivTCB $ newPriv appName
+      appPriv = DCPrivTCB $ toComponent appName
   in RequestConfig
-      { browserLabel = maybe lpub (\un -> newDC un (<>)) userName
-      , requestLabel = maybe lpub (\un -> newDC (<>) un) userName
+      { browserLabel = maybe dcPub (\un -> dcLabel un anybody) userName
+      , requestLabel = maybe dcPub (\un -> dcLabel anybody un) userName
       , appPrivilege = appPriv }
 

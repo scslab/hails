@@ -6,7 +6,7 @@ module Hails.Policy ( module Data.Typeable
                  , module Hails.Database
                  , module Hails.Database.MongoDB
                  , module LIO.DCLabel
-                 , module LIO.Safe
+                 , module LIO
                  ) where
 
 import Data.Typeable (Typeable(..))
@@ -16,4 +16,4 @@ import Hails.Database.MongoDB hiding ( Action, map, head, break
                                      , dropWhile, split, foldl
                                      , notElem, isInfixOf, singleton)
 import LIO.DCLabel
-import LIO.Safe
+import LIO

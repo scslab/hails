@@ -103,7 +103,7 @@ hailsToWaiResponse (Response stat rhd body) = W.responseLBS stat rhd body
 --   * A privilege minted for the app
 data RequestConfig = RequestConfig { browserLabel :: DCLabel
                                    , requestLabel :: DCLabel
-                                   , appPrivilege :: DCPrivTCB }
+                                   , appPrivilege :: DCPriv }
 
 -- | Base Hails type implemented by untrusted applications.
 type Application = RequestConfig -> DCLabeled Request -> DC Response
