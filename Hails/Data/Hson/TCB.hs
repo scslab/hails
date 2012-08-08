@@ -40,6 +40,7 @@ module Hails.Data.Hson.TCB (
   -- * Marshall to/from "Data.Bson"
   , hsonDocToDataBsonDocTCB 
   , dataBsonDocToHsonDocTCB 
+  , dataBsonValueToHsonValueTCB 
   -- * Internal
   , add__hails_prefix 
   ) where
@@ -264,14 +265,21 @@ dataBsonToBsonTCB bv = case bv of
 -- 'PolicyLabled' values that are created from the document may be
 -- forged.
 dataBsonDocToHsonDocTCB :: Bson.Document -> HsonDocument
-dataBsonDocToHsonDocTCB = map toHson
-  where toHson ((Bson.:=) n (Bson.UserDef (Bson.UserDefined b))) = 
+dataBsonDocToHsonDocTCB =
+  map (\((Bson.:=) n bv) -> HsonField n $ dataBsonValueToHsonValueTCB bv)
+
+-- |Convert a "Data.Bson" @Value@ to a 'HsonValue'. See
+-- 'dataBsonDocToHsonDocTCB'.
+dataBsonValueToHsonValueTCB :: Bson.Value -> HsonValue
+dataBsonValueToHsonValueTCB bv = case bv of
+    (Bson.UserDef (Bson.UserDefined b)) ->
           let bdoc = Binary.runGet Bson.getDocument (lazyfy b)
           in case maybePolicyLabeledTCB bdoc of
-               Nothing -> error "dataBsonDocToHsonDocTCB: Expected PolicyLabeled"
-               Just lv -> HsonField n (HsonLabeled lv)
-        toHson ((Bson.:=) n v) = HsonField n (HsonValue $ dataBsonToBsonTCB v)
-        lazyfy x = L8.fromChunks [x]
+               Nothing -> error $ "dataBsonValueToHsonValueTCB: "
+                                ++ "Expected PolicyLabeled"
+               Just lv -> HsonLabeled lv
+    v -> HsonValue $ dataBsonToBsonTCB v
+  where lazyfy x = L8.fromChunks [x]
 
 
 

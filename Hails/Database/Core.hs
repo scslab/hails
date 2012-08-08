@@ -31,6 +31,7 @@ module Hails.Database.Core (
   -- * Hails DB monad
   , DBAction, DBActionState(..)
   , runDBAction, evalDBAction
+  , getDatabase, getDatabaseP
   , associateCollection, associateCollectionP
   , setDatabaseLabel, setDatabaseLabelP
   , setCollectionsLabel, setCollectionsLabelP
@@ -221,6 +222,22 @@ runDBAction = runStateT . unDBAction
 -- | Execute a database action returning the final result.
 evalDBAction :: DBAction a -> DBActionState -> DC a
 evalDBAction a s = fst `liftM` runDBAction a s
+
+-- | Get the underlying database. Must be able to read from the
+-- database as enforced by applying 'taint' to the database label.
+-- This is required because the database label protects the
+-- label on collections which can be projected given a 'Database'
+-- value.
+getDatabase :: DBAction Database
+getDatabase = getDatabaseP noPriv
+
+-- | Same as 'getDatabase', but uses privileges when raising the
+-- current label.
+getDatabaseP :: DCPriv -> DBAction Database
+getDatabaseP p = do
+  db <- dbActionDB `liftM` getActionStateTCB
+  taintP p (databaseLabel db)
+  return db
 
 -- | Set the label of the underlying databse. The supplied label must
 -- be bounded by the current label and clearance as enforced by

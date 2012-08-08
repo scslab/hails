@@ -46,7 +46,7 @@ Library
     Hails.Data.Hson.TCB
     Hails.Database.Core
     Hails.Database.TCB
-    --Hails.Database.Query
+    Hails.Database.Query
     Hails.PolicyModule
 
 test-suite tests
