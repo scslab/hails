@@ -75,21 +75,20 @@ test-suite tests
   hs-source-dirs: tests
   main-is: Tests.hs
 
-  ghc-options: -threaded -rtsopts
+  ghc-options: -threaded -rtsopts -Wall -fno-warn-orphans
 
   build-depends:
     QuickCheck,
     HUnit,
     quickcheck-instances,
+    quickcheck-lio-instances,
     test-framework,
     test-framework-quickcheck2,
-    --test-framework-hunit,
+    test-framework-hunit,
     base,
     lio,
     conduit ==0.5.*,
     http-types,
-    test-framework,
-    test-framework-hunit,
     HUnit,
     wai,
     wai-test,

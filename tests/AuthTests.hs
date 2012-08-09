@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module AuthTests where
+module AuthTests (tests) where
 
 import Test.Framework
 import Test.Framework.Providers.HUnit
@@ -8,8 +8,11 @@ import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Test
 
-authTests :: Test
-authTests = testGroup "Auth"
+tests :: [Test]
+tests = [authTest]
+
+authTest :: Test
+authTest = testGroup "Auth"
   [ testCase "Require Login on X-Hails-Login header" $ runSession (do
         resp <- request undefined
         assertHeader "TestHeader" "MyHeaderVal" resp) $

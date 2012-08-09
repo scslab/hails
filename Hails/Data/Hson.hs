@@ -216,7 +216,7 @@ exclude ns doc = filter ((\n -> notElem n ns) . fieldName) doc
 merge :: IsField f => [f] -> [f] -> [f]
 merge doc1 doc2 = 
   let ns1 = map fieldName doc1
-      doc2' = List.filter ((\n -> n `elem` ns1) . fieldName) doc2
+      doc2' = List.filter ((\n -> n `notElem` ns1) . fieldName) doc2
   in doc1 ++ doc2'
 
 -- | Class used to implement operations on documents that return

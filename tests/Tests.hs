@@ -2,11 +2,12 @@ module Main (main) where
 
 import Test.Framework
 
-import AuthTests
+import qualified AuthTests
+import qualified HsonTests
 
 main :: IO ()
 main = defaultMain tests
 
 tests :: [Test]
-tests = [authTests]
-
+tests = AuthTests.tests
+     ++ HsonTests.tests
