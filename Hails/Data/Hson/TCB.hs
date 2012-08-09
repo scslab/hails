@@ -307,4 +307,4 @@ maybePolicyLabeledTCB doc = do
   return . HasPolicyTCB $ labelTCB l (dataBsonToBsonTCB v)
     where decode' b = case decode b of
                         Left _ -> Nothing
-                        Right v -> v
+                        Right v -> Just v

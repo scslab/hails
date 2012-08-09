@@ -97,7 +97,7 @@ import qualified Data.Bson as Bson
 
 import           LIO
 import           LIO.DCLabel
-import           LIO.TCB (ioTCB)
+import           LIO.TCB (ioTCB, ShowTCB(..))
 
 import           Hails.Data.Hson.TCB
 
@@ -161,14 +161,22 @@ instance Show BsonValue where
   show (BsonInt64 v)  = show v
 
 instance Show HsonValue where
-  show (HsonValue   h) = show h
-  show (HsonLabeled _) = "HsonLabeled"
+  show (HsonValue   h)  = show h
+  show (HsonLabeled _) = "{- Hidden -} HsonLabeled"
+
+instance ShowTCB HsonValue where
+  showTCB (HsonValue   h) = show h
+  showTCB (HsonLabeled h) = showTCB h
 
 
 
 --
 -- Policy labeled values
 --
+
+instance ShowTCB PolicyLabeled where
+  showTCB (NeedPolicyTCB bv) = "NeedPolicyTCB " ++ show bv
+  showTCB (HasPolicyTCB lbv) = "HasPolicyTCB " ++ showTCB lbv
 
 -- | Create a policy labeled value given an unlabeled 'HsonValue'.
 needPolicy :: BsonValue-> PolicyLabeled

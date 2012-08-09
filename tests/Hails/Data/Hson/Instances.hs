@@ -1,6 +1,8 @@
 
 module Hails.Data.Hson.Instances () where
 
+import qualified Data.Text as T
+import Data.Time.Clock
 import Control.Applicative ((<$>), (<*>))
 
 import Test.QuickCheck
@@ -24,15 +26,20 @@ instance Arbitrary BsonValue where
                     , BsonBlob    <$> arbitrary
                     , BsonObjId   <$> arbitrary
                     , BsonBool    <$> arbitrary
-                    , BsonUTC     <$> arbitrary
-                    , return BsonNull ]
+                    , BsonUTC     <$> utc
+                    , return BsonNull
+                    , BsonInt32   <$> arbitrary
+                    , BsonInt64   <$> arbitrary
+                    ]
     where arr = sized $ \len -> take (min 3 len) <$>
                         (arbitrary :: Gen [BsonValue])
           doc = sized $ \len -> take (min 3 len) <$>
                         (arbitrary :: Gen [BsonField])
+          utc = (\u -> u { utctDayTime = 0 }) <$> arbitrary
 
 instance Arbitrary BsonField where
-    arbitrary = BsonField <$> arbitrary <*> arbitrary
+    arbitrary = BsonField <$> n <*> arbitrary
+      where n = oneof $ map (\x -> return . T.singleton $ x) ['A'..'Z']
 
 
 instance Arbitrary PolicyLabeled where
@@ -45,4 +52,5 @@ instance Arbitrary HsonValue where
                     , HsonLabeled <$> arbitrary ]
 
 instance Arbitrary HsonField where
-    arbitrary = HsonField <$> arbitrary <*> arbitrary
+    arbitrary = HsonField <$> n <*> arbitrary
+      where n = oneof $ map (\x -> return . T.singleton $ x) ['A'..'Z']

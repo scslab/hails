@@ -4,17 +4,20 @@ module HsonTests (tests) where
 import Data.List (sortBy, nubBy)
 import Data.Int (Int32, Int64)
 import Data.Time.Clock (UTCTime(..))
+import qualified Data.Text as T
 
 import Data.Text (Text)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 
 import Hails.Data.Hson
+import Hails.Data.Hson.TCB
 import Hails.Data.Hson.Instances ()
 
 tests :: [Test]
 tests = [ toFromHsonValue
         , testDocOps 
+        , testMarshall
         ]
 
 
@@ -113,3 +116,28 @@ propMergeIdempotent doc1 doc2 =
   in m1 == m2
   && (merge doc1 doc1 == doc1)
   && (merge doc2 doc2 == doc2)
+
+--
+-- Test conversion to/from Data.Bson
+--
+
+testMarshall :: Test
+testMarshall = testGroup "Marshalling HsonDocument" [
+   testProperty "Test marshalling to/from \"Data.Bson\"'s Document" testToFromDocuments
+  ]
+
+-- | Test marshalling to/from "Data.Bson"'s Document
+-- Serializing all field names is buggy on the "Data.Bson" end.
+testToFromDocuments :: HsonDocument -> Bool
+testToFromDocuments d =
+   let doc  = filter (not . needsPolicy) . filter (not . T.null . fieldName) . clean $ d
+       doc' = dataBsonDocToHsonDocTCB . hsonDocToDataBsonDocTCB $ doc
+   in and $ zipWith veq doc doc'
+    where
+          veq v1@(HsonField _ (HsonValue _))
+              v2@(HsonField _ (HsonValue _)) = v1 == v2
+          veq (HsonField n1 (HsonLabeled (HasPolicyTCB v1)))
+              (HsonField n2 (HsonLabeled (HasPolicyTCB v2))) = n1 == n2 && v1 == v2
+          veq _  _ = False
+          needsPolicy (HsonField _ (HsonLabeled (NeedPolicyTCB _))) = True
+          needsPolicy _ = False
