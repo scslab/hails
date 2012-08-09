@@ -57,14 +57,22 @@ toFromHsonValue = testGroup "To/from HsonValue"
 
 testDocOps :: Test
 testDocOps = testGroup "Document operations"
-  [ testProperty "Include Bson"          (testInclude :: BsonDocument -> BsonDocument -> Bool)
-  , testProperty "Include Hson"          (testInclude :: HsonDocument -> HsonDocument -> Bool)
-  , testProperty "Exclude Bson"          (testExclude :: BsonDocument -> BsonDocument -> Bool)
-  , testProperty "Exclude Hson"          (testExclude :: HsonDocument -> HsonDocument -> Bool)
-  , testProperty "Merge Bson"            (testMerge :: BsonDocument -> BsonDocument -> Bool)
-  , testProperty "Merge Hson"            (testMerge :: HsonDocument -> HsonDocument -> Bool)
-  , testProperty "Merge idempotent Bson" (propMergeIdempotent :: BsonDocument -> BsonDocument -> Bool)
-  , testProperty "Merge idempotent Hson" (propMergeIdempotent :: HsonDocument -> HsonDocument -> Bool)
+  [ testProperty "Include Bson"
+                 (testInclude :: BsonDocument -> BsonDocument -> Bool)
+  , testProperty "Include Hson"
+                 (testInclude :: HsonDocument -> HsonDocument -> Bool)
+  , testProperty "Exclude Bson"
+                 (testExclude :: BsonDocument -> BsonDocument -> Bool)
+  , testProperty "Exclude Hson"
+                 (testExclude :: HsonDocument -> HsonDocument -> Bool)
+  , testProperty "Merge Bson"
+                 (testMerge :: BsonDocument -> BsonDocument -> Bool)
+  , testProperty "Merge Hson"
+                 (testMerge :: HsonDocument -> HsonDocument -> Bool)
+  , testProperty "Merge idempotent Bson"
+                 (propMergeIdempotent :: BsonDocument -> BsonDocument -> Bool)
+  , testProperty "Merge idempotent Hson"
+                 (propMergeIdempotent :: HsonDocument -> HsonDocument -> Bool)
   ]
 
 
@@ -123,21 +131,24 @@ propMergeIdempotent doc1 doc2 =
 
 testMarshall :: Test
 testMarshall = testGroup "Marshalling HsonDocument" [
-   testProperty "Test marshalling to/from \"Data.Bson\"'s Document" testToFromDocuments
+   testProperty "Test marshalling to/from \"Data.Bson\"'s Document"
+                testToFromDocuments
   ]
 
 -- | Test marshalling to/from "Data.Bson"'s Document
 -- Serializing all field names is buggy on the "Data.Bson" end.
 testToFromDocuments :: HsonDocument -> Bool
 testToFromDocuments d =
-   let doc  = filter (not . needsPolicy) . filter (not . T.null . fieldName) . clean $ d
+   let doc  = filter (not . needsPolicy) .
+              filter (not . T.null . fieldName) . clean $ d
        doc' = dataBsonDocToHsonDocTCB . hsonDocToDataBsonDocTCB $ doc
    in and $ zipWith veq doc doc'
     where
           veq v1@(HsonField _ (HsonValue _))
               v2@(HsonField _ (HsonValue _)) = v1 == v2
           veq (HsonField n1 (HsonLabeled (HasPolicyTCB v1)))
-              (HsonField n2 (HsonLabeled (HasPolicyTCB v2))) = n1 == n2 && v1 == v2
+              (HsonField n2 (HsonLabeled (HasPolicyTCB v2))) = n1 == n2
+                                                            && v1 == v2
           veq _  _ = False
           needsPolicy (HsonField _ (HsonLabeled (NeedPolicyTCB _))) = True
           needsPolicy _ = False
