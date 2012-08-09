@@ -143,7 +143,10 @@ import           System.IO.Unsafe
 -- Depending on the privileges passed to @maybeInsertIntoDB@, the
 -- insertion may or may not succeed.
 class Typeable pm => PolicyModule pm where
-  -- | Entry point for policy module.
+  -- | Entry point for policy module. Before executing the entry function,
+  -- the current clearance is \"raised\" to the greatest lower bound of the
+  -- current clearance and the label @<"Policy module principal", |True>@, 
+  -- as to allow the policy module to read data labeled with its principal.
   initPolicyModule :: DCPriv -> DBAction pm
 
 -- | This is the first action that any policy module should execute.
@@ -187,7 +190,7 @@ type TypeName = String
 -- 
 -- Example of valid line is:
 --
--- > ("my-policy-0.1.2.3:My.Policy.MyPolicyModule","_my","my_db")
+-- > ("my-policy-0.1.2.3:My.Policy.MyPolicyModule","_my_policy_module","my_db")
 --
 availablePolicyModules :: Map TypeName (Principal, DatabaseName)
 {-# NOINLINE availablePolicyModules #-}
@@ -224,10 +227,20 @@ withPolicyModule act = do
       pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
       let priv = mintTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
-      (policy, s1) <- runDBAction (initPolicyModule priv :: DBAction pm) s0
+      (policy, s1) <- runDBAction (initPolicyModule' priv) s0
       evalDBAction (act policy) s1 { dbActionDB = dbActionDB s1 }
   where tp = typeRepTyCon $ typeOf $ (undefined :: pm)
         tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
+        initPolicyModule' priv = do
+          c <- getClearance
+          bracketP priv
+                   -- Raise clearance:
+                   (setClearanceP priv (partDowngradeP priv c top))
+                   -- Lower clearance:
+                   (const $ do c' <- getClearance 
+                               setClearanceP priv (partDowngradeP priv c' c))
+                   -- Execute policy module entry point, in between:
+                   (const (initPolicyModule priv :: DBAction pm))
 
 --
 -- Parser for getLastError
