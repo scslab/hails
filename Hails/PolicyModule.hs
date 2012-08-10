@@ -203,7 +203,10 @@ to set them using a single function 'labelDatabaseP'.
 
 -- | Set the label of the underlying database. The supplied label must
 -- be bounded by the current label and clearance as enforced by
--- 'guardAlloc'.
+-- 'guardAlloc'. Moreover the current computation mut write to the
+-- database, as enforce by applying 'guardWrite' to the current
+-- database label. The latter requirement  suggests that every policy
+-- module use 'setDatabaseLabelP' when first changing the label.
 setDatabaseLabel :: DCLabel -> PMAction ()
 setDatabaseLabel = setDatabaseLabelP noPriv
 
@@ -218,6 +221,9 @@ setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
                   -> PMAction ()
 setDatabaseLabelP p l = liftBase $ do
   guardAllocP p l
+  c <- getClearance
+  db  <-  dbActionDB `liftM` getActionStateTCB
+  guardWriteP p (databaseLabel db)
   setDatabaseLabelTCB l
 
 -- | The collections label protects the collection-set of the database.
@@ -426,9 +432,10 @@ withPolicyModule act = do
         tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
         initPolicyModule' priv = do
           c <- getClearance
+          let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
           bracketP priv
                    -- Raise clearance:
-                   (setClearanceP priv $ (partDowngradeP priv c top) `glb` c)
+                   (setClearanceP priv lpriv)
                    -- Lower clearance:
                    (const $ do c' <- getClearance 
                                setClearanceP priv (partDowngradeP priv c' c))
