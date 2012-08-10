@@ -69,6 +69,7 @@ Library
     Hails.HttpServer.Auth
     Hails.HttpServer.Types
     Hails.PolicyModule
+    Hails.PolicyModule.TCB
 
 test-suite tests
   type: exitcode-stdio-1.0

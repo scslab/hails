@@ -34,7 +34,7 @@ module Hails.Database.TCB (
   , updateActionStateTCB
   , makeDBActionStateTCB 
   , setDatabaseLabelTCB
-  , setCollectionsLabelTCB 
+  , setCollectionSetLabelTCB 
   , associateCollectionTCB 
   -- ** Database system configuration
   , Pipe, AccessMode(..), master, slaveOk
@@ -261,8 +261,8 @@ setDatabaseLabelTCB l = updateActionStateTCB $ \s ->
 
 -- | Set the label of the underlying database to the supplied label,
 -- ignoring IFC.
-setCollectionsLabelTCB :: DCLabel -> DBAction ()
-setCollectionsLabelTCB l = updateActionStateTCB $ \s -> 
+setCollectionSetLabelTCB :: DCLabel -> DBAction ()
+setCollectionSetLabelTCB l = updateActionStateTCB $ \s -> 
  let db = dbActionDB s
      cs = databaseCollections db
      cs' = labelTCB l $! unlabelTCB cs
