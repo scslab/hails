@@ -10,6 +10,9 @@ import Test.QuickCheck hiding (label)
 import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Monadic as Q
 
+import qualified Data.Map as Map
+import qualified Data.Text as T
+
 import Control.Monad
 import Control.Monad.Base
 
@@ -36,13 +39,19 @@ tests = [
       , testCase "Fail loading non-existant policy module"
                  test_withPolicyModuleP_fail
     ]
-  , testGroup "labelDatabase tests" [
+  , testGroup "Label database/collection-set tests" [
       testProperty "Can label database with bounded label"
                    prop_labelDatabase_ok
     , testProperty "Cannot label database with unbounded label"
                    prop_setDatabaseLabel_fail
     , testProperty "Cannot label collection-set with unbounded label"
                    prop_setCollectionSetLabel_fail
+    ]
+  , testGroup "Creating collections" [
+      testProperty "Create ok with empty policies and bounded labels"
+                   prop_createCollection_empty_ok 
+    , testProperty "Create fail with empty policies and unbounded labels"
+                   prop_createCollection_empty_fail
     ]
   ]
 
@@ -161,6 +170,21 @@ monadicPM1 g =
                                `liftM` m f
   where f = const . return . return .  property $ True
 
+-- | Execute a monadic quickcheck action against policy module TestPM1
+monadicPM1_fail :: (DCPriv -> PropertyM PMAction a) -> Property
+monadicPM1_fail g =
+ let (MkPropertyM m) = g testPM1Priv 
+ in property $ unsafePerformIO `liftM` doEvalDC
+                               `liftM` initTestPM1'
+                               `liftM` m f
+  where f = const . return . return .  property $ True
+        initTestPM1' act = (initTestPM1 act)
+                            `catchTCB` (\_ -> return (property True))
+
+--
+-- Label database and collection-set
+--
+
 -- | Can label database with label bounded by current label and clearance
 prop_labelDatabase_ok :: Property
 prop_labelDatabase_ok = monadicPM1 $ \priv ->
@@ -172,17 +196,6 @@ prop_labelDatabase_ok = monadicPM1 $ \priv ->
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ labelDatabaseP priv ldb lcol
     Q.assert True
-
--- | Execute a monadic quickcheck action against policy module TestPM1
-monadicPM1_fail :: (DCPriv -> PropertyM PMAction a) -> Property
-monadicPM1_fail g =
- let (MkPropertyM m) = g testPM1Priv 
- in property $ unsafePerformIO `liftM` doEvalDC
-                               `liftM` initTestPM1'
-                               `liftM` m f
-  where f = const . return . return .  property $ True
-        initTestPM1' act = (initTestPM1 act)
-                            `catchTCB` (\_ -> return (property True))
 
 -- | Cannot label database with label outside current label/clearance
 prop_setDatabaseLabel_fail :: Property
@@ -202,4 +215,37 @@ prop_setCollectionSetLabel_fail = monadicPM1_fail $ \priv -> do
     c <- run $ liftBase getClearance
     pre . not $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ setCollectionSetLabelP priv lcol
+    Q.assert False
+
+
+--
+-- Create collections
+--
+
+prop_createCollection_empty_ok :: Property
+prop_createCollection_empty_ok = monadicPM1 $ \priv ->
+  forAllM arbitrary $ \lcol -> 
+  forAllM arbitrary $ \ccol -> do
+    l <- run $ liftBase getLabel
+    c <- run $ liftBase getClearance
+    pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
+    pre $ canFlowToP priv l ccol  && ccol `canFlowTo` c
+    let policy = CollectionPolicy {
+                    documentLabelPolicy = const dcPub
+                  , fieldLabelPolicies = Map.empty }
+    run $ createCollectionP priv (T.pack "somefuncollection") lcol ccol policy
+    Q.assert True
+
+prop_createCollection_empty_fail :: Property
+prop_createCollection_empty_fail = monadicPM1_fail $ \priv ->
+  forAllM arbitrary $ \lcol -> 
+  forAllM arbitrary $ \ccol -> do
+    l <- run $ liftBase getLabel
+    c <- run $ liftBase getClearance
+    pre . not $ (canFlowToP priv l lcol  && lcol `canFlowTo` c) && 
+                (canFlowToP priv l ccol  && ccol `canFlowTo` c)
+    let policy = CollectionPolicy {
+                    documentLabelPolicy = const dcPub
+                  , fieldLabelPolicies = Map.empty }
+    run $ createCollectionP priv (T.pack "somefuncollection") lcol ccol policy
     Q.assert False
