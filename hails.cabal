@@ -103,5 +103,6 @@ test-suite tests
     transformers-base,
     time,
     monad-control,
+    unix,
     hails
 

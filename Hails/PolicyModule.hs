@@ -233,9 +233,10 @@ withPolicyModule act = do
         tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
         initPolicyModule' priv = do
           c <- getClearance
+          let lpriv = dcLabel (privDesc priv) dcTrue
           bracketP priv
                    -- Raise clearance:
-                   (setClearanceP priv (partDowngradeP priv c top))
+                   (setClearanceP priv $ partDowngradeP priv c lpriv)
                    -- Lower clearance:
                    (const $ do c' <- getClearance 
                                setClearanceP priv (partDowngradeP priv c' c))
