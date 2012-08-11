@@ -72,7 +72,7 @@ addXHailsSensitive happ p req = do
 -- | Returns a secure Hails app such that the result 'Response' is guaranteed
 -- to be safe to transmit to the client's browser.
 secureApplication :: Middleware
-secureApplication = addXHailsSensitive . browserGuardMiddleware . sanitizeResp
+secureApplication = addXHailsSensitive . browserGuardMiddleware
 
 -- | Safely wraps a Hails 'Application' in a WAI 'W.Application' that can be
 -- run by an application server.

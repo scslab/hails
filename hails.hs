@@ -1,4 +1,5 @@
 {-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
+module Hails where
 import Hails.HttpServer
 import Hails.HttpServer.Auth
 import Hails.HttpServer.Types
@@ -43,7 +44,7 @@ runApp app = do
       port    = optPort opts
       authF   = if optDev opts
                   then devBasicAuth "Hails"
-                  else undefined
+                  else openIdAuth "https://www.google.com/accounts/o8/id"
   runSettings defaultSettings $ authF $ hailsApplication app
 
 --
