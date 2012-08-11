@@ -49,6 +49,7 @@ import qualified Data.Map as Map
 import           Data.Word (Word32)
 import qualified Data.Set as Set
 import           Data.Typeable
+import qualified Data.Text as Text
 import qualified Data.Traversable as T
 
 import           Control.Monad
@@ -337,19 +338,22 @@ applyCollectionPolicyP p col doc0 = liftLIO $ do
 
 -- | This function \"type-checks\" a document against a set of policies.
 -- Specifically, it checks that the set of policy labeled values is the
--- same between the policy and document, and searchable fields are not
--- policy labeled.
+-- same between the policy and document, searchable fields are not
+-- policy labeled, and all searchable/policy-labeled fields named in
+-- the collection policy are present in the document (except for @_id@).
 typeCheckDocument :: Map FieldName FieldPolicy -> HsonDocument -> DC ()
 typeCheckDocument ps doc = do
-  -- Check that every policy-named value is well-typed
+  -- Check that every policy-named value exists and is well-typed
   void $ T.for psList $ \(k,v) -> do
-    let mv' = look k doc
-        v' = fromJust mv'
-    unless (isJust mv') $ throwLIO $ TypeError $ 
-      "Missing field with name " ++ show k
-    case v of
-      SearchableField -> isHsonValue   k v'
-      FieldPolicy _   -> isHsonLabeled k v'
+    case look k doc of
+      -- Field exists in document, type check it:
+      Just v' -> case v of
+                   SearchableField -> isHsonValue   k v'
+                   FieldPolicy _   -> isHsonLabeled k v'
+      -- Ignore case where _id does not exist:
+      _ | k == Text.pack "_id" -> return ()
+      -- Field missing from document:
+      _  -> throwLIO $ TypeError $ "Missing field with name " ++ show k
   -- Check that no policy-labeled values not named in the policy
   -- exist:
   let doc' = exclude (map fst psList) doc

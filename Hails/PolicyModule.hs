@@ -221,7 +221,6 @@ setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
                   -> PMAction ()
 setDatabaseLabelP p l = liftBase $ do
   guardAllocP p l
-  c <- getClearance
   db  <-  dbActionDB `liftM` getActionStateTCB
   guardWriteP p (databaseLabel db)
   setDatabaseLabelTCB l
@@ -319,6 +318,9 @@ policy module may use 'createCollection' to create collections.
 -- 3. The computation must be able to modify the database collection-set.
 --    The guard 'guardWrite' is used to guarantee that the current label
 --    is essentially equal to the collection-set label.
+--
+-- Note: the collection policy is modified to make the @_id@ field
+-- explicitly a 'SearchableField'.
 createCollection :: CollectionName  -- ^ Collection name
                  -> DCLabel         -- ^ Collection label
                  -> DCLabel         -- ^ Collection clearance
@@ -340,7 +342,10 @@ createCollectionP p n l c pol = liftBase $ do
   guardWriteP p $ labelOf (databaseCollections db)
   guardAllocP p l
   guardAllocP p c
-  associateCollectionTCB $ collectionTCB n l c pol
+  associateCollectionTCB $ collectionTCB n l c newPol
+    where newPol = let ps  = fieldLabelPolicies pol
+                       ps' = Map.insert (T.pack "_id") SearchableField ps
+                   in pol { fieldLabelPolicies = ps' }
 
 -- | Returns 'True' if the field policy is a 'SearchableField'.
 isSearchableField :: FieldPolicy -> Bool
