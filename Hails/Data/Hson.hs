@@ -251,7 +251,7 @@ instance BsonVal v => DocValOps BsonDocument v where
 -- This function is useful when converting from 'HsonDocument' to
 -- 'BsonDocument'.
 isBsonDoc :: HsonDocument -> Bool
-isBsonDoc doc = any f doc
+isBsonDoc doc = all f doc
   where f (HsonField _ (HsonLabeled _)) = False
         f _ = True
 

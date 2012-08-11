@@ -37,6 +37,8 @@ module Hails.Database.Query (
   , applyCollectionPolicyP
   -- ** Policy errors
   , PolicyError(..)
+  -- * Internal
+  , typeCheckDocument
   ) where
 
 
@@ -289,7 +291,6 @@ withCollection priv isWrite cName act = do
 --   In both cases a failure results in 'PolicyViolation' being thrown;
 --   the actual error must be hidden to retain the opaqueness of
 --   'PolicyLabeled'.
---
 --
 --   /Note:/ For each 'FieldNamed' in the policy there /must/ be a
 --   field in the document corresponding to it. Moreover its \"type\"
