@@ -1,11 +1,8 @@
 {-# LANGUAGE Unsafe #-}
-{-# LANGUAGE ConstraintKinds,
-             GeneralizedNewtypeDeriving,
+{-# LANGUAGE GeneralizedNewtypeDeriving,
              MultiParamTypeClasses,
-             FlexibleInstances,
              StandaloneDeriving,
              DeriveDataTypeable,
-             TypeFamilies,
              TypeSynonymInstances #-}
 
 {- |
@@ -51,9 +48,8 @@ import           Data.Map (Map)
 import           Data.Typeable
 
 import           Control.Applicative
+import           Control.Monad.Trans
 import           Control.Monad.Trans.State
-import           Control.Monad.Base
-import           Control.Monad.Trans.Control
 import           Control.Exception
 
 import qualified Database.MongoDB as Mongo
@@ -216,15 +212,9 @@ updateActionStateTCB f = do
   s <- getActionStateTCB 
   putActionStateTCB $ f s
 
-instance MonadBase DC DBAction where
-  liftBase = DBActionTCB . liftBase
+instance MonadLIO DCLabel DBAction where
+  liftLIO = DBActionTCB . lift
 
-instance MonadDC  DBAction
-
-instance MonadBaseControl DC DBAction where
-  newtype StM DBAction a = StM { unStM :: DBAction a }
-  liftBaseWith f = liftBase $ f $ return . StM
-  restoreM       = unStM
 
 deriving instance Typeable Failure
 instance Exception Failure
@@ -288,7 +278,7 @@ execMongoActionTCB act = do
   let pipe = dbActionPipe s
       mode = dbActionMode s
       db   = databaseName . dbActionDB $ s
-  liftBase $ rethrowIoTCB $ do
+  liftLIO $ rethrowIoTCB $ do
     res <- Mongo.access pipe mode db act
     case res of
       Left err -> throwIO err

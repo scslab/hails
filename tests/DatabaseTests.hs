@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings,
+             ScopedTypeVariables,
              DeriveDataTypeable #-}
 
 module DatabaseTests where
@@ -21,7 +22,6 @@ import Data.Text ()
 import qualified Database.MongoDB as Mongo
 
 import Control.Monad
-import Control.Monad.Base
 import Control.Exception
 
 import Data.Typeable
@@ -92,6 +92,8 @@ tests = [
                    test_basic_insert 
     , testProperty "Simple, insert with policy on document and field"
                    test_basic_insert_with_pl 
+    , testProperty "Test insert after taint: failure"
+                   test_basic_insert_fail 
   ]
   ]
 
@@ -167,7 +169,7 @@ mkName x = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
 test_withPolicyModuleP_ok :: Assertion
 test_withPolicyModuleP_ok = do
   mkDBConfFile
-  doEvalDC $ withTestPM1 $ \_ ->  return ()
+  doEvalDC . withTestPM1 . const $  return ()
 
 -- | Test that the loading of the TestPM1Fake policy module throws an
 -- exception
@@ -193,17 +195,7 @@ monadicDC (MkPropertyM m) =
 initTestPM1 :: PMAction a -> DC a
 initTestPM1 act = do
   ioTCB mkDBConfFile
-  withTestPM1 $ \(TestPM1TCB priv) -> do
-    c <- getClearance
-    let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
-    bracketP priv
-             -- Raise clearance:
-             (setClearanceP priv lpriv)
-             -- Lower clearance:
-             (const $ do c' <- getClearance 
-                         setClearanceP priv (partDowngradeP priv c' c))
-             -- Execute policy module entry point, in between:
-             (const $ unPMActionTCB act)
+  withTestPM1 . const . unPMActionTCB $ act
 
 -- | Execute a monadic quickcheck action against policy module TestPM1
 monadicPM1 :: (DCPriv -> PropertyM PMAction a) -> Property
@@ -234,8 +226,8 @@ prop_labelDatabase_ok :: Property
 prop_labelDatabase_ok = monadicPM1 $ \priv ->
   forAllM arbitrary $ \ldb -> 
   forAllM arbitrary $ \lcol -> do
-    l <- run $ liftBase getLabel
-    c <- run $ liftBase getClearance
+    l <- run $ liftDB getLabel
+    c <- run $ liftDB getClearance
     pre $ canFlowToP priv l ldb  && ldb `canFlowTo` c
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ labelDatabaseP priv ldb lcol
@@ -245,8 +237,8 @@ prop_labelDatabase_ok = monadicPM1 $ \priv ->
 prop_setDatabaseLabel_fail :: Property
 prop_setDatabaseLabel_fail = monadicPM1_fail $ \priv -> do 
   forAllM arbitrary $ \ldb -> do
-    l <- run $ liftBase getLabel
-    c <- run $ liftBase getClearance
+    l <- run $ liftDB getLabel
+    c <- run $ liftDB getClearance
     pre . not $ canFlowToP priv l ldb  && ldb `canFlowTo` c
     run $ setDatabaseLabelP priv ldb
     Q.assert False
@@ -255,8 +247,8 @@ prop_setDatabaseLabel_fail = monadicPM1_fail $ \priv -> do
 prop_setCollectionSetLabel_fail :: Property
 prop_setCollectionSetLabel_fail = monadicPM1_fail $ \priv -> do 
   forAllM arbitrary $ \lcol -> do
-    l <- run $ liftBase getLabel
-    c <- run $ liftBase getClearance
+    l <- run $ liftDB getLabel
+    c <- run $ liftDB getClearance
     pre . not $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ setCollectionSetLabelP priv lcol
     Q.assert False
@@ -270,8 +262,8 @@ prop_createCollection_empty_ok :: Property
 prop_createCollection_empty_ok = monadicPM1 $ \priv ->
   forAllM arbitrary $ \lcol -> 
   forAllM arbitrary $ \ccol -> do
-    l <- run $ liftBase getLabel
-    c <- run $ liftBase getClearance
+    l <- run $ liftDB getLabel
+    c <- run $ liftDB getClearance
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     pre $ canFlowToP priv l ccol  && ccol `canFlowTo` c
     let policy = CollectionPolicy {
@@ -284,8 +276,8 @@ prop_createCollection_empty_fail :: Property
 prop_createCollection_empty_fail = monadicPM1_fail $ \priv ->
   forAllM arbitrary $ \lcol -> 
   forAllM arbitrary $ \ccol -> do
-    l <- run $ liftBase getLabel
-    c <- run $ liftBase getClearance
+    l <- run $ liftDB getLabel
+    c <- run $ liftDB getClearance
     pre . not $ (canFlowToP priv l lcol  && lcol `canFlowTo` c) && 
                 (canFlowToP priv l ccol  && ccol `canFlowTo` c)
     let policy = CollectionPolicy {
@@ -533,18 +525,25 @@ test_basic_insert_with_pl :: Property
 test_basic_insert_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   pl   <- needPolicy `liftM` pick arbitrary
---  s    <- pick arbitrary
-  let doc = merge ["s" -: ("A" :: String), "pl" -: pl] doc0
-  run $ ioTCB $ putStrLn "[|"
+  s    <- pick arbitrary
+  let doc = merge ["s" -: (s :: String), "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ do
                          insert "simple_pl" doc
-  run $ ioTCB $ putStrLn "|]"
   mdoc <- run $ ioTCB $ withMongo $ Mongo.findOne
                               (Mongo.select ["_id" Mongo.=: _id] "simple_pl")
   let bdoc = fromJust mdoc
       doc' = sortDoc $ merge ["_id" -: _id] doc
   Q.assert $ isJust mdoc &&
             (sortDoc (dataBsonDocToHsonDocTCB bdoc) == doc')
+
+-- | Test insert after taint: failure.
+test_basic_insert_fail :: Property
+test_basic_insert_fail = monadicDC $ do
+  res <- run $ (withTestPM2 $ const $ do
+    getClearance >>= taint
+    insert_ "public" (["my" -: (1::Int)] :: HsonDocument)
+    return False) `catchLIO` (\(_::SomeException) -> return True)
+  Q.assert res
 
 
 -- | Execute a mongo action against the testPM2 database

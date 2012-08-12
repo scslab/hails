@@ -22,6 +22,7 @@ module Hails.Database.Core (
   , LabeledHsonDocument 
   -- * Hails DB monad
   , DBAction, DBActionState(..)
+  , MonadDB(..)
   , runDBAction, evalDBAction
   , getDatabase, getDatabaseP
   -- ** Database system configuration
@@ -76,3 +77,10 @@ getDatabaseP p = do
   db <- dbActionDB `liftM` getActionStateTCB
   taintP p (databaseLabel db)
   return db
+
+-- | Arbitrary monad that can perform database actions.
+class Monad m => MonadDB m where
+  -- | Lift a database action into the database monad.
+  liftDB :: DBAction a -> m a
+
+instance MonadDB DBAction where liftDB = id

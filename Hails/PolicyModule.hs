@@ -1,6 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE ConstraintKinds,
-             FlexibleContexts,
+{-# LANGUAGE FlexibleContexts,
              ScopedTypeVariables #-}
 
 {- |
@@ -63,7 +62,6 @@ import qualified Data.Text as T
 import qualified Data.Bson as Bson
 
 import           Control.Monad
-import           Control.Monad.Base
 
 import qualified Database.MongoDB as Mongo
 import           Database.MongoDB (GetLastError)
@@ -219,7 +217,7 @@ setDatabaseLabel = setDatabaseLabelP noPriv
 setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
                   -> DCLabel   -- ^ New database label
                   -> PMAction ()
-setDatabaseLabelP p l = liftBase $ do
+setDatabaseLabelP p l = liftDB $ do
   guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
   guardWriteP p (databaseLabel db)
@@ -244,7 +242,7 @@ setCollectionSetLabel = setCollectionSetLabelP noPriv
 setCollectionSetLabelP :: DCPriv      -- ^ Set of privileges
                      -> DCLabel     -- ^ New collections label
                      -> PMAction ()
-setCollectionSetLabelP p l = liftBase $ do
+setCollectionSetLabelP p l = liftDB $ do
   guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
   guardWriteP p (databaseLabel db)
@@ -336,7 +334,7 @@ createCollectionP :: DCPriv           -- ^ Privileges
                   -> DCLabel          -- ^ Collection clearance
                   -> CollectionPolicy -- ^ Collection policy
                   -> PMAction ()
-createCollectionP p n l c pol = liftBase $ do
+createCollectionP p n l c pol = liftDB $ do
   db <- dbActionDB `liftM` getActionStateTCB
   taintP p $ databaseLabel db
   guardWriteP p $ labelOf (databaseCollections db)
