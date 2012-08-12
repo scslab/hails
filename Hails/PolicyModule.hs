@@ -432,7 +432,9 @@ withPolicyModule act = do
       let priv = mintTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       (policy, s1) <- runDBAction (initPolicyModule' priv) s0
-      evalDBAction (act policy) s1 { dbActionDB = dbActionDB s1 }
+      finalResult <- evalDBAction (act policy) s1 { dbActionDB = dbActionDB s1 }
+      rethrowIoTCB $ Mongo.close pipe
+      return finalResult 
   where tp = typeRepTyCon $ typeOf $ (undefined :: pm)
         tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
         initPolicyModule' priv = do

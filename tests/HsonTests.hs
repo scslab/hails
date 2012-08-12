@@ -79,42 +79,42 @@ testDocOps = testGroup "Document operations"
 -- | Test include
 testInclude :: (IsField f, Eq f) => [f] -> [f] -> Bool
 testInclude d1 d2 =
-  let doc1 = doSort . clean $ d1
+  let doc1 = sortDoc . clean $ d1
       fs1  = map fieldName doc1
-      doc2 = doSort . filter (\f -> fieldName f `notElem` fs1) . clean $ d2
+      doc2 = sortDoc . filter (\f -> fieldName f `notElem` fs1) . clean $ d2
       fs2  = map fieldName doc2
       doc  = doc1 ++ doc2
-  in doSort (include fs1 doc) == doc1
-  && doSort (include fs2 doc) == doc2
+  in sortDoc (include fs1 doc) == doc1
+  && sortDoc (include fs2 doc) == doc2
 
 -- | Remove documents with same field name
 clean :: (IsField f) => [f] -> [f]
 clean = nubBy (\f1 f2 -> fieldName f1 == fieldName f2)
 
 -- | Sort documents
-doSort :: (IsField f) => [f] -> [f]
-doSort = sortBy (\f1 f2 -> compare (fieldName f1)  (fieldName f2))
+sortDoc :: (IsField f) => [f] -> [f]
+sortDoc = sortBy (\f1 f2 -> compare (fieldName f1)  (fieldName f2))
 
   
 -- | Test exclude
 testExclude :: (IsField f, Eq f) => [f] -> [f] -> Bool
 testExclude d1 d2 =
-  let doc1 = doSort . clean $ d1
+  let doc1 = sortDoc . clean $ d1
       fs1  = map fieldName doc1
-      doc2 = doSort . filter (\f -> fieldName f `notElem` fs1) . clean $ d2
+      doc2 = sortDoc . filter (\f -> fieldName f `notElem` fs1) . clean $ d2
       fs2  = map fieldName doc2
       doc  = doc1 ++ doc2
-  in doSort (exclude fs1 doc) == doc2
-  && doSort (exclude fs2 doc) == doc1
+  in sortDoc (exclude fs1 doc) == doc2
+  && sortDoc (exclude fs2 doc) == doc1
 
 -- | Test merge
 testMerge :: (Show f, IsField f, Eq f) => [f] -> [f] -> Bool
 testMerge d1 d2 =
-  let doc1 = doSort . clean $ d1
+  let doc1 = sortDoc . clean $ d1
       fs1  = map fieldName doc1
-      doc2 = doSort . clean $ d2
-      doc2_nub = doSort . filter (\f -> fieldName f `notElem` fs1) $ doc2
-  in doSort (merge doc1 doc2) == doSort (merge doc1 doc2_nub)
+      doc2 = sortDoc . clean $ d2
+      doc2_nub = sortDoc . filter (\f -> fieldName f `notElem` fs1) $ doc2
+  in sortDoc (merge doc1 doc2) == sortDoc (merge doc1 doc2_nub)
 
 -- | Merge applied to document twice returns same thing
 propMergeIdempotent :: (Show f, IsField f, Eq f) => [f] -> [f] -> Bool

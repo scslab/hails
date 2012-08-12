@@ -179,7 +179,7 @@ class InsertLike doc where
   -- module.
   insert :: CollectionName
          -> doc
-         -> DBAction HsonValue
+         -> DBAction ObjectId
   insert = insertP noPriv
 
   -- | Same as 'insert' except it does not return @_id@
@@ -193,7 +193,7 @@ class InsertLike doc where
   insertP :: DCPriv
           -> CollectionName
           -> doc
-          -> DBAction HsonValue
+          -> DBAction ObjectId
 
   -- | Same as 'insertP' except it does not return the @_id@.
   insertP_ :: DCPriv
@@ -229,7 +229,7 @@ instance InsertLike HsonDocument where
       -- No IFC violation, perform insert:
       let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
       _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
-    where _id i = let i'@(HsonValue _) = dataBsonValueToHsonValueTCB i
+    where _id i = let HsonValue (BsonObjId i') = dataBsonValueToHsonValueTCB i
                   in i'
   saveP = undefined
 

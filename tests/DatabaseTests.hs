@@ -12,12 +12,17 @@ import Test.QuickCheck hiding (label)
 import Test.QuickCheck.Monadic
 import qualified Test.QuickCheck.Monadic as Q
 
+
+import Data.Maybe
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Text ()
 
+import qualified Database.MongoDB as Mongo
+
 import Control.Monad
 import Control.Monad.Base
+import Control.Exception
 
 import Data.Typeable
 
@@ -30,7 +35,7 @@ import LIO.DCLabel.Instances ()
 
 import Hails.Data.Hson
 import Hails.Data.Hson.TCB
-import Hails.Data.Hson.Instances ()
+import Hails.Data.Hson.Instances
 import Hails.PolicyModule
 import Hails.PolicyModule.TCB
 import Hails.Database.Core
@@ -81,6 +86,10 @@ tests = [
                    test_applyCollectionPolicyP_allPub_bad_field_policy_fail
     , testProperty "Simple data-depedent policy" 
                    test_applyCollectionPolicyP_label_by_field
+  ]
+  , testGroup "Insert" [
+      testProperty "Simple, all-public policy insert"
+                   test_basic_insert 
   ]
   ]
 
@@ -137,10 +146,11 @@ testPM1Priv = mintTCB . dcPrivDesc $ testPM1Principal
 -- | Only register TestPM1
 mkDBConfFile :: IO ()
 mkDBConfFile = do
-  writeFile dbConfFile (unlines [show tpm1])
+  writeFile dbConfFile (unlines [show tpm1, show tpm2])
   setEnv "DATABASE_CONFIG_FILE" dbConfFile False
-   where tpm1 :: (String, String, String)
+   where tpm1,tpm2 :: (String, String, String)
          tpm1 = (mkName (TestPM1TCB undefined), testPM1Principal, "testPM1_db")
+         tpm2 = (mkName (TestPM2TCB undefined), testPM2Principal, "testPM2_db")
 
 mkName :: PolicyModule pm => pm -> TypeName
 mkName x = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
@@ -461,3 +471,58 @@ test_applyCollectionPolicyP_label_by_field = monadicDC $ do
                                       , ("s2", SearchableField)
                                       , ("p1", FieldPolicy fpol)
                                       , ("p2", FieldPolicy fpol)] }
+--
+-- Test insert
+--
+
+testPM2Principal :: String
+testPM2Principal = "_testPM2"
+
+-- | TestPM2's privileges
+testPM2Priv :: DCPriv
+testPM2Priv = mintTCB . dcPrivDesc $ testPM2Principal
+
+-- | Empty registered policy module
+newtype TestPM2 = TestPM2TCB DCPriv deriving (Show, Typeable)
+
+instance PolicyModule TestPM2 where
+  initPolicyModule p = do
+    -- label db & collection-set
+    labelDatabaseP p dcPub lDB
+    -- create public storage
+    createCollectionP p "public" dcPub dcPub cPubPolicy
+    return $ TestPM2TCB p
+        where --cCol = dcLabel (privDesc p) dcTrue
+              lDB = dcLabel dcTrue (privDesc p)
+              cPubPolicy = CollectionPolicy { documentLabelPolicy = const dcPub
+                                            , fieldLabelPolicies = Map.empty }
+
+withTestPM2 :: (TestPM2 -> DBAction a) -> DC a
+withTestPM2 f = do
+  ioTCB mkDBConfFile
+  ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "public")
+  withPolicyModule f 
+
+-- | Test insert in al-public collection
+test_basic_insert :: Property
+test_basic_insert = monadicDC $ do
+  doc <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  _id <- run $ withTestPM2 $ const $ do
+                         insert "public" doc
+  mdoc <- run $ ioTCB $ withMongo $ Mongo.findOne
+                              (Mongo.select ["_id" Mongo.=: _id] "public")
+  let bdoc = fromJust mdoc
+      doc' = sortDoc $ merge ["_id" -: _id] doc
+  Q.assert $ isJust mdoc &&
+            (sortDoc (dataBsonDocToHsonDocTCB bdoc) == doc')
+
+
+-- | Execute a mongo action against the testPM2 database
+withMongo :: Mongo.Action IO a -> IO a
+withMongo act = do
+  pipe <- Mongo.runIOE $ Mongo.connect (Mongo.host "localhost")
+  res <- Mongo.access pipe Mongo.master "testPM2_db" act
+  Mongo.close pipe
+  case res of
+    Left f -> throwIO (userError $ "Failed with " ++ show f)
+    Right v -> return v
