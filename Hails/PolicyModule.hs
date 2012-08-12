@@ -431,13 +431,18 @@ withPolicyModule act = do
       pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
       let priv = mintTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
-      (policy, s1) <- runDBAction (initPolicyModule' priv) s0
-      finalResult <- evalDBAction (act policy) s1 { dbActionDB = dbActionDB s1 }
+      -- Execute policy module entry function and database action with raised
+      -- clearance:
+      res <- withClearanceP' priv $ do
+        (policy, s1) <- runDBAction (pmAct priv) s0
+        let s2 = s1 { dbActionDB = dbActionDB s1 }
+        evalDBAction (act policy) s2
       rethrowIoTCB $ Mongo.close pipe
-      return finalResult 
+      return res
   where tp = typeRepTyCon $ typeOf $ (undefined :: pm)
         tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
-        initPolicyModule' priv = do
+        pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
+        withClearanceP' priv io = do
           c <- getClearance
           let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
           bracketP priv
@@ -447,7 +452,7 @@ withPolicyModule act = do
                    (const $ do c' <- getClearance 
                                setClearanceP priv (partDowngradeP priv c' c))
                    -- Execute policy module entry point, in between:
-                   (const (unPMActionTCB $ initPolicyModule priv :: DBAction pm))
+                   (const io)
 
 --
 -- Parser for getLastError

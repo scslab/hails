@@ -315,7 +315,7 @@ applyCollectionPolicyP :: MonadDC m
 applyCollectionPolicyP p col doc0 = liftLIO $ do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
   typeCheckDocument fieldPolicies doc1
-  withClearance (colClearance col) $ do
+  withClearanceP p (colClearance col) $ do
     -- Apply fied policies:
     doc2 <- T.for doc1 $ \f@(HsonField n v) ->
       case v of

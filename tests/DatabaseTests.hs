@@ -90,6 +90,8 @@ tests = [
   , testGroup "Insert" [
       testProperty "Simple, all-public policy insert"
                    test_basic_insert 
+    , testProperty "Simple, insert with policy on document and field"
+                   test_basic_insert_with_pl 
   ]
   ]
 
@@ -491,19 +493,29 @@ instance PolicyModule TestPM2 where
     labelDatabaseP p dcPub lDB
     -- create public storage
     createCollectionP p "public" dcPub dcPub cPubPolicy
+    -- create collection with a policy-label for document and field
+    createCollectionP p "simple_pl" dcPub cCol cSimplePlPolicy
     return $ TestPM2TCB p
-        where --cCol = dcLabel (privDesc p) dcTrue
+        where this = privDesc p
+              cCol = dcLabel this dcTrue
               lDB = dcLabel dcTrue (privDesc p)
               cPubPolicy = CollectionPolicy { documentLabelPolicy = const dcPub
                                             , fieldLabelPolicies = Map.empty }
+              fpol d  =  let n = at "s" d :: String
+                         in dcLabel (n \/ this) dcTrue
+              cSimplePlPolicy = CollectionPolicy {
+                  documentLabelPolicy = fpol
+                , fieldLabelPolicies = Map.fromList [ ("pl", FieldPolicy fpol)
+                                                    , ("s", SearchableField)] }
 
 withTestPM2 :: (TestPM2 -> DBAction a) -> DC a
 withTestPM2 f = do
   ioTCB mkDBConfFile
   ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "public")
+  ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "simple_pl")
   withPolicyModule f 
 
--- | Test insert in al-public collection
+-- | Test insert in all-public collection
 test_basic_insert :: Property
 test_basic_insert = monadicDC $ do
   doc <- (removePolicyLabeled . clean) `liftM` pick arbitrary
@@ -511,6 +523,24 @@ test_basic_insert = monadicDC $ do
                          insert "public" doc
   mdoc <- run $ ioTCB $ withMongo $ Mongo.findOne
                               (Mongo.select ["_id" Mongo.=: _id] "public")
+  let bdoc = fromJust mdoc
+      doc' = sortDoc $ merge ["_id" -: _id] doc
+  Q.assert $ isJust mdoc &&
+            (sortDoc (dataBsonDocToHsonDocTCB bdoc) == doc')
+
+-- | Test insert containing a policy labeled value
+test_basic_insert_with_pl :: Property
+test_basic_insert_with_pl = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  pl   <- needPolicy `liftM` pick arbitrary
+--  s    <- pick arbitrary
+  let doc = merge ["s" -: ("A" :: String), "pl" -: pl] doc0
+  run $ ioTCB $ putStrLn "[|"
+  _id <- run $ withTestPM2 $ const $ do
+                         insert "simple_pl" doc
+  run $ ioTCB $ putStrLn "|]"
+  mdoc <- run $ ioTCB $ withMongo $ Mongo.findOne
+                              (Mongo.select ["_id" Mongo.=: _id] "simple_pl")
   let bdoc = fromJust mdoc
       doc' = sortDoc $ merge ["_id" -: _id] doc
   Q.assert $ isJust mdoc &&
