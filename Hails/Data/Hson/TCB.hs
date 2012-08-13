@@ -40,6 +40,7 @@ module Hails.Data.Hson.TCB (
   -- * Marshall to/from "Data.Bson"
   , hsonDocToDataBsonDocTCB 
   , dataBsonDocToHsonDocTCB 
+  , bsonDocToDataBsonDocTCB 
   , dataBsonValueToHsonValueTCB 
   -- * Internal
   , add__hails_prefix 

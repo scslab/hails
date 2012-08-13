@@ -10,10 +10,11 @@
 This module exports the basic types used to create queries and
 selections. Different from standard MongoDB, Hails queries are limited
 to 'SearchableField's (similarly, ordering a query result is limited
-to such fields) and projections are disallowed. The later is a result
-of allowing policy modules to express a labeling policy as a function
-of a document -- hence we cannot determine at compile time if a field
-is used in a policy and thus must be included in the projection. 
+to such fields) and projections are carried out by this library and
+not the database. The later is a result of allowing policy modules to
+express a labeling policy as a function of a document -- hence we
+cannot determine at compile time if a field is used in a policy and
+thus must be included in the projection. 
 
 -}
 
@@ -30,7 +31,10 @@ module Hails.Database.Query (
   , QueryOption(..)
   , Limit
   , BatchSize
-  , Order
+  , Order(..), orderName
+  -- * Find
+  , Cursor
+  , find, findP
   -- * Query failures
   , DBError(..)
   -- * Applying policies
@@ -55,6 +59,7 @@ import qualified Data.Traversable as T
 import           Control.Monad
 import           Control.Exception (Exception)
 
+import qualified Data.Bson        as Bson
 import qualified Database.MongoDB as Mongo
 import           Database.MongoDB.Query ( QueryOption(..)
                                         , Limit
@@ -68,41 +73,49 @@ import           Hails.Data.Hson
 import           Hails.Data.Hson.TCB
 import           Hails.Database.Core
 import           Hails.Database.TCB
+import           Hails.Database.Query.TCB
 
 --
 -- Query
 --
 
 
--- | Fields to sort by. Each one is associated with 1 or -1.
--- E.g. @[x '-:' 1, y '-:' -1]@ means sort by @x@ ascending
--- then @y@ descending.
-type Order = BsonDocument
+-- | Sorting fields in 'Asc'ending or 'Desc'ending order.
+data Order = Asc FieldName  -- ^ Ascending order
+           | Desc FieldName -- ^ Descending order
+           deriving (Eq, Ord, Show)
+
+-- | Get the field name in the order.
+orderName :: Order -> FieldName
+orderName (Asc n) = n
+orderName (Desc n) = n
 
 -- | Use select to create a basic query with defaults, then modify if
 -- desired. Example: @(select sel col) {limit =: 10}@. For simplicity,
 -- and since policies may be specified in terms of arbitrary fields,
--- Hails queries do not allow for projection specification.  The
--- 'selection' and 'sort' fields are restricted to 'SearchableField's, or
--- the @"_id"@ field that is implicitly a 'SearchableField'.
+-- The 'selection' and 'sort' fields are restricted to 'SearchableField's,
+-- or the @"_id"@ field that is implicitly a 'SearchableField'.
 data Query = Query { options :: [QueryOption]
                    -- ^ Query options, default @[]@.
                    , selection :: Selection
                    -- ^ @WHERE@ clause,default @[]@.
                    -- Non-'SearchableField's ignored.
+                   , project :: [FieldName]
+                   -- ^ The fields to project. Default @[]@
+                   -- corresponds to all.
                    , skip :: Word32
                    -- ^ Number of documents to skip, default 0.
                    , limit :: Limit
                    -- ^ Max number of documents to return. Default, 0,
                    -- means no limit.
-                   , sort :: Order
+                   , sort :: [Order]
                    -- ^ Sort result by given order, default @[]@.
                    -- Non-'SearchableField's ignored.
                    , batchSize :: BatchSize
                    -- ^ The number of document to return in each
                    -- batch response from the server. 0 means
                    -- MongoDB default.
-                   , hint :: Order
+                   , hint :: [FieldName]
                    -- ^ Force mongoDB to use this index, default @[]@,
                    -- no hint.  
                    -- Non-'SearchableField's ignored.
@@ -144,6 +157,7 @@ instance Select Selection where
 instance Select Query where
   select s c = Query { options   = []
                      , selection = select s c
+                     , project   = []
                      , skip      = 0
                      , limit     = 0
                      , sort      = []
@@ -233,6 +247,80 @@ instance InsertLike HsonDocument where
                   in i'
   saveP = undefined
 
+--
+-- Read
+--
+
+-- | Fetch documents satisfying query. A labeled 'Cursor' is returned,
+-- which can be used to retrieve the actual 'HsonDocument's.  For this
+-- function to succeed the current computation must be able to read from
+-- the database and collection (implicilty the database's
+-- collection-set). This is satisfied by applying 'taint' to the join
+-- join of the collection, database, and ccollection-set label.
+-- The curor label is labeled by the 'upperBound' of the database and
+-- collection labels and must be used within the same 'withPolicyModule'
+-- block.
+--
+-- Note that this function is quite permissive in the queries it
+-- accepts. Specifically, any non-'SearchableField's used in 'sort',
+-- 'order', or 'hint' are /ignored/ (as opposed to throwing an
+-- exception).
+find :: Query -> DBAction Cursor
+find = findP noPriv
+
+-- | Same as 'find', but uses privileges when reading from the
+-- collection and database.
+findP :: DCPriv -> Query -> DBAction Cursor
+findP priv query = do
+  let cName = selectionCollection . selection $ query
+  dbLabel <- (databaseLabel . dbActionDB) `liftM` getActionStateTCB
+  withCollection priv False cName $ \col -> do
+      -- Already checked that we can read from DB and collection.
+    let policy = colPolicy col
+        -- Get all the searchable fields:
+        searchables = Map.keys . Map.filter isSearchable $
+                              fieldLabelPolicies policy
+        -- Remove any non-'SearchableField's from the hint
+        hint' = hint query `List.intersect` searchables
+        -- Remove any non-'SearchableField's from the sorthint
+        sort' = filter (\f -> orderName f `elem` searchables) $ sort query
+        -- Remove any non-'SearchableField's from the selection
+        sel = selection $ query
+        selector' = include searchables $ selectionSelector sel
+        selection' = sel { selectionSelector = selector' }
+        -- Create the new /clean/ query:
+        query' = query { sort = sort', hint = hint', selection = selection' }
+        -- Convert the query to Mongo's query type:
+        mongoQuery = queryToMongoQueryTCB query'
+    cur <- execMongoActionTCB $ Mongo.find mongoQuery
+    return $ CursorTCB { curLabel     = colLabel col `lub` dbLabel
+                       , curInternal  = cur
+                       , curProject   = project query'
+                       , curColPolicy = policy }
+      where isSearchable SearchableField = True
+            isSearchable _ = False
+
+-- | Convert a query to queries used by "Database.Mongo"
+queryToMongoQueryTCB :: Query -> Mongo.Query
+queryToMongoQueryTCB q = Mongo.Query {
+    Mongo.options   = options q
+  , Mongo.selection = selectionToMongoSelectionTCB $ selection q
+  , Mongo.project   = []
+  , Mongo.skip      = skip q
+  , Mongo.limit     = limit q
+  , Mongo.sort      = map orderToField $ sort q
+  , Mongo.snapshot  = False
+  , Mongo.batchSize = batchSize q
+  , Mongo.hint      = map (\f -> (Bson.=:) f (1::Int)) $ hint q
+  } where orderToField (Asc n)  = (Bson.=:) n (1::Int)
+          orderToField (Desc n) = (Bson.=:) n (-1::Int)
+
+-- | Convert a selection to selection used by "Database.Mongo"
+selectionToMongoSelectionTCB :: Selection -> Mongo.Selection
+selectionToMongoSelectionTCB s = Mongo.Select {
+    Mongo.selector = bsonDocToDataBsonDocTCB $ selectionSelector s
+  , Mongo.coll     = selectionCollection s }
+
 
 --
 -- DB failures
@@ -252,7 +340,7 @@ instance Exception DBError
 
 -- | Perform an action against a collection. The current label is
 -- raised to the join of the current label, database label and
--- collections label before performing the action.
+-- collection-set label before performing the action.
 -- If the @isWrite@ flag, this action is taken as a database write
 -- and 'guardWriteP' is applied to the database and collection labels.
 withCollection :: DCPriv
