@@ -51,6 +51,7 @@ module Hails.Database.Query (
 
 import           Prelude hiding (lookup)
 import           Data.Maybe
+import           Data.List (sortBy)
 import qualified Data.List as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
@@ -244,7 +245,7 @@ instance InsertLike HsonDocument where
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection,
       -- apply policies:
-      ldoc <- applyCollectionPolicyP priv col doc
+      ldoc <- liftLIO $ applyCollectionPolicyP priv col doc
       -- No IFC violation, perform insert:
       let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
       _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
@@ -254,7 +255,7 @@ instance InsertLike HsonDocument where
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection,
       -- apply policies:
-      ldoc <- applyCollectionPolicyP priv col doc
+      ldoc <- liftLIO $ applyCollectionPolicyP priv col doc
       let _id_n = Text.pack "_id"
       case lookup _id_n doc of
         Nothing -> saveIt ldoc
@@ -266,6 +267,45 @@ instance InsertLike HsonDocument where
       where saveIt ldoc =
               let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
               in execMongoActionTCB $ Mongo.save cName bsonDoc
+
+instance InsertLike LabeledHsonDocument where
+  insertP priv cName ldoc = do
+    withCollection priv True cName $ \col -> do
+      -- Already checked that we can write to DB and collection
+      -- Document is labeled, remove label:
+      let doc = unlabelTCB ldoc
+      -- Apply policies to the unlabeled document,
+      -- asserts that labeled values are below collection clearance:
+      ldocTCB <- liftLIO $ onExceptionP priv 
+        (applyCollectionPolicyP allPrivTCB col doc)
+        (throwLIO PolicyViolation)
+      -- Check that all the fields are the same (i.e., if there was a
+      -- unlabeled PolicyLabeled value an this will fail):
+      let same = compareDoc doc  (unlabelTCB ldocTCB)
+      unless same $ throwLIO PolicyViolation
+      -- Check that label of the passed in document `canFlowToP`
+      -- the label of document created by the policy:
+      unless (canFlowToP priv (labelOf ldoc) (labelOf ldocTCB)) $
+        throwLIO PolicyViolation
+      -- No IFC violation, perform insert:
+      let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
+      _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
+    where compareDoc d1' d2' = 
+            let d1 = sortDoc d1'
+                d2 = sortDoc d2'
+            in map fieldName d1 == map fieldName d2 
+            && (and $ zipWith compareField d1 d2)
+          compareField (HsonField n1 (HsonValue v1))
+                       (HsonField n2 (HsonValue v2)) =
+                         n1 == n2 && v1 == v2
+          compareField (HsonField n1 (HsonLabeled (HasPolicyTCB v1)))
+                       (HsonField n2 (HsonLabeled (HasPolicyTCB v2))) =
+                         n1 == n2 && labelOf v1 == labelOf v2
+          compareField _ _ = False
+          sortDoc = sortBy (\f1 f2 -> fieldName f1 `compare` fieldName f2)
+          _id i = let HsonValue (BsonObjId i') = dataBsonValueToHsonValueTCB i
+                  in i'
+  saveP = undefined
 
 --
 -- Read
@@ -340,7 +380,7 @@ nextP p cur = do
     Nothing -> return Nothing
     Just mongoDoc -> do
       let doc0 = dataBsonDocToHsonDocTCB mongoDoc
-      ldoc <- applyCollectionPolicyP allPrivTCB (curCollection cur) doc0
+      ldoc <- liftLIO $ applyCollectionPolicyP allPrivTCB (curCollection cur) doc0
       let doc = unlabelTCB ldoc
           l   = labelOf ldoc
           proj = case curProject cur of
@@ -457,12 +497,11 @@ withCollection priv isWrite cName act = do
 -- Additionally, these labels must flow to the label of the collection
 -- clearance. (Of course, in both cases privileges are used to allow for
 -- more permissive flows.)
-applyCollectionPolicyP :: MonadDC m
-                       => DCPriv        -- ^ Privileges
+applyCollectionPolicyP :: DCPriv        -- ^ Privileges
                        -> Collection    -- ^ Collection and policies
                        -> HsonDocument  -- ^ Document to apply policies to
-                       -> m (LabeledHsonDocument)
-applyCollectionPolicyP p col doc0 = liftLIO $ do
+                       -> DC (LabeledHsonDocument)
+applyCollectionPolicyP p col doc0 = do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
   typeCheckDocument fieldPolicies doc1
   withClearanceP p (colClearance col) $ do

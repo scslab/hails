@@ -108,6 +108,16 @@ tests = [
                    test_basic_save_with_pl 
 
     ]
+  , testGroup "Labeled insert" [
+      testProperty "Simple, all-public policy insert of already-labeled document"
+                   test_basic_labeled_insert 
+    , testProperty "Simple, all-public policy insert of already-labeled document fail"
+                   test_basic_labeled_insert_fail 
+    , testProperty "Simple, insert with policy on already-labeled document and field"
+                   test_basic_labeled_insert_with_pl 
+    , testProperty "Simple, fail insert with policy on already-labeled document and field"
+                   test_basic_labeled_insert_with_pl_fail
+    ]
   ]
 
 --
@@ -616,7 +626,8 @@ test_basic_save = monadicDC $ do
 test_basic_save_with_pl :: Property
 test_basic_save_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
-  pl   <- needPolicy `liftM` pick arbitrary
+  plv  <- pick arbitrary
+  let pl  = needPolicy (plv :: BsonValue)
   s    <- pick arbitrary
   let priv = mintTCB . dcPrivDesc $ s
       doc1 = merge ["s" -: (s :: String), "pl" -: pl] doc0
@@ -628,3 +639,64 @@ test_basic_save_with_pl = monadicDC $ do
   doc' <- run $ unlabelP priv $ fromJust mdoc
   Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
              (sortDoc . exclude ["pl"] $ doc2)
+  let ~mlv@(Just lv) =  getPolicyLabeled $ "pl" `at` doc'
+  Q.assert $ isJust mlv && unlabelTCB lv == plv
+
+-- | Test labeled insert in all-public collection
+test_basic_labeled_insert :: Property
+test_basic_labeled_insert = monadicDC $ do
+  doc <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  ldoc <- run $ label dcPub doc
+  _id <- run $ withTestPM2 $ const $ do
+                         insert "public" ldoc
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "public")
+  Q.assert $ isJust mdoc && labelOf (fromJust mdoc) == dcPub
+  doc' <- run $ unlabel $ fromJust mdoc
+  Q.assert $ sortDoc doc' == sortDoc (merge ["_id" -: _id] doc)
+
+-- | Test labled insert containing a policy labeled value
+test_basic_labeled_insert_with_pl :: Property
+test_basic_labeled_insert_with_pl = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  let s = "A" :: String
+      l = dcLabel (s \/ testPM2Principal) dcTrue
+  plv <- pick arbitrary
+  pl  <- run $ label l (plv :: BsonValue)
+  let doc = merge ["s" -: s, "pl" -: pl] doc0
+  ldoc <- run $ label l doc
+  _id <- run $ withTestPM2 $ const $ insert "simple_pl" ldoc
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
+  Q.assert $ isJust mdoc
+  let doc' = unlabelTCB $ fromJust mdoc
+      doc'' = merge ["_id" -: _id] doc
+  Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
+             (sortDoc . exclude ["pl"] $ doc'')
+  let ~mlv@(Just lv) =  getPolicyLabeled $ "pl" `at` doc'
+  Q.assert $ isJust mlv && unlabelTCB lv == plv
+
+-- | Test labeled insert in all-public collection
+test_basic_labeled_insert_fail :: Property
+test_basic_labeled_insert_fail = monadicDC $ do
+  doc <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  clr <- run $ getClearance
+  ldoc <- run $ label clr doc
+  res <- run $ (withTestPM2 $ const $ do
+                         insert_ "public" ldoc
+                         return False) `catchLIO` (\(_::SomeException) -> return True)
+  Q.assert res
+
+-- | Test labled insert containing a policy labeled value, fail
+test_basic_labeled_insert_with_pl_fail :: Property
+test_basic_labeled_insert_with_pl_fail = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  let s = "A" :: String
+      lOfdoc = dcLabel (s \/ testPM2Principal) dcTrue
+      l = dcLabel (s \/ testPM2Principal \/ ("failureCause" :: String)) dcTrue
+  plv <- pick arbitrary
+  pl  <- run $ label l (plv :: BsonValue)
+  let doc = merge ["s" -: s, "pl" -: pl] doc0
+  ldoc <- run $ label lOfdoc doc
+  res <- run $ (withTestPM2 $ const $ do
+                         insert_ "simple_pl" ldoc
+                         return False) `catchLIO` (\(_::SomeException) -> return True)
+  Q.assert res

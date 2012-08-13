@@ -50,7 +50,7 @@ Example:
 > y :: HsonDocument
 > y = [ "myInt" -: (42 :: Int)
 >     , "nested"  -: ([ "flag" -: True] :: BsonDocument)
->     , "secret" -: hasPolicy (labelTCB dcPub (toBsonValue ("hi" :: Text)))
+>     , "secret" -: labelTCB dcPub (toBsonValue ("hi" :: Text))
 >     ]
 
 Both @x@ and @y@ with @-XOverloadedStrings@:
@@ -188,9 +188,10 @@ hasPolicy = HasPolicyTCB
 
 -- | Get the policy labeled value, only if the policy has been
 -- applied.
-getPolicyLabeled :: PolicyLabeled -> Maybe (DCLabeled BsonValue)
-getPolicyLabeled (NeedPolicyTCB _) = Nothing
-getPolicyLabeled (HasPolicyTCB lv) = Just lv
+getPolicyLabeled :: Monad m => PolicyLabeled -> m (DCLabeled BsonValue)
+getPolicyLabeled (NeedPolicyTCB _) =
+  fail "Can only retrieve already labeldv policy values"
+getPolicyLabeled (HasPolicyTCB lv) = return lv
 
 --
 -- Document operations
@@ -542,6 +543,14 @@ instance HsonVal BsonValue where
 instance HsonVal PolicyLabeled where
   toHsonValue   = HsonLabeled
   fromHsonValue (HsonLabeled v) = return v
+  fromHsonValue _ = fail "fromHsonValue: no conversion"
+
+instance Show (DCLabeled BsonValue) where
+  show lv = " -UNKNOWN VALUE- {" ++ show (labelOf lv) ++ "}"
+  
+instance HsonVal (DCLabeled BsonValue) where
+  toHsonValue   = HsonLabeled . hasPolicy
+  fromHsonValue (HsonLabeled v) = getPolicyLabeled v
   fromHsonValue _ = fail "fromHsonValue: no conversion"
 
 
