@@ -33,8 +33,10 @@ module Hails.Database.Query (
   , BatchSize
   , Order(..), orderName
   -- * Find
-  , Cursor
+  , Cursor, curLabel
   , find, findP
+  , next, nextP
+  , findOne, findOneP
   -- * Query failures
   , DBError(..)
   -- * Applying policies
@@ -67,7 +69,8 @@ import           Database.MongoDB.Query ( QueryOption(..)
 
 import           LIO
 import           LIO.DCLabel
-import           LIO.Labeled.TCB (unlabelTCB)
+import           LIO.DCLabel.Privs.TCB (allPrivTCB)
+import           LIO.Labeled.TCB (unlabelTCB, labelTCB)
 
 import           Hails.Data.Hson
 import           Hails.Data.Hson.TCB
@@ -293,12 +296,54 @@ findP priv query = do
         -- Convert the query to Mongo's query type:
         mongoQuery = queryToMongoQueryTCB query'
     cur <- execMongoActionTCB $ Mongo.find mongoQuery
-    return $ CursorTCB { curLabel     = colLabel col `lub` dbLabel
-                       , curInternal  = cur
-                       , curProject   = project query'
-                       , curColPolicy = policy }
+    return $ CursorTCB { curLabel      = colLabel col `lub` dbLabel
+                       , curInternal   = cur
+                       , curProject    = project query'
+                       , curCollection = col }
       where isSearchable SearchableField = True
             isSearchable _ = False
+
+-- | Return next 'HsonDocument' in the query result, or 'Nothing' if
+-- finished.  Note that the current computation must be able to read from
+-- the labeled 'Cursor'. To enforce this, @next@ uses 'taint' to raise
+-- the current label to join of the current label and 'Cursor'\'s label.
+-- The returned document is labeled according to the underlying
+-- 'Collection' policy.
+next :: Cursor -> DBAction (Maybe LabeledHsonDocument)
+next = nextP noPriv
+
+-- | Same as 'next', but usess privileges when raising the current label.
+nextP :: DCPriv -> Cursor -> DBAction (Maybe LabeledHsonDocument)
+nextP p cur = do
+  -- Rause current label, can read from DB+collection:
+  taintP p $ curLabel cur
+  -- Read the document:
+  mMongoDoc <- execMongoActionTCB $ Mongo.next $ curInternal cur
+  case mMongoDoc of
+    Nothing -> return Nothing
+    Just mongoDoc -> do
+      let doc0 = dataBsonDocToHsonDocTCB mongoDoc
+      ldoc <- applyCollectionPolicyP allPrivTCB (curCollection cur) doc0
+      let doc = unlabelTCB ldoc
+          l   = labelOf ldoc
+          proj = case curProject cur of
+                  [] -> id
+                  xs -> include xs
+      return . Just . labelTCB l . proj $ doc
+
+-- | Fetch the first document satisfying query, or 'Nothing' if not
+-- documents matched the query.
+findOne :: Query -> DBAction (Maybe LabeledHsonDocument)
+findOne = findOneP noPriv
+
+-- | Same as 'findOne', but uses privileges when performing label
+-- comparisons.
+findOneP :: DCPriv -> Query -> DBAction (Maybe LabeledHsonDocument)
+findOneP p q = findP p q >>= nextP p
+
+--
+-- Helpers
+-- 
 
 -- | Convert a query to queries used by "Database.Mongo"
 queryToMongoQueryTCB :: Query -> Mongo.Query

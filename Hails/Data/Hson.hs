@@ -79,7 +79,7 @@ module Hails.Data.Hson (
   -- * Values
   , HsonValue(..), HsonVal(..)
   , BsonValue(..), BsonVal(..)
-  , PolicyLabeled, needPolicy, hasPolicy
+  , PolicyLabeled, needPolicy, hasPolicy, getPolicyLabeled 
   , Binary(..)
   , ObjectId(..), genObjectId
   ) where
@@ -185,6 +185,12 @@ needPolicy = NeedPolicyTCB
 -- | Create a policy labeled value a labeled 'HsonValue'.
 hasPolicy :: DCLabeled BsonValue -> PolicyLabeled
 hasPolicy = HasPolicyTCB
+
+-- | Get the policy labeled value, only if the policy has been
+-- applied.
+getPolicyLabeled :: PolicyLabeled -> Maybe (DCLabeled BsonValue)
+getPolicyLabeled (NeedPolicyTCB _) = Nothing
+getPolicyLabeled (HasPolicyTCB lv) = Just lv
 
 --
 -- Document operations

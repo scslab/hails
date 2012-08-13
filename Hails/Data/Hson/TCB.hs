@@ -141,9 +141,9 @@ data HsonValue = HsonValue BsonValue
 
 -- | A @PolicyLabeled@ value can be either an unlabeled value for which
 -- the policy needs to be applied (@NeedPolicyTCB@), or an already
--- labeled value (@HasPolicyTCB@). @PolicyLabeled@ is an opaque type;
--- code should not be able to inspect the value even if the policy has
--- not yet been applied.
+-- labeled value (@HasPolicyTCB@). @PolicyLabeled@ is a partially-opaque
+-- type; code should not be able to inspect the value of an unlabeleda
+-- value, but may inspect an already labeled value.
 data PolicyLabeled = NeedPolicyTCB BsonValue
                      -- ^ Policy was not applied 
                    | HasPolicyTCB (DCLabeled BsonValue)

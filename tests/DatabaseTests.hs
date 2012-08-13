@@ -47,6 +47,7 @@ import System.IO.Unsafe
 
 tests :: [Test]
 tests = [
+{-
     testGroup "withPolicy tests" [
         testCase "Succeed loading existant policy module"
                  test_withPolicyModuleP_ok
@@ -94,6 +95,17 @@ tests = [
                    test_basic_insert_with_pl 
     , testProperty "Test insert after taint: failure"
                    test_basic_insert_fail 
+  ]
+  -}
+    testGroup "Find" [
+      testProperty "Simple, all-public find"
+                   test_basic_find
+    , testProperty "Simple, find with policy on document and field"
+                   test_basic_find_with_pl 
+                   {-
+    , testProperty "Test insert after taint: failure"
+                   test_basic_insert_fail 
+                   -}
   ]
   ]
 
@@ -466,8 +478,19 @@ test_applyCollectionPolicyP_label_by_field = monadicDC $ do
                                       , ("p1", FieldPolicy fpol)
                                       , ("p2", FieldPolicy fpol)] }
 --
--- Test insert
+-- Test insert and find
 --
+
+-- | Execute a mongo action against the testPM2 database
+withMongo :: Mongo.Action IO a -> IO a
+withMongo act = do
+  pipe <- Mongo.runIOE $ Mongo.connect (Mongo.host "localhost")
+  res <- Mongo.access pipe Mongo.master "testPM2_db" act
+  Mongo.close pipe
+  case res of
+    Left f -> throwIO (userError $ "Failed with " ++ show f)
+    Right v -> return v
+
 
 testPM2Principal :: String
 testPM2Principal = "_testPM2"
@@ -503,8 +526,8 @@ instance PolicyModule TestPM2 where
 withTestPM2 :: (TestPM2 -> DBAction a) -> DC a
 withTestPM2 f = do
   ioTCB mkDBConfFile
-  ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "public")
-  ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "simple_pl")
+  --ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "public")
+  --ioTCB $ withMongo $ Mongo.delete (Mongo.select [] "simple_pl")
   withPolicyModule f 
 
 -- | Test insert in all-public collection
@@ -546,12 +569,31 @@ test_basic_insert_fail = monadicDC $ do
   Q.assert res
 
 
--- | Execute a mongo action against the testPM2 database
-withMongo :: Mongo.Action IO a -> IO a
-withMongo act = do
-  pipe <- Mongo.runIOE $ Mongo.connect (Mongo.host "localhost")
-  res <- Mongo.access pipe Mongo.master "testPM2_db" act
-  Mongo.close pipe
-  case res of
-    Left f -> throwIO (userError $ "Failed with " ++ show f)
-    Right v -> return v
+-- | Test insert in all-public collection
+test_basic_find :: Property
+test_basic_find = monadicDC $ do
+  let doc = [ "s1" -: (1 :: Int), "s3" -: (3 :: Int), "s2" -: (2 :: Int)
+            , "x1" -: (4 :: Int)]
+  _id <- run $ withTestPM2 $ const $ insert "public" doc
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "public")
+  Q.assert $ isJust mdoc
+  doc' <- run $ unlabel $ fromJust mdoc
+  Q.assert $ sortDoc doc' == sortDoc (merge ["_id" -: _id] doc)
+
+-- | Test find containing a policy labeled value
+test_basic_find_with_pl :: Property
+test_basic_find_with_pl = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  plv  <- pick arbitrary
+  let pl  = needPolicy (plv :: BsonValue)
+  s    <- pick arbitrary
+  let doc = merge ["s" -: (s :: String), "pl" -: pl] doc0
+  _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
+  Q.assert $ isJust mdoc
+  let priv = mintTCB . dcPrivDesc $ s
+  doc' <- run $ unlabelP priv $ fromJust mdoc
+  Q.assert $ (sortDoc . exclude ["s"] $ doc') ==
+             (sortDoc . merge ["_id" -: _id] . exclude ["s"] $ doc)
+  let ~mlv@(Just lv) =  getPolicyLabeled $ "pl" `at` doc'
+  Q.assert $ isJust mlv && unlabelTCB lv == plv
