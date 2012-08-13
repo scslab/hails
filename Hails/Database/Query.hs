@@ -3,6 +3,7 @@
              FlexibleContexts,
              DeriveDataTypeable,
              FlexibleInstances,
+             ScopedTypeVariables,
              TypeSynonymInstances #-}
 
 {- |
@@ -48,6 +49,7 @@ module Hails.Database.Query (
   ) where
 
 
+import           Prelude hiding (lookup)
 import           Data.Maybe
 import qualified Data.List as List
 import           Data.Map (Map)
@@ -248,7 +250,22 @@ instance InsertLike HsonDocument where
       _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
     where _id i = let HsonValue (BsonObjId i') = dataBsonValueToHsonValueTCB i
                   in i'
-  saveP = undefined
+  saveP priv cName doc = do
+    withCollection priv True cName $ \col -> do
+      -- Already checked that we can write to DB and collection,
+      -- apply policies:
+      ldoc <- applyCollectionPolicyP priv col doc
+      let _id_n = Text.pack "_id"
+      case lookup _id_n doc of
+        Nothing -> saveIt ldoc
+        Just (_id :: ObjectId) -> do
+          mdoc <- findOneP priv $ select [_id_n -: _id] cName
+          -- If document exists, check that we can overwrite it:
+          maybe (return ()) (guardWriteP priv . labelOf) mdoc
+          saveIt ldoc
+      where saveIt ldoc =
+              let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
+              in execMongoActionTCB $ Mongo.save cName bsonDoc
 
 --
 -- Read

@@ -47,7 +47,6 @@ import System.IO.Unsafe
 
 tests :: [Test]
 tests = [
-{-
     testGroup "withPolicy tests" [
         testCase "Succeed loading existant policy module"
                  test_withPolicyModuleP_ok
@@ -96,17 +95,19 @@ tests = [
     , testProperty "Test insert after taint: failure"
                    test_basic_insert_fail 
   ]
-  -}
-    testGroup "Find" [
+  , testGroup "Find" [
       testProperty "Simple, all-public find"
                    test_basic_find
     , testProperty "Simple, find with policy on document and field"
                    test_basic_find_with_pl 
-                   {-
-    , testProperty "Test insert after taint: failure"
-                   test_basic_insert_fail 
-                   -}
   ]
+  , testGroup "Save" [
+      testProperty "Simple, all-public save"
+                   test_basic_save
+    , testProperty "Simple, save with policy on document and field"
+                   test_basic_save_with_pl 
+
+    ]
   ]
 
 --
@@ -593,7 +594,37 @@ test_basic_find_with_pl = monadicDC $ do
   Q.assert $ isJust mdoc
   let priv = mintTCB . dcPrivDesc $ s
   doc' <- run $ unlabelP priv $ fromJust mdoc
-  Q.assert $ (sortDoc . exclude ["s"] $ doc') ==
-             (sortDoc . merge ["_id" -: _id] . exclude ["s"] $ doc)
+  Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
+             (sortDoc . merge ["_id" -: _id] . exclude ["pl"] $ doc)
   let ~mlv@(Just lv) =  getPolicyLabeled $ "pl" `at` doc'
   Q.assert $ isJust mlv && unlabelTCB lv == plv
+
+-- | Test save in all-public collection
+test_basic_save :: Property
+test_basic_save = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  _id <- run $ withTestPM2 $ const $ insert "public" doc0
+  let doc = merge ["_id" -: _id] doc1
+  run $ withTestPM2 $ const $ save "public" doc
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "public")
+  Q.assert $ isJust mdoc
+  doc' <- run $ unlabel $ fromJust mdoc
+  Q.assert $ sortDoc doc == sortDoc doc'
+
+-- | Test save containing a policy labeled value
+test_basic_save_with_pl :: Property
+test_basic_save_with_pl = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  pl   <- needPolicy `liftM` pick arbitrary
+  s    <- pick arbitrary
+  let priv = mintTCB . dcPrivDesc $ s
+      doc1 = merge ["s" -: (s :: String), "pl" -: pl] doc0
+  _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc1
+  let doc2 = merge ["_id" -: _id, "x" -: ("f00ba12" :: String)] doc1
+  run $ withTestPM2 $ const $ saveP priv "simple_pl" $ doc2
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
+  Q.assert $ isJust mdoc
+  doc' <- run $ unlabelP priv $ fromJust mdoc
+  Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
+             (sortDoc . exclude ["pl"] $ doc2)
