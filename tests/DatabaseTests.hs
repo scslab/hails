@@ -47,6 +47,7 @@ import System.IO.Unsafe
 
 tests :: [Test]
 tests = [
+{-
     testGroup "withPolicy tests" [
         testCase "Succeed loading existant policy module"
                  test_withPolicyModuleP_ok
@@ -117,6 +118,19 @@ tests = [
                    test_basic_labeled_insert_with_pl 
     , testProperty "Simple, fail insert with policy on already-labeled document and field"
                    test_basic_labeled_insert_with_pl_fail
+    ]
+    -}
+    testGroup "Labeled save" [
+      testProperty "Simple, all-public policy save of already-labeled document"
+                   test_basic_labeled_save 
+    , testProperty "Simple, all-public policy save of already-labeled document fail"
+                   test_basic_labeled_save_fail 
+    , testProperty "Simple, save with policy on already-labeled document and field"
+                   test_basic_labeled_insert_with_pl 
+                   {-
+    , testProperty "Simple, fail insert with policy on already-labeled document and field"
+                   test_basic_labeled_insert_with_pl_fail
+                   -}
     ]
   ]
 
@@ -699,4 +713,55 @@ test_basic_labeled_insert_with_pl_fail = monadicDC $ do
   res <- run $ (withTestPM2 $ const $ do
                          insert_ "simple_pl" ldoc
                          return False) `catchLIO` (\(_::SomeException) -> return True)
+  Q.assert res
+
+-- | Test labeled save in all-public collection
+test_basic_labeled_save :: Property
+test_basic_labeled_save = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  ldoc0 <- run $ label dcPub doc0
+  _id <- run $ withTestPM2 $ const $ insert "public" ldoc0
+  ldoc1 <- run $ label dcPub $ merge ["_id" -: _id] doc1
+  run $ withTestPM2 $ const $ save "public" ldoc1
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "public")
+  Q.assert $ isJust mdoc && labelOf (fromJust mdoc) == dcPub
+  doc' <- run $ unlabel $ fromJust mdoc
+  Q.assert $ sortDoc doc' == sortDoc (unlabelTCB ldoc1)
+
+-- | Test labled save containing a policy labeled value
+test_basic_labeled_save_with_pl :: Property
+test_basic_labeled_save_with_pl = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  let s = "A" :: String
+      lOfdoc = dcLabel (s \/ testPM2Principal \/ ("B" :: String)) dcTrue
+      l = dcLabel (s \/ testPM2Principal) dcTrue
+  plv <- pick arbitrary
+  pl  <- run $ label l (plv :: BsonValue)
+  ldoc0 <- run $ label lOfdoc $ merge ["s" -: s, "pl" -: pl] doc0
+  _id <- run $ withTestPM2 $ const $ insert "simple_pl" ldoc0
+  ldoc1 <- run $ label dcPub $ merge ["_id" -: _id,"s" -: s, "pl" -: pl] doc1
+  run $ withTestPM2 $ const $ save "public" ldoc1
+  mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
+  Q.assert $ isJust mdoc
+  let doc' = unlabelTCB $ fromJust mdoc
+      doc'' = merge ["_id" -: _id] $ unlabelTCB ldoc1
+  Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
+             (sortDoc . exclude ["pl"] $ doc'')
+  let ~mlv@(Just lv) =  getPolicyLabeled $ "pl" `at` doc'
+  Q.assert $ isJust mlv && unlabelTCB lv == plv
+
+-- | Test labeled save in all-public collection
+test_basic_labeled_save_fail :: Property
+test_basic_labeled_save_fail = monadicDC $ do
+  doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
+  ldoc0 <- run $ label dcPub doc0
+  _id <- run $ withTestPM2 $ const $ insert "public" ldoc0
+  clr <- run $ getClearance
+  ldoc1 <- run $ label clr $ merge ["_id" -: _id] doc1
+  res <- run $ (withTestPM2 $ const $ do
+                  save "public" ldoc1
+                  return False) `catchLIO` (\(_::SomeException) -> return True)
   Q.assert res
