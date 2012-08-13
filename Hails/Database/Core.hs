@@ -27,8 +27,6 @@ module Hails.Database.Core (
   , getDatabase, getDatabaseP
   -- ** Database system configuration
   , Pipe, AccessMode(..), master, slaveOk
-  -- ** Exception thrown by failed database actions
-  , Failure(..)
   ) where
 
 import           Control.Monad

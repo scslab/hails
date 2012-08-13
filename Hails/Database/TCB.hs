@@ -36,7 +36,7 @@ module Hails.Database.TCB (
   -- ** Database system configuration
   , Pipe, AccessMode(..), master, slaveOk
   -- ** Exception thrown by failed database actions
-  , Failure(..)
+  , DBError(..)
   -- ** Lifting "Database.MongoDB" actions
   , execMongoActionTCB 
   ) where
@@ -215,10 +215,6 @@ updateActionStateTCB f = do
 instance MonadLIO DCLabel DBAction where
   liftLIO = DBActionTCB . lift
 
-
-deriving instance Typeable Failure
-instance Exception Failure
-
 -- | Given a policy module's privileges, database name, pipe and access
 -- mode create the initial state for a 'DBAction'. The underlying
 -- database is labeled with the supplied privileges: both components of
@@ -281,5 +277,19 @@ execMongoActionTCB act = do
   liftLIO $ rethrowIoTCB $ do
     res <- Mongo.access pipe mode db act
     case res of
-      Left err -> throwIO err
+      Left err -> throwIO $ ExecFailure err
       Right v  -> return v
+
+
+--
+-- DB failures
+--
+
+
+-- | Exceptions thrown by invalid database queries.
+data DBError = UnknownCollection   -- ^ Collection does not exist
+             | UnknownPolicyModule -- ^ Policy module not found
+             | ExecFailure Failure -- ^ Execution of action failed
+               deriving (Show, Typeable)
+
+instance Exception DBError

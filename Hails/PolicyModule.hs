@@ -73,7 +73,6 @@ import           LIO.DCLabel
 import           Hails.Data.Hson
 import           Hails.Database.Core
 import           Hails.Database.TCB
-import           Hails.Database.Query
 import           Hails.PolicyModule.TCB
 
 import           Text.Parsec hiding (label)

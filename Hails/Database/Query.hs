@@ -492,18 +492,6 @@ selectionToMongoSelectionTCB s = Mongo.Select {
 
 
 --
--- DB failures
---
-
-
--- | Exceptions thrown by invalid database queries.
-data DBError = UnknownCollection   -- ^ Collection does not exist
-             | UnknownPolicyModule -- ^ Policy module not found
-               deriving (Show, Typeable)
-
-instance Exception DBError
-
---
 -- Helpers
 --
 
