@@ -47,7 +47,6 @@ import System.IO.Unsafe
 
 tests :: [Test]
 tests = [
-{-
     testGroup "withPolicy tests" [
         testCase "Succeed loading existant policy module"
                  test_withPolicyModuleP_ok
@@ -119,18 +118,13 @@ tests = [
     , testProperty "Simple, fail insert with policy on already-labeled document and field"
                    test_basic_labeled_insert_with_pl_fail
     ]
-    -}
-    testGroup "Labeled save" [
+    , testGroup "Labeled save" [
       testProperty "Simple, all-public policy save of already-labeled document"
                    test_basic_labeled_save 
     , testProperty "Simple, all-public policy save of already-labeled document fail"
                    test_basic_labeled_save_fail 
     , testProperty "Simple, save with policy on already-labeled document and field"
                    test_basic_labeled_insert_with_pl 
-                   {-
-    , testProperty "Simple, fail insert with policy on already-labeled document and field"
-                   test_basic_labeled_insert_with_pl_fail
-                   -}
     ]
   ]
 
