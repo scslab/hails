@@ -39,7 +39,7 @@ authenticatedBasic req = do
   case lookup hAuthorization (requestHeaders req) of
     Nothing -> Nothing
     Just authStr
-      | "Basic" `S8.isPrefixOf` authStr -> Nothing
+      | not ("Basic" `S8.isPrefixOf` authStr) -> Nothing
       | otherwise ->
           let up = fmap (S8.split ':') $ decode $ S8.drop 6 authStr
           in case up of
