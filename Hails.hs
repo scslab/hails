@@ -1,15 +1,15 @@
+{-# LANGUAGE Unsafe #-}
 {-# LANGUAGE ScopedTypeVariables, OverloadedStrings #-}
 module Hails where
 import Hails.HttpServer
 import Hails.HttpServer.Auth
 import Hails.HttpServer.Types
 
-import Network.HTTP.Types
-import qualified Network.Wai as W
 import Network.Wai.Handler.Warp
 
 import Data.Functor ((<$>))
 import Data.Maybe (listToMaybe)
+import qualified Data.Text as T
 import qualified Data.ByteString.Lazy.Char8 as L8
 
 import System.Environment
@@ -29,23 +29,20 @@ about prog ver = "About: " ++ prog ++ " " ++ ver ++
   \ By default, " ++ prog ++ " uses the environment variables\
   \ APP_NAME, PORT, HMAC_KEY, AUTH_URL. Use the command-line \
   \ arguments to override."
-
 --
 --
 --
-
 runApp :: Application -> IO ()
 runApp app = do
   args <- getArgs
   env  <- getEnvironment
   opts <- hailsOpts args env
   when (optAbout opts) $ printAbout
-  let appName = optName opts
-      port    = optPort opts
+  let port    = optPort opts
       authF   = if optDev opts
                   then devBasicAuth "Hails"
-                  else openIdAuth "https://www.google.com/accounts/o8/id"
-  runSettings defaultSettings $ authF $ hailsApplication app
+                  else openIdAuth (T.pack $ optUrl opts)
+  runSettings defaultSettings { settingsPort = port } $ authF $ hailsApplication app
 
 --
 -- Helper
@@ -63,30 +60,23 @@ printAbout = do
 --
 
 data Options = Options
-   { optName   :: String        -- ^ App name
-   , optPort   :: Integer       -- ^ App port number
+   { optPort   :: Int           -- ^ App port number
    , optAbout  :: Bool          -- ^ About this program
-   , optSafe   :: Bool          -- ^ Use -XSafe
    , optDev    :: Bool          -- ^ Development
    , optKey    :: L8.ByteString -- ^ HMAC key
    , optUrl    :: String        -- ^ URL to auth service
    }
 
 defaultOpts :: Options
-defaultOpts = Options { optName   = "App"
-                      , optPort   = 8080
+defaultOpts = Options { optPort   = 8080
                       , optAbout  = False
-                      , optSafe   = True
                       , optDev    = False
                       , optKey    = L8.empty
                       , optUrl    = "http://127.0.0.1" }
 
 options :: [ OptDescr (Options -> Options) ]
 options = 
-  [ Option ['s'] ["start"]
-      (ReqArg (\n o -> o { optName = n }) "APP_NAME")
-      "Start application APP_NAME"
-  , Option ['p'] ["port"]
+  [ Option ['p'] ["port"]
       (ReqArg (\p o -> o { optPort = read p }) "PORT")
       "Run application on port PORT"
   , Option ['k'] ["key", "hmac-key"]
@@ -101,9 +91,6 @@ options =
   , Option ['a'] ["auth-url"]
       (ReqArg (\u o -> o { optUrl = u }) "AUTH_URL")
       "Authentication service URL AUTH_URL"
-  , Option []    ["unsafe"]
-        (NoArg (\opts -> opts { optSafe = False }))
-        "Turn off the -XSafe flag"
   , Option ['h','?']    ["help", "about"]
         (NoArg (\opts -> opts { optAbout = True }))
         "About this program"
@@ -123,8 +110,7 @@ hailsOpts args env = do
 
 envOpts :: Options -> [(String, String)] -> Options
 envOpts opts env = 
-  opts { optName = maybe (optName opts) id (fromEnv "APP_NAME")
-       , optPort = maybe (optPort opts) id (readFromEnv "PORT")
+  opts { optPort = maybe (optPort opts) id (readFromEnv "PORT")
        , optKey  = maybe (optKey  opts) id (readFromEnv "HMAC_KEY")
        , optUrl  = maybe (optUrl  opts) id (fromEnv "AUTH_URL")
        }

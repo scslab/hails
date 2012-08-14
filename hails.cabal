@@ -59,6 +59,7 @@ Library
   ghc-options: -Wall -fno-warn-orphans
 
   Exposed-modules:
+    Hails
     Hails.Data.Hson
     Hails.Data.Hson.TCB
     Hails.Database.Core
