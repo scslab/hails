@@ -1,5 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
-module AuthTests where
+module AuthTests (tests) where
 
 import Test.Framework
 import Test.Framework.Providers.HUnit
@@ -8,17 +8,20 @@ import Network.HTTP.Types
 import Network.Wai
 import Network.Wai.Test
 
-authTests :: Test
-authTests = testGroup "Auth"
+tests :: [Test]
+tests = [authTest]
+
+authTest :: Test
+authTest = testGroup "Auth"
   [ testCase "Require Login on X-Hails-Login header" $ runSession (do
         resp <- request undefined
         assertHeader "TestHeader" "MyHeaderVal" resp) $
-      requireLoginMiddleware (responseLBS status301 [("TestHeader", "MyHeaderVal")] "") $
+      requireLoginMiddleware (return $ responseLBS status301 [("TestHeader", "MyHeaderVal")] "") $
       const . return $ responseLBS status401 [("x-hails-login", "yes")] ""
   , testCase "No login if not X-Hails-Login header" $ runSession (do
         resp <- request undefined
         assertNoHeader "TestHeader" resp) $
-      requireLoginMiddleware (responseLBS status301 [("TestHeader", "ShouldNotBeThere")] "") $
+      requireLoginMiddleware (return $ responseLBS status301 [("TestHeader", "ShouldNotBeThere")] "") $
       const . return $ responseLBS status200 [] ""
   ]
 

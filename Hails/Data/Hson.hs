@@ -50,7 +50,7 @@ Example:
 > y :: HsonDocument
 > y = [ "myInt" -: (42 :: Int)
 >     , "nested"  -: ([ "flag" -: True] :: BsonDocument)
->     , "secret" -: hasPolicy (labelTCB dcPub (toBsonValue ("hi" :: Text)))
+>     , "secret" -: labelTCB dcPub (toBsonValue ("hi" :: Text))
 >     ]
 
 Both @x@ and @y@ with @-XOverloadedStrings@:
@@ -79,7 +79,7 @@ module Hails.Data.Hson (
   -- * Values
   , HsonValue(..), HsonVal(..)
   , BsonValue(..), BsonVal(..)
-  , PolicyLabeled, needPolicy, hasPolicy
+  , PolicyLabeled, needPolicy, hasPolicy, getPolicyLabeled 
   , Binary(..)
   , ObjectId(..), genObjectId
   ) where
@@ -97,7 +97,7 @@ import qualified Data.Bson as Bson
 
 import           LIO
 import           LIO.DCLabel
-import           LIO.TCB (ioTCB)
+import           LIO.TCB (ioTCB, ShowTCB(..))
 
 import           Hails.Data.Hson.TCB
 
@@ -161,14 +161,22 @@ instance Show BsonValue where
   show (BsonInt64 v)  = show v
 
 instance Show HsonValue where
-  show (HsonValue   h) = show h
-  show (HsonLabeled _) = "HsonLabeled"
+  show (HsonValue   h)  = show h
+  show (HsonLabeled _) = "{- Hidden -} HsonLabeled"
+
+instance ShowTCB HsonValue where
+  showTCB (HsonValue   h) = show h
+  showTCB (HsonLabeled h) = showTCB h
 
 
 
 --
 -- Policy labeled values
 --
+
+instance ShowTCB PolicyLabeled where
+  showTCB (NeedPolicyTCB bv) = "NeedPolicyTCB " ++ show bv
+  showTCB (HasPolicyTCB lbv) = "HasPolicyTCB " ++ showTCB lbv
 
 -- | Create a policy labeled value given an unlabeled 'HsonValue'.
 needPolicy :: BsonValue-> PolicyLabeled
@@ -177,6 +185,13 @@ needPolicy = NeedPolicyTCB
 -- | Create a policy labeled value a labeled 'HsonValue'.
 hasPolicy :: DCLabeled BsonValue -> PolicyLabeled
 hasPolicy = HasPolicyTCB
+
+-- | Get the policy labeled value, only if the policy has been
+-- applied.
+getPolicyLabeled :: Monad m => PolicyLabeled -> m (DCLabeled BsonValue)
+getPolicyLabeled (NeedPolicyTCB _) =
+  fail "Can only retrieve already labeldv policy values"
+getPolicyLabeled (HasPolicyTCB lv) = return lv
 
 --
 -- Document operations
@@ -216,7 +231,7 @@ exclude ns doc = filter ((\n -> notElem n ns) . fieldName) doc
 merge :: IsField f => [f] -> [f] -> [f]
 merge doc1 doc2 = 
   let ns1 = map fieldName doc1
-      doc2' = List.filter ((\n -> n `elem` ns1) . fieldName) doc2
+      doc2' = List.filter ((\n -> n `notElem` ns1) . fieldName) doc2
   in doc1 ++ doc2'
 
 -- | Class used to implement operations on documents that return
@@ -243,7 +258,7 @@ instance BsonVal v => DocValOps BsonDocument v where
 -- This function is useful when converting from 'HsonDocument' to
 -- 'BsonDocument'.
 isBsonDoc :: HsonDocument -> Bool
-isBsonDoc doc = any f doc
+isBsonDoc doc = all f doc
   where f (HsonField _ (HsonLabeled _)) = False
         f _ = True
 
@@ -528,6 +543,14 @@ instance HsonVal BsonValue where
 instance HsonVal PolicyLabeled where
   toHsonValue   = HsonLabeled
   fromHsonValue (HsonLabeled v) = return v
+  fromHsonValue _ = fail "fromHsonValue: no conversion"
+
+instance Show (DCLabeled BsonValue) where
+  show lv = " -UNKNOWN VALUE- {" ++ show (labelOf lv) ++ "}"
+  
+instance HsonVal (DCLabeled BsonValue) where
+  toHsonValue   = HsonLabeled . hasPolicy
+  fromHsonValue (HsonLabeled v) = getPolicyLabeled v
   fromHsonValue _ = fail "fromHsonValue: no conversion"
 
 
