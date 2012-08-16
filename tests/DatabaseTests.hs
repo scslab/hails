@@ -106,7 +106,6 @@ tests = [
                    test_basic_save
     , testProperty "Simple, save with policy on document and field"
                    test_basic_save_with_pl 
-
     ]
   , testGroup "Labeled insert" [
       testProperty "Simple, all-public policy insert of already-labeled document"
@@ -124,7 +123,7 @@ tests = [
     , testProperty "Simple, all-public policy save of already-labeled document fail"
                    test_basic_labeled_save_fail 
     , testProperty "Simple, save with policy on already-labeled document and field"
-                   test_basic_labeled_insert_with_pl 
+                   test_basic_labeled_save_with_pl
     ]
   ]
 
@@ -222,11 +221,20 @@ monadicDC (MkPropertyM m) =
  property $ unsafePerformIO `liftM` doEvalDC `liftM` m f
   where f = const . return . return .  property $ True 
 
--- | As if done in 'initPolicyModule'
+-- | As if done in 'initPolicyModule' without bracket
 initTestPM1 :: PMAction a -> DC a
 initTestPM1 act = do
   ioTCB mkDBConfFile
-  withTestPM1 . const . unPMActionTCB $ act
+  withTestPM1 . const . unPMActionTCB $ 
+      withClearanceP' testPM1Priv $ act
+  where withClearanceP' priv io = do
+          c <- getClearance
+          let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
+          setClearanceP priv lpriv
+          res <- io
+          c' <- getClearance 
+          setClearanceP priv (partDowngradeP priv c' c)
+          return res
 
 -- | Execute a monadic quickcheck action against policy module TestPM1
 monadicPM1 :: (DCPriv -> PropertyM PMAction a) -> Property
@@ -567,8 +575,8 @@ test_basic_insert_with_pl :: Property
 test_basic_insert_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   pl   <- needPolicy `liftM` pick arbitrary
-  s    <- pick arbitrary
-  let doc = merge ["s" -: (s :: String), "pl" -: pl] doc0
+  let s = "A" :: String
+  let doc = merge ["s" -: s, "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ do
                          insert "simple_pl" doc
   mdoc <- run $ ioTCB $ withMongo $ Mongo.findOne
@@ -605,8 +613,8 @@ test_basic_find_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   plv  <- pick arbitrary
   let pl  = needPolicy (plv :: BsonValue)
-  s    <- pick arbitrary
-  let doc = merge ["s" -: (s :: String), "pl" -: pl] doc0
+      s = "A" :: String
+      doc = merge ["s" -: s , "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
   Q.assert $ isJust mdoc
@@ -636,9 +644,9 @@ test_basic_save_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   plv  <- pick arbitrary
   let pl  = needPolicy (plv :: BsonValue)
-  s    <- pick arbitrary
-  let priv = mintTCB . dcPrivDesc $ s
-      doc1 = merge ["s" -: (s :: String), "pl" -: pl] doc0
+  let s = "A" :: String
+      priv = mintTCB . dcPrivDesc $ s
+      doc1 = merge ["s" -: s , "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc1
   let doc2 = merge ["_id" -: _id, "x" -: ("f00ba12" :: String)] doc1
   run $ withTestPM2 $ const $ saveP priv "simple_pl" $ doc2
@@ -736,7 +744,7 @@ test_basic_labeled_save_with_pl = monadicDC $ do
   ldoc0 <- run $ label lOfdoc $ merge ["s" -: s, "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" ldoc0
   ldoc1 <- run $ label dcPub $ merge ["_id" -: _id,"s" -: s, "pl" -: pl] doc1
-  run $ withTestPM2 $ const $ save "public" ldoc1
+  run $ withTestPM2 $ const $ save "simple_pl" ldoc1
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
   Q.assert $ isJust mdoc
   let doc' = unlabelTCB $ fromJust mdoc

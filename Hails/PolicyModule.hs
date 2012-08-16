@@ -430,10 +430,15 @@ withPolicyModule act = do
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function and database action with raised
       -- clearance:
+      {-
       res <- withClearanceP' priv $ do
         (policy, s1) <- runDBAction (pmAct priv) s0
         let s2 = s1 { dbActionDB = dbActionDB s1 }
         evalDBAction (act policy) s2
+        -}
+      (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
+      let s2 = s1 { dbActionDB = dbActionDB s1 }
+      res <- evalDBAction (act policy) s2
       rethrowIoTCB $ Mongo.close pipe
       return res
   where tp = typeRepTyCon $ typeOf $ (undefined :: pm)

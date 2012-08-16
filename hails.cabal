@@ -76,12 +76,13 @@ Description:
   the system, while MAC guarantees that these policies are enforced
   in an end-to-end fashion.
 
+Extra-source-files:
+  examples/simpleDBExample.hs
+
 Source-repository head
   Type:     git
   Location: http://www.gitstar.com/scs/hails.git
 
-Extra-source-files:
-  examples/simpleDBExample.hs
 
 Library
   Build-Depends: authenticate ==1.3.0.*,

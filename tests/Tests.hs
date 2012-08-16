@@ -10,6 +10,6 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: [Test]
-tests = AuthTests.tests
-     ++ HsonTests.tests
-     ++ DatabaseTests.tests
+tests = AuthTests.tests ++
+        HsonTests.tests ++
+        DatabaseTests.tests
