@@ -1,11 +1,8 @@
 {-# LANGUAGE Unsafe #-}
-{-# LANGUAGE ConstraintKinds,
-             GeneralizedNewtypeDeriving,
+{-# LANGUAGE GeneralizedNewtypeDeriving,
              MultiParamTypeClasses,
-             FlexibleInstances,
              StandaloneDeriving,
              DeriveDataTypeable,
-             TypeFamilies,
              TypeSynonymInstances #-}
 
 {- |
@@ -34,12 +31,12 @@ module Hails.Database.TCB (
   , updateActionStateTCB
   , makeDBActionStateTCB 
   , setDatabaseLabelTCB
-  , setCollectionsLabelTCB 
+  , setCollectionSetLabelTCB 
   , associateCollectionTCB 
   -- ** Database system configuration
   , Pipe, AccessMode(..), master, slaveOk
   -- ** Exception thrown by failed database actions
-  , Failure(..)
+  , DBError(..)
   -- ** Lifting "Database.MongoDB" actions
   , execMongoActionTCB 
   ) where
@@ -51,9 +48,8 @@ import           Data.Map (Map)
 import           Data.Typeable
 
 import           Control.Applicative
+import           Control.Monad.Trans
 import           Control.Monad.Trans.State
-import           Control.Monad.Base
-import           Control.Monad.Trans.Control
 import           Control.Exception
 
 import qualified Database.MongoDB as Mongo
@@ -216,18 +212,8 @@ updateActionStateTCB f = do
   s <- getActionStateTCB 
   putActionStateTCB $ f s
 
-instance MonadBase DC DBAction where
-  liftBase = DBActionTCB . liftBase
-
-instance MonadDC  DBAction
-
-instance MonadBaseControl DC DBAction where
-  newtype StM DBAction a = StM { unStM :: DBAction a }
-  liftBaseWith f = liftBase $ f $ return . StM
-  restoreM       = unStM
-
-deriving instance Typeable Failure
-instance Exception Failure
+instance MonadLIO DCLabel DBAction where
+  liftLIO = DBActionTCB . lift
 
 -- | Given a policy module's privileges, database name, pipe and access
 -- mode create the initial state for a 'DBAction'. The underlying
@@ -261,8 +247,8 @@ setDatabaseLabelTCB l = updateActionStateTCB $ \s ->
 
 -- | Set the label of the underlying database to the supplied label,
 -- ignoring IFC.
-setCollectionsLabelTCB :: DCLabel -> DBAction ()
-setCollectionsLabelTCB l = updateActionStateTCB $ \s -> 
+setCollectionSetLabelTCB :: DCLabel -> DBAction ()
+setCollectionSetLabelTCB l = updateActionStateTCB $ \s -> 
  let db = dbActionDB s
      cs = databaseCollections db
      cs' = labelTCB l $! unlabelTCB cs
@@ -288,8 +274,22 @@ execMongoActionTCB act = do
   let pipe = dbActionPipe s
       mode = dbActionMode s
       db   = databaseName . dbActionDB $ s
-  liftBase $ rethrowIoTCB $ do
+  liftLIO $ rethrowIoTCB $ do
     res <- Mongo.access pipe mode db act
     case res of
-      Left err -> throwIO err
+      Left err -> throwIO $ ExecFailure err
       Right v  -> return v
+
+
+--
+-- DB failures
+--
+
+
+-- | Exceptions thrown by invalid database queries.
+data DBError = UnknownCollection   -- ^ Collection does not exist
+             | UnknownPolicyModule -- ^ Policy module not found
+             | ExecFailure Failure -- ^ Execution of action failed
+               deriving (Show, Typeable)
+
+instance Exception DBError
