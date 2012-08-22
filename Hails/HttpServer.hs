@@ -54,7 +54,7 @@ transformHailsApp :: Application -> W.Application
 transformHailsApp hailsApp req0 = do
   hailsRequest <- waiToHailsReq req0
   let conf = getRequestConf hailsRequest
-  response <- liftIO . evalDC $ do
+  response <- liftIO $ evalDC $ do
     let lreq = labelTCB (requestLabel conf) hailsRequest
     hailsApp conf lreq
   return $ hailsToWaiResponse response

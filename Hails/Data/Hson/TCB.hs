@@ -57,12 +57,10 @@ import           Data.Bson ( ObjectId(..) )
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as L8
-import           Data.Serialize
 import qualified Data.Binary.Put as Binary
 import qualified Data.Binary.Get as Binary
 
-import           LIO
-import           LIO.Labeled.TCB (labelTCB, unlabelTCB)
+import           LIO.Labeled.TCB (unlabelTCB)
 import           LIO.DCLabel
 
 -- | Strict ByeString
@@ -167,16 +165,15 @@ newtype Binary = Binary { unBinary :: S8 }
 -- | Convert 'HsonValue' to a "Data.Bson" @Value@. Note that
 -- 'PolicyLabeled' values are marshalled out as "Data.Bson" @UserDefined@
 -- values. This means that the @UserDefined@ type is reserved and
--- exposing it as a type in 'BsonValue' would potentially lead to
--- vulnerabilities in which labeled values can be marshalled in from
--- well-crafted ByteStrings.
+-- exposing it as a type in 'BsonValue' would potentially lead to leaks.
+-- Note that the label is /NOT/ serialized, only the value. Hence,
+-- after marshalling such that back it is important that a policy is 
+-- applied to label the field.
 hsonToDataBsonTCB :: HsonValue -> Bson.Value
 hsonToDataBsonTCB (HsonValue b) = bsonToDataBsonTCB b
 hsonToDataBsonTCB (HsonLabeled (HasPolicyTCB lv)) =
   toUserDef . hsonDocToDataBsonDocTCB $ 
-     [ HsonField __hails_HsonLabeled_label $
-         HsonValue (BsonBlob . Binary . encode . labelOf $ lv)
-     , HsonField __hails_HsonLabeled_value $ HsonValue (unlabelTCB lv) ]
+     [ HsonField __hails_HsonLabeled_value $ HsonValue (unlabelTCB lv) ]
     where toUserDef = Bson.UserDef
                     . Bson.UserDefined
                     . strictify
@@ -285,11 +282,6 @@ dataBsonValueToHsonValueTCB bv = case bv of
 
 
 -- | Hails internal field name for a policy labeled value (label part)
--- (label part).
-__hails_HsonLabeled_label :: FieldName
-__hails_HsonLabeled_label = add__hails_prefix $ T.pack "HsonLabeled_label"
-
--- | Hails internal field name for a policy labeled value (label part)
 -- (name part).
 __hails_HsonLabeled_value :: FieldName
 __hails_HsonLabeled_value = add__hails_prefix $ T.pack "HsonLabeled_value"
@@ -302,10 +294,5 @@ add__hails_prefix t = T.pack "__hails_" `T.append` t
 -- | Convert a "Data.Bson" @Document@ to a policy labeled value.
 maybePolicyLabeledTCB :: Bson.Document -> Maybe PolicyLabeled
 maybePolicyLabeledTCB doc = do
-  (Bson.Binary b) <- Bson.lookup __hails_HsonLabeled_label doc
-  l <- decode' b
   v <- Bson.look __hails_HsonLabeled_value doc
-  return . HasPolicyTCB $ labelTCB l (dataBsonToBsonTCB v)
-    where decode' b = case decode b of
-                        Left _ -> Nothing
-                        Right v -> Just v
+  return . NeedPolicyTCB $ dataBsonToBsonTCB v
