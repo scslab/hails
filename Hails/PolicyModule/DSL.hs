@@ -76,7 +76,7 @@ module Hails.PolicyModule.DSL (
   , readers, secrecy
   , writers, integrity
   , admins
-  , (==>)
+  , (==>), (<==)
   -- * Creating databases label policies
   , database
   -- * Creating collection policies
@@ -85,7 +85,7 @@ module Hails.PolicyModule.DSL (
   , clearance
   , document
   -- * Creating field policies
-  , field, searchable, labeled
+  , field, searchable, key, labeled
   ) where
 
 import           Data.Maybe
@@ -112,7 +112,8 @@ import           Hails.Database
 data Readers = Readers
 instance Show Readers where show _ = "readers"
 
--- | Synonym for 'Readers'.
+-- | Set secrecy component of the label, i.e., the principals that can
+-- read.
 readers, secrecy :: Readers
 readers =  Readers
 secrecy =  Readers
@@ -121,12 +122,14 @@ secrecy =  Readers
 data Writers = Writers
 instance Show Writers where show  _ = "writers"
 
--- | Synonym for 'Writers'.
+-- | Set integrity component of the label, i.e., the principals that can
+-- write.
 writers, integrity :: Writers 
 writers =  Writers 
 integrity =  Writers 
 
--- | Type denoting administrators.
+-- | Used when setting integrity component of the collection-set label, i.e.,
+-- the principals/administrators that can modify a database's underlying collections.
 data Admins  = Admins
 instance Show Admins where show _ = "admins"
 
@@ -138,8 +141,8 @@ infixl 5 ==>, <==
 
 -- | Class used for creating micro policies.
 class MonadState s m => Role r s m where
-  -- | Effectively stating that role @r@ must imply
-  -- label component @c@
+  -- | @r ==> c@ effectively states that role @r@ (i.e., 'readers',
+  -- 'writers', 'admins' must imply label component @c@).
   (==>) :: (ToComponent c) => r -> c -> m ()
   -- | Inverse implication. Purely provided for readability. The
   -- direction is not relevant to the internal representation.
@@ -151,7 +154,8 @@ class MonadState s m => Role r s m where
 --
 --
 
--- | Type representing a database expression.  --
+-- | Type representing a database expression. 
+--
 -- > database $ do
 -- >   readers ==> "Alice" \/ "Bob"
 -- >   writers ==> "Alice"
@@ -189,7 +193,23 @@ instance Role Admins DBExpS DBExpM where
       Nothing -> put $ Map.insert (show admins) (toComponent c) s
 
 
--- | Create a database lebeling policy
+-- | Create a database lebeling policy The policy must set the label
+-- of the database, i.e., the 'readers' and 'writers'. Additionally it
+-- must state the 'admins' that can modify the underlying collection-set 
+--
+-- For example, the policy
+-- 
+-- > database $ do
+-- >   readers ==> "Alice" \/ "Bob" \/ "Clarice"
+-- >   writers ==> "Alice" \/ "Bob"
+-- >   admins  ==> "Alice"
+--
+-- states that Alice, Bob, and Clarice can read from the database,
+-- including the collections in the database (the 'readers' is used as
+-- the secrecy component in the collection-set label). Only Alice or
+-- Bob may, however, write to the database. Finally, only Alice can
+-- add additional collections in the policy module code.
+--
 database :: DBExpM () -> PolicyExpM ()
 database (DBExpM e) = do
   s <- get
@@ -331,8 +351,8 @@ instance Role Writers ColDocExpS ColDocExpM where
 
 -- | Type representing a collection field policy expression.
 --
--- > field "name" ~> searchable
--- > field "password" ~> labeled $ \doc -> do
+-- > field "name"  searchable
+-- > field "password" $ labeled $ \doc -> do
 -- >   readers ==> (((T.pack "name") `at`doc) :: String)
 -- >   writers ==> (((T.pack "name") `at`doc) :: String)
 --
@@ -374,7 +394,7 @@ newtype ColFieldExpM a =
   ColFieldExpM (ErrorT String (StateT (Maybe ColFieldExp) (Reader (FieldName, CollectionName))) a)
   deriving (Monad, MonadState (Maybe ColFieldExp), MonadReader (FieldName, CollectionName))
 
--- | Set the underlying field to be searchable
+-- | Set the underlying field to be a searchable key.
 --
 -- >   field "name" searchable
 searchable :: ColFieldExpM ()
@@ -385,11 +405,15 @@ searchable = do
                            show fName ++ " policy already specified."
   put (Just ColFieldSearchable)
 
+-- | Synonym for 'searchable'
+key :: ColFieldExpM ()
+key = searchable
+
 -- | Set data-dependent document label
 --
 -- >   field "password" $ labeled $ \doc -> do
--- >     readers ==> (((T.pack "name") `at`doc) :: String)
--- >     writers ==> (((T.pack "name") `at`doc) :: String)
+-- >     readers ==> (("name" `at`doc) :: String)
+-- >     writers ==> (("name" `at`doc) :: String)
 labeled :: (HsonDocument -> ColLabFieldExpM ()) -> ColFieldExpM ()
 labeled fpol = do
   s  <- get
@@ -431,11 +455,11 @@ labeled fpol = do
 -- >     integrity ==> "Alice"          
 -- >   document $ \doc ->  do
 -- >     readers ==> anybody
--- >     writers ==> "Alice" \/ (((T.pack "name") `at`doc) :: String)
+-- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
 -- >   field "name" searchable
 -- >   field "password" $ labeled $ \doc -> do
--- >     readers ==> (((T.pack "name") `at`doc) :: String)
--- >     writers ==> (((T.pack "name") `at`doc) :: String)
+-- >     readers ==> (("name" `at`doc) :: String)
+-- >     writers ==> (("name" `at`doc) :: String)
 --
 data ColExp = ColExp CollectionName ColAccExp
                                     ColClrExp
@@ -483,7 +507,16 @@ newtype PolicyExpM a = PolicyExpM (ErrorT String (State PolicyExpS) a)
 
 --------------------------------------------------------------
 
--- | Set the collection access label.
+-- | Set the collection access label. For example,
+--
+-- > collection "w00t" $ do
+-- >   ...
+-- >   access $ do
+-- >     readers ==> "Alice" \/ "Bob"
+-- >     writers ==> "Alice"
+-- 
+-- states that Alice and Bob can read documents from the collection,
+-- but only Alice can insert new documents or modify existing ones.
 access :: ColAccExpM () -> ColExpM ()
 access (ColAccExpM acc) = do
   s  <- get
@@ -505,7 +538,16 @@ access (ColAccExpM acc) = do
                                        " in access of " ++ show cN)
                             return $ Map.lookup k s
 
--- | Set the collection clearance.
+-- | Set the collection clearance. For example,
+--
+-- > collection "w00t" $ do
+-- >   ...
+-- >   clearance $ do
+-- >     secrecy ==> "Alice" \/ "Bob"
+-- >     integrity ==> "Alice"
+-- 
+-- states that all data in the collection is always readable by Alice
+-- and Bob, and no more trustworthy than data Alice can create.
 clearance :: ColClrExpM () -> ColExpM ()
 clearance (ColClrExpM acc) = do
   s  <- get
@@ -527,7 +569,17 @@ clearance (ColClrExpM acc) = do
                                        " in clearance of " ++ show cN)
                             return $ Map.lookup k s
 
--- | Set data-dependent document label
+-- | Set data-dependent document label. For example,
+--
+-- > collection "w00t" $ do
+-- >   ...
+-- >   document $ \doc ->  do
+-- >     readers ==> anybody
+-- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
+--
+-- states that every document in the collection is resable by anybody,
+-- and only Alice or the principal named by the @name@ value in the
+-- document can modify or insert such data.
 document :: (HsonDocument -> ColDocExpM ()) -> ColExpM ()
 document fpol = do
   s  <- get
@@ -556,7 +608,28 @@ document fpol = do
                                        ++ show cN)
                             return $ Map.lookup k s
 
--- | Set field policy.
+-- | Set field policy. A field can be declared to be a 'searchable'
+-- key or a 'labeled' value.
+--
+-- Declaring a field to be a 'searchable' key is straight forward:
+--
+-- > collection "w00t" $ do
+-- >   ...
+-- >   field "name" searchable
+--
+-- The 'labeled' field declaration is similar to the 'document' policy, but
+-- sets the label of a specific field. For example
+--
+-- > collection "w00t" $ do
+-- >   ...
+-- >   field "password" $ labeled $ \doc -> do
+-- >     let user = "name" `at` doc :: String
+-- >     readers ==> user
+-- >     writers ==> user
+--
+-- states that every @password@ field in the is readable and writable
+-- only by or the principal named by the @name@ value of the document can
+-- modify or insert such data.
 field :: FieldName -> ColFieldExpM () -> ColExpM ()
 field fName (ColFieldExpM e) = do
   s <- get
@@ -573,7 +646,27 @@ field fName (ColFieldExpM e) = do
       where e' = do e >> get
     
 
--- | Set the collection labels and policies.
+-- | Set the collection labels and policies. Each @collection@, must 
+-- at least specify who can 'access' the collection, what the
+-- 'clearance' of the data in the collection is, and how 'document's
+-- are labeled. Below is an example that also labels the @password@
+-- field and declares @name@ a searchable key.
+--
+-- > collection "w00t" $ do
+-- >   access $ do
+-- >     readers ==> "Alice" \/ "Bob"
+-- >     writers ==> "Alice"          
+-- >   clearance $ do
+-- >     secrecy   ==> "Users"
+-- >     integrity ==> "Alice"          
+-- >   document $ \doc ->  do
+-- >     readers ==> anybody
+-- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
+-- >   field "name" searchable
+-- >   field "password" $ labeled $ \doc -> do
+-- >     readers ==> (("name" `at`doc) :: String)
+-- >     writers ==> (("name" `at`doc) :: String)
+--
 collection :: CollectionName -> ColExpM () -> PolicyExpM ()
 collection cN (ColExpM e) = do
   s <- get
@@ -613,6 +706,9 @@ runPolicy (PolicyExpM e) = evalState (runErrorT e') Map.empty
                   Map.filterWithKey (\k _ -> "collection." `isPrefixOf` k) s
          return $ PolicyExp db cs
 
+-- | High level function used to set the policy in a 'PolicyModule'.
+-- This function takes the policy module's privileges and a policy
+-- expression, and produces a 'PMAction' that sets the policy.
 setPolicy :: DCPriv -> PolicyExpM () -> PMAction ()
 setPolicy priv pol = 
   case runPolicy pol of
