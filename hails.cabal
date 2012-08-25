@@ -134,29 +134,22 @@ test-suite tests
   ghc-options: -threaded -rtsopts -Wall -fno-warn-orphans
 
   build-depends:
-    QuickCheck,
-    HUnit,
-    quickcheck-instances,
-    quickcheck-lio-instances,
-    test-framework,
-    test-framework-quickcheck2,
-    test-framework-hunit,
-    base,
-    lio,
-    conduit ==0.5.*,
-    http-types,
-    HUnit,
-    wai,
-    wai-test,
-    containers,
-    bytestring,
-    bson,
-    mongoDB,
-    binary,
-    cereal,
-    text,
-    transformers,
-    time,
-    unix,
     hails
-
+   ,base                       >= 4.5
+   ,containers                 >= 0.4.2
+   ,unix                       >= 2.5
+   ,time                       >= 1.2.0.5
+   ,text                       >= 0.11
+   ,QuickCheck                 >= 2.3
+   ,HUnit                      >= 1.2.5
+   ,quickcheck-instances       >= 0.3.0
+   ,test-framework             >= 0.6
+   ,test-framework-quickcheck2 >= 0.2.11
+   ,test-framework-hunit       >= 0.2.7
+   ,lio                        >= 0.9.0.0
+   ,quickcheck-lio-instances   >= 0.9.0.0
+   ,bson                       >= 0.2
+   ,mongoDB                    >= 1.3.0
+   ,wai                        >= 1.3
+   ,wai-test                   >= 1.3
+   ,http-types                 >= 0.7
