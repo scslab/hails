@@ -35,6 +35,8 @@ module Hails.HttpServer (
   , browserLabelGuard
   , guardSensitiveResp 
   , sanitizeResp
+  -- * Network types
+  , module Network.HTTP.Types
   ) where
 
 import qualified Data.List as List
