@@ -78,6 +78,8 @@ Description:
 
 Extra-source-files:
   examples/simpleDBExample.hs
+  examples/SimpleApp.hs
+  examples/httpClientExample.hs
 
 Source-repository head
   Type:     git
@@ -108,6 +110,7 @@ Library
    ,authenticate      >= 1.3
    ,cookie            >= 0.4
    ,blaze-builder     >= 0.3.1
+   ,failure           >= 0.2.0.1 && < 0.3
 
   GHC-options: -Wall -fno-warn-orphans
 
@@ -124,6 +127,7 @@ Library
     Hails.PolicyModule
     Hails.PolicyModule.DSL
     Hails.PolicyModule.TCB
+    Hails.HttpClient
     Hails.Version
   Other-modules:
     Paths_hails
