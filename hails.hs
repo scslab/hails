@@ -343,7 +343,7 @@ optsToEnv opts = map (\(k, mv) -> (k, fromJust mv)) $
 
 -- | Create environment list
 optsToEnvStr :: Options -> String
-optsToEnvStr opts = concat $ map (\(k,v) -> k++"="++v) $ optsToEnv opts 
+optsToEnvStr opts = unlines $ map (\(k,v) -> k++"="++v) $ optsToEnv opts 
 
 -- If an environment entry does not contain an @\'=\'@ character,
 -- the @key@ is the whole entry and the @value@ is the empty string.
