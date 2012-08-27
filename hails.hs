@@ -15,7 +15,7 @@ import           Hails.Version
 
 import           Network.Wai.Handler.Warp
 
-import           System.Posix.Env.ByteString (setEnv)
+import           System.Posix.Env (setEnv)
 import           System.Environment
 import           System.Console.GetOpt hiding (Option)
 import qualified System.Console.GetOpt as GetOpt
@@ -68,7 +68,8 @@ main = do
                                hailsOpts args env'
              cleanOpts opts'
   maybe (return ()) (optsToFile opts) $ optOutFile opts
-  putStrLn $ "Working environment:\n\n" ++ optsToEnv opts
+  putStrLn $ "Working environment:\n\n" ++ optsToEnvStr opts
+  forM_ (optsToEnv opts) $ \(k,v) -> setEnv k v True
   let port = fromJust $ optPort opts
       provider = T.pack . fromJust . optOpenID $ opts
       f = if optDev opts
@@ -325,19 +326,24 @@ printAbout = do
 
 -- | Write options to environment file
 optsToFile :: Options -> FilePath -> IO ()
-optsToFile opts file = writeFile file (optsToEnv opts) >> exitSuccess
+optsToFile opts file = writeFile file (optsToEnvStr opts) >> exitSuccess
 
 -- | Options to envionment string
-optsToEnv :: Options -> String
-optsToEnv opts = unlines $ filter (not .null) $ [
-   toLine optName        "APP_NAME"
-  ,maybe "" (("PORT = "++) . show) $ optPort opts
+optsToEnv :: Options -> [(String,String)]
+optsToEnv opts = map (\(k, mv) -> (k, fromJust mv)) $ 
+                 filter (isJust . snd) $
+  [toLine optName        "APP_NAME"
+  ,("PORT", show `liftM` optPort opts)
   ,toLine optOpenID      "OPENID_PROVIDER"
   ,toLine optDBConf      "DATABASE_CONFIG_FILE"
   ,toLine optMongoServer "HAILS_MONGODB_SERVER"
   ,toLine optPkgConf     "PACKAGE_CONF"
   ,toLine optCabalDev    "CABAL_DEV_SANDBOX" ]
-    where toLine f var = maybe "" ((var ++ " = ")++) $ f opts
+    where toLine f var = (var, f opts)
+
+-- | Create environment list
+optsToEnvStr :: Options -> String
+optsToEnvStr opts = concat $ map (\(k,v) -> k++"="++v) $ optsToEnv opts 
 
 -- If an environment entry does not contain an @\'=\'@ character,
 -- the @key@ is the whole entry and the @value@ is the empty string.
@@ -348,7 +354,7 @@ envFromFile file = do
     let (key',val') = S8.span (/='=') line
         val = safeTail val'
     in case S8.words key' of
-         [key] -> setEnv key val True
+         [key] -> setEnv (S8.unpack key) (S8.unpack val) True
          _ -> do hPutStrLn stderr $ "Invalid environment line: " ++
                                     show (S8.unpack line)
                  exitFailure

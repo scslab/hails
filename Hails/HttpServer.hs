@@ -65,6 +65,8 @@ import           LIO.Labeled.TCB
 
 import           Hails.HttpServer.Auth
 
+import           System.IO
+
 --
 -- Request
 --
@@ -244,17 +246,19 @@ hailsApplicationToWai app0 req0 = do
   result <- liftIO $ paranoidDC' conf $ do
     let lreq = labelTCB (requestLabel conf) hailsRequest
     app conf lreq
-  return $ case result of
-    Right (response,_) -> hailsToWaiResponse response
-    Left err -> case fromException err of
-                  Just (LabeledExceptionTCB l _) -> 
-                    -- as in browserLabelGuard :
-                    if l `canFlowTo` (browserLabel conf)
-                      then resp500 else resp403 
-                  _ -> resp500
+  case result of
+    Right (response,_) -> return $ hailsToWaiResponse response
+    Left err -> do
+      liftIO $ hPutStrLn stderr $ "App threw exception: " ++ show err
+      return $ case fromException err of
+        Just (LabeledExceptionTCB l _) -> 
+          -- as in browserLabelGuard :
+          if l `canFlowTo` (browserLabel conf)
+            then resp500 else resp403 
+        _ -> resp500
     where app = secureApplication app0
           resp403 = W.responseLBS status403 [] "" 
-          resp500 = W.responseLBS status500 [] "" 
+          resp500 = W.responseLBS status500 [] ""
           paranoidDC' conf act =
             paranoidLIO act $ LIOState { lioLabel = dcPub
                                        , lioClearance = browserLabel conf}
