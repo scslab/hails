@@ -37,10 +37,14 @@ module Hails.HttpServer (
   , sanitizeResp
   -- * Network types
   , module Network.HTTP.Types
+  -- * Converting labeled requests
+  , requestToDocument
+  , labeledRequestToLabeledDocument
   ) where
 
 import qualified Data.List as List
 import           Data.Text (Text)
+import           Data.Text.Encoding (decodeUtf8)
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
@@ -64,6 +68,7 @@ import           LIO.DCLabel.Privs.TCB
 import           LIO.Labeled.TCB
 
 import           Hails.HttpServer.Auth
+import           Hails.Data.Hson hiding (lookup)
 
 import           System.IO
 
@@ -263,6 +268,38 @@ hailsApplicationToWai app0 req0 = do
             paranoidLIO act $ LIOState { lioLabel = dcPub
                                        , lioClearance = browserLabel conf}
 
+
+--
+--
+--
+
+-- | Convert a labeled request to a labeled document
+labeledRequestToLabeledDocument :: DCLabeled Request -> DCLabeled HsonDocument
+labeledRequestToLabeledDocument lreq =
+  labelTCB (labelOf lreq) (requestToDocument . unlabelTCB $ lreq)
+
+-- | Convert a form post from a request  into a document.
+-- Each field value is a 'BsonBlob', hence further \"casting\"
+-- may be necessary. Note that if a field with the same name is found,
+-- the values are grouped into a 'BsonArray'.
+requestToDocument :: Request -> HsonDocument
+requestToDocument req = groupFields $ List.map itemToField $ parseQuery body
+  where body = strictify $ requestBody req
+        --
+        itemToField (n, mv) = let nt = decodeUtf8 n
+                                  hv = maybe BsonNull (BsonBlob . Binary) mv
+                              in nt -: hv
+        --
+        strictify = S.concat . L.toChunks
+        --
+        groupFields :: HsonDocument -> HsonDocument
+        groupFields xs =
+          let gs = List.groupBy (\x y -> fieldName x == fieldName y) xs
+          in List.concat $ List.map groupFunc gs
+        groupFunc xs = let n = fieldName . List.head $ xs
+                           ys :: [BsonValue]
+                           ys = List.map (\(HsonField _ (HsonValue x)) -> x) xs
+                       in [n -: ys]
 
 
 --

@@ -62,7 +62,7 @@ Both @x@ and @y@ with @-XOverloadedStrings@:
 
 module Hails.Data.Hson (
   -- * Documents
-    HsonDocument, BsonDocument
+    HsonDocument, Document, BsonDocument
   -- ** Operations on documents
   , DocOps(..)
   , DocValOps(..)
@@ -102,6 +102,10 @@ import           LIO.TCB (ioTCB, ShowTCB(..))
 import           Hails.Data.Hson.TCB
 
 infix 0 =:, -:
+
+
+-- | Synonym for 'HsonDocument'
+type Document = HsonDocument
 
 
 --
