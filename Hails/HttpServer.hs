@@ -60,6 +60,7 @@ import           Network.HTTP.Types
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP.Types.Header as H
 import qualified Network.Wai as W
+import qualified Network.Wai.Application.Static as W
 
 import           LIO
 import           LIO.TCB
@@ -242,8 +243,14 @@ devHailsApplication = devBasicAuth . hailsApplicationToWai
 -- the Hails application throws an exception and the label of the
 -- exception flows to the browser label (see 'browserLabelGuard'); if the
 -- label does not flow, it responds with a 403.
+--
+-- All applications serve static content from a @\"static\"@ directory.
 hailsApplicationToWai :: Application -> W.Application
-hailsApplicationToWai app0 req0 = do
+hailsApplicationToWai app0 req0 | isStatic req0 =
+  -- Is static request, serve files:
+  W.staticApp (W.defaultWebAppSettings "./") req0
+                                | otherwise = do
+  -- Not static request, serve dynamic content:
   -- Convert request to Hails request
   hailsRequest <- waiToHailsReq req0
   -- Extract browser/request configuration
@@ -262,6 +269,9 @@ hailsApplicationToWai app0 req0 = do
             then resp500 else resp403 
         _ -> resp500
     where app = secureApplication app0
+          isStatic req = case W.pathInfo req of
+                           ("static":_) -> True
+                           _            -> False
           resp403 = W.responseLBS status403 [] "" 
           resp500 = W.responseLBS status500 [] ""
           paranoidDC' conf act =
