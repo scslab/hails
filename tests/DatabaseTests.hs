@@ -171,7 +171,7 @@ dbConfFile :: FilePath
 dbConfFile = "/tmp/test_hails_database.conf"
 
 testPM1Principal :: String
-testPM1Principal = "_testPM1"
+testPM1Principal = '_' : mkName (TestPM1TCB undefined)
 
 -- | TestPM1's privileges
 testPM1Priv :: DCPriv
@@ -182,9 +182,9 @@ mkDBConfFile :: IO ()
 mkDBConfFile = do
   writeFile dbConfFile (unlines [show tpm1, show tpm2])
   setEnv "DATABASE_CONFIG_FILE" dbConfFile False
-   where tpm1,tpm2 :: (String, String, String)
-         tpm1 = (mkName (TestPM1TCB undefined), testPM1Principal, "testPM1_db")
-         tpm2 = (mkName (TestPM2TCB undefined), testPM2Principal, "testPM2_db")
+   where tpm1,tpm2 :: (String, String)
+         tpm1 = (mkName (TestPM1TCB undefined), "testPM1_db")
+         tpm2 = (mkName (TestPM2TCB undefined), "testPM2_db")
 
 mkName :: PolicyModule pm => pm -> TypeName
 mkName x = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
@@ -520,7 +520,7 @@ withMongo act = do
 
 
 testPM2Principal :: String
-testPM2Principal = "_testPM2"
+testPM2Principal = '_' : mkName (TestPM2TCB undefined)
 
 -- | TestPM2's privileges
 testPM2Priv :: DCPriv

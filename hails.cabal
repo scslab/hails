@@ -123,6 +123,7 @@ Library
     Hails.Database.TCB
     Hails.Database.Query
     Hails.Database.Query.TCB
+    Hails.Database.Structured
     Hails.HttpServer
     Hails.HttpServer.Auth
     Hails.PolicyModule

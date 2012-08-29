@@ -48,7 +48,9 @@ module Hails.PolicyModule (
  -- $withPM
  , withPolicyModule 
  -- * Internal
- , availablePolicyModules, TypeName
+ , TypeName
+ , policyModuleTypeName
+ , availablePolicyModules
  ) where
 
 
@@ -239,8 +241,8 @@ setCollectionSetLabel = setCollectionSetLabelP noPriv
 -- | Same as 'setCollectionSetLabel', but uses the supplied privileges
 -- when performing label comparisons.
 setCollectionSetLabelP :: DCPriv      -- ^ Set of privileges
-                     -> DCLabel     -- ^ New collections label
-                     -> PMAction ()
+                       -> DCLabel     -- ^ New collections label
+                       -> PMAction ()
 setCollectionSetLabelP p l = liftDB $ do
   guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
@@ -387,20 +389,24 @@ type TypeName = String
 -- variable @DATABASE_CONFIG_FILE@. Each line in the file corresponds
 -- to a policy module. The format of a line is as follows
 --
--- > ("<Policy module package>:<Fully qualified module>.<Policy module type>", "<Policy module principal>", "<Policy module database name>")
+-- > ("<Policy module package>:<Fully qualified module>.<Policy module type>", "<Policy module database name>")
 -- 
 -- Example of valid line is:
 --
--- > ("my-policy-0.1.2.3:My.Policy.MyPolicyModule","_my_policy_module","my_db")
+-- > ("my-policy-0.1.2.3:My.Policy.MyPolicyModule", "my_db")
 --
+-- The principal used by Hails is the first projection with a @\"_\"@
+-- suffix. In the above, the principal assigned by Hails is:
+--
+-- > "_my-policy-0.1.2.3:My.Policy.MyPolicyModule"
 availablePolicyModules :: Map TypeName (Principal, DatabaseName)
 {-# NOINLINE availablePolicyModules #-}
 availablePolicyModules = unsafePerformIO $ do
   conf <- getEnv "DATABASE_CONFIG_FILE"
   ls   <- lines `liftM` readFile conf
   Map.fromList `liftM` mapM xfmLine ls
-    where xfmLine l = do (tn, p, dn) <- readIO l
-                         return (tn,(principal (S8.pack p), dn))
+    where xfmLine l = do (tn, dn) <- readIO l
+                         return (tn,(principal (S8.pack $ '_':tn), dn))
 
 -- | This function is the used to execute database queries on policy
 -- module databases. The function firstly invokes the policy module,
@@ -428,21 +434,13 @@ withPolicyModule act = do
       pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
       let priv = mintTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
-      -- Execute policy module entry function and database action with raised
-      -- clearance:
-      {-
-      res <- withClearanceP' priv $ do
-        (policy, s1) <- runDBAction (pmAct priv) s0
-        let s2 = s1 { dbActionDB = dbActionDB s1 }
-        evalDBAction (act policy) s2
-        -}
+      -- Execute policy module entry function with raised clearance:
       (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
       let s2 = s1 { dbActionDB = dbActionDB s1 }
       res <- evalDBAction (act policy) s2
       rethrowIoTCB $ Mongo.close pipe
       return res
-  where tp = typeRepTyCon $ typeOf $ (undefined :: pm)
-        tn = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
+  where tn = policyModuleTypeName (undefined :: pm)
         pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
         withClearanceP' priv io = do
           c <- getClearance
@@ -456,6 +454,12 @@ withPolicyModule act = do
                    -- Execute policy module entry point, in between:
                    (const io)
 
+-- | Get the name of a policy module.
+policyModuleTypeName :: PolicyModule pm => pm -> TypeName
+policyModuleTypeName x =
+   tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
+      where tp = typeRepTyCon $ typeOf x
+  
 --
 -- Parser for getLastError
 --
