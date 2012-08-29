@@ -312,7 +312,7 @@ getRequestConf :: Request -> RequestConfig
 getRequestConf req =
   let headers = requestHeaders req
       userName  = toComponent `fmap` lookup "x-hails-user" headers
-      appName  = S8.unpack . S8.takeWhile (/= '.') $ serverName req
+      appName  = '@' : (S8.unpack . S8.takeWhile (/= '.') $ serverName req)
       appPriv = DCPrivTCB $ toComponent appName
   in RequestConfig
       { browserLabel = maybe dcPub (\un -> dcLabel un anybody) userName
