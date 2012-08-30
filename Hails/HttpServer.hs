@@ -65,6 +65,7 @@ import qualified Network.Wai.Application.Static as W
 import           LIO
 import           LIO.TCB
 import           LIO.DCLabel
+import           LIO.DCLabel.Core (principalName)
 import           LIO.DCLabel.Privs.TCB
 import           LIO.Labeled.TCB
 
@@ -194,15 +195,35 @@ browserLabelGuard hailsApp conf req = do
              then response
              else Response status403 [] ""
 
--- | Adds the header @X-Hails-Sensitive: Yes@ to the response if the
--- label of the computation does not flow to the public label, 'dcPub'
+-- | Adds the header @X-Hails-Label@ to the response. If the
+-- label of the computation does not flow to the public label,
+-- 'dcPub', the JSON field @isPublic@ is set to @true@, otherwise
+-- it is set to @true@ and the JSON @label@ is set to the secrecy
+-- component of the response label (if it is a disjunction
+-- of principals is added). An example may be:
+--
+-- > X-Hails-Label = { isPublic: true }
+-- 
+-- or
+--
+-- > X-Hails-Label = { isPublic: false, label : ["http://google.com:80", "alice"] }
+--
 guardSensitiveResp :: Middleware
 guardSensitiveResp happ p req = do
   response <- happ p req
   resultLabel <- getLabel
-  return $ if resultLabel `canFlowTo` dcPub
-            then response
-            else addResponseHeader response ("X-Hails-Sensitive", "Yes")
+  return $ addResponseHeader response $ 
+    ("X-Hails-Label", S8.pack $
+      if resultLabel `canFlowTo` dcPub
+        then "{\"isPublic\": true}"
+        else "{\"isPublic\": false, \"label\": [" ++ mkClientLabel resultLabel ++ "]}")
+      where mkClientLabel l = let s  = dcSecrecy l
+                                  cs = toList s
+                              in if s == dcFalse || length cs /= 1
+                                   then ""
+                                   else List.intercalate ", " $ 
+                                        List.map (show . S8.unpack . principalName) $
+                                        List.head cs
 
 -- | Remove anything from the response that could cause inadvertant
 -- declasification. Currently this only removes the @Set-Cookie@
