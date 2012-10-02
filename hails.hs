@@ -14,6 +14,8 @@ import           Hails.HttpServer.Auth
 import           Hails.Version
 
 import           Network.Wai.Handler.Warp
+import           Network.Wai.Middleware.MethodOverridePost
+import           Network.Wai.Middleware.RequestLogger
 
 import           System.Posix.Env (setEnv)
 import           System.Environment
@@ -73,11 +75,11 @@ main = do
   let port = fromJust $ optPort opts
       provider = T.pack . fromJust . optOpenID $ opts
       f = if optDev opts
-               then devHailsApplication
-               else (openIdAuth provider) . hailsApplicationToWai 
+               then logStdoutDev . devHailsApplication
+               else logStdout . (openIdAuth provider) . hailsApplicationToWai 
   app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
   runSettings (defaultSettings { settingsPort = port })
-              (f app)
+              (methodOverridePost $ f app)
 
 
 -- | Given an application module name, load the main controller named

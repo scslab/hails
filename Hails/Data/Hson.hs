@@ -73,6 +73,7 @@ module Hails.Data.Hson (
   , isBsonDoc
   , hsonDocToBsonDoc
   , hsonDocToBsonDocStrict
+  , labeledRequestToHson
   -- * Fields
   , FieldName, HsonField(..), BsonField(..)
   , IsField(..), Field(..), GenField(..)
@@ -85,7 +86,13 @@ module Hails.Data.Hson (
   ) where
 
 import           Prelude hiding (lookup)
+import           Control.Monad (liftM)
+import qualified Data.ByteString.Char8 as S8
+import qualified Data.ByteString.Lazy.Char8 as L8
+import           Data.Binary.Put
+import           Data.Bson.Binary
 import           Data.Maybe (mapMaybe)
+import           Data.Monoid (mconcat)
 import qualified Data.List as List
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -97,9 +104,13 @@ import qualified Data.Bson as Bson
 
 import           LIO
 import           LIO.DCLabel
+import           LIO.Labeled.TCB
 import           LIO.TCB (ioTCB, ShowTCB(..))
 
+import           Network.HTTP.Types
+
 import           Hails.Data.Hson.TCB
+import           Hails.HttpServer.Types
 
 infix 0 =:, -:
 
@@ -219,8 +230,14 @@ class Field v f => DocOps v f | v -> f, f -> v where
   valueAt :: Field v f => FieldName -> [f] -> v
   valueAt n = runIdentity . look n
 
+  -- Serializes a document to binary BSON representation
+  serialize :: [f] -> L8.ByteString
+
 instance DocOps HsonValue HsonField where
+  serialize = serialize . hsonDocToBsonDoc 
+
 instance DocOps BsonValue BsonField where
+  serialize = runPut . putDocument . bsonDocToDataBsonDocTCB
 
 -- | Only include fields specified.
 include :: IsField f => [FieldName] -> [f] -> [f]
@@ -293,6 +310,18 @@ hsonFieldToBsonField (HsonField n (HsonValue v)) = return (n =: v)
 hsonFieldToBsonField (HsonField n _) = 
   fail $ "hsonFieldToBsonField: field " ++ show n ++ " is PolicyLabeled"
 
+
+labeledRequestToHson :: Label l => Labeled l Request -> LIO l (Labeled l HsonDocument)
+labeledRequestToHson lreq = do
+  let origLabel = labelOf lreq
+  let req = unlabelTCB lreq
+  let body = mconcat . L8.toChunks $ requestBody req
+  let q = map convert $ parseSimpleQuery body
+  return $ labelTCB origLabel q
+  where convert (k,v) = HsonField
+                        (T.pack . S8.unpack $ k)
+                        (toHsonValue . S8.unpack $ v)
+
 --
 -- Friendly interface for creating documents
 --
@@ -325,60 +354,71 @@ instance BsonVal Double where
   fromBsonValue (BsonFloat x) = return x
   fromBsonValue (BsonInt32 x) = return (fromIntegral x)
   fromBsonValue (BsonInt64 x) = return (fromIntegral x)
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Double of " ++ (show v)
 
 instance BsonVal Float where
   toBsonValue = BsonFloat . realToFrac
   fromBsonValue (BsonFloat x) = return (realToFrac x)
   fromBsonValue (BsonInt32 x) = return (fromIntegral x)
   fromBsonValue (BsonInt64 x) = return (fromIntegral x)
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Float of " ++ (show v)
 
 instance BsonVal Text where
   toBsonValue = BsonString
   fromBsonValue (BsonString x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Text of " ++ (show v)
 
 instance BsonVal String where
   toBsonValue = BsonString . T.pack
   fromBsonValue (BsonString x) = return $ T.unpack x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to String of " ++ (show v)
+
+instance BsonVal S8.ByteString where
+  toBsonValue = BsonString . T.pack . S8.unpack
+  fromBsonValue (BsonString x) = return $ S8.pack $ T.unpack x
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to ByteString (Strict) of " ++ (show v)
+
+instance BsonVal L8.ByteString where
+  toBsonValue = BsonString . T.pack . L8.unpack
+  fromBsonValue (BsonString x) = return $ L8.pack $ T.unpack x
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to ByteString (Lazy) of " ++ (show v)
 
 instance BsonVal BsonDocument where
   toBsonValue = BsonDoc
   fromBsonValue (BsonDoc x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to BsonDocument of " ++ (show v)
 
 instance BsonVal [BsonValue] where
   toBsonValue = BsonArray
   fromBsonValue (BsonArray x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to [BsonValue] of " ++ (show v)
 
 instance (BsonVal a) => BsonVal [a] where
   toBsonValue = BsonArray . map toBsonValue
-  fromBsonValue (BsonArray x) = mapM castM x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue (BsonArray x) = mapM fromBsonValue x
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to [a] of " ++ (show v)
 
 instance BsonVal Binary where
   toBsonValue = BsonBlob
   fromBsonValue (BsonBlob x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue (BsonString x) = return $ Binary $ S8.pack $ T.unpack x
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Binary of " ++ (show v)
 
 
 instance BsonVal ObjectId where
   toBsonValue = BsonObjId
   fromBsonValue (BsonObjId x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to ObjectId of " ++ (show v)
 
 instance BsonVal Bool where
   toBsonValue = BsonBool
   fromBsonValue (BsonBool x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Bool of " ++ (show v)
 
 instance BsonVal UTCTime where
   toBsonValue = BsonUTC
   fromBsonValue (BsonUTC x) = return x
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to UTCTime of " ++ (show v)
 
 instance BsonVal (Maybe BsonValue) where
   toBsonValue Nothing  = BsonNull
@@ -390,28 +430,28 @@ instance (BsonVal a) => BsonVal (Maybe a) where
   toBsonValue Nothing  = BsonNull
   toBsonValue (Just a) = toBsonValue a
   fromBsonValue BsonNull = return Nothing
-  fromBsonValue v        = fromBsonValue v
+  fromBsonValue v = Just `liftM` fromBsonValue v
 
 instance BsonVal Int32 where
   toBsonValue = BsonInt32
   fromBsonValue (BsonInt32 x) = return x
   fromBsonValue (BsonInt64 x) = fitInt x
   fromBsonValue (BsonFloat x) = return (round x)
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Int32 of " ++ (show v)
 
 instance BsonVal Int64 where
   toBsonValue = BsonInt64
   fromBsonValue (BsonInt64 x) = return x
   fromBsonValue (BsonInt32 x) = return (fromIntegral x)
   fromBsonValue (BsonFloat x) = return (round x)
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Int64 of " ++ (show v)
 
 instance BsonVal Int where
   toBsonValue n = maybe (BsonInt64 $ fromIntegral n) BsonInt32 (fitInt n)
   fromBsonValue (BsonInt32 x) = return (fromIntegral x)
   fromBsonValue (BsonInt64 x) = return (fromEnum x)
   fromBsonValue (BsonFloat x) = return (round x)
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Int of " ++ (show v)
 
 instance BsonVal Integer where
   toBsonValue n = maybe (maybe err BsonInt64 $ fitInt n)
@@ -420,7 +460,7 @@ instance BsonVal Integer where
   fromBsonValue (BsonInt32 x) = return (fromIntegral x)
   fromBsonValue (BsonInt64 x) = return (fromIntegral x)
   fromBsonValue (BsonFloat x) = return (round x)
-  fromBsonValue _ = fail "fromBsonValue: no conversion"
+  fromBsonValue v = fail $ "fromBsonValue: no conversion to Integer of " ++ (show v)
 
 --
 -- To/From HsonValue
@@ -434,6 +474,10 @@ class (Typeable a, Show a) => HsonVal a where
   toHsonValue   :: a -> HsonValue
   -- | Convert from 'HsonValue'
   fromHsonValue :: Monad m => HsonValue -> m a
+
+instance HsonVal HsonValue where
+  toHsonValue = id
+  fromHsonValue = return
 
 instance HsonVal Double where
   toHsonValue = HsonValue . BsonFloat
@@ -471,7 +515,7 @@ instance HsonVal [BsonValue] where
 
 instance (HsonVal a, BsonVal a) => HsonVal [a] where
   toHsonValue = HsonValue . BsonArray . map toBsonValue
-  fromHsonValue (HsonValue (BsonArray x)) = mapM castM x
+  fromHsonValue (HsonValue (BsonArray x)) = mapM fromBsonValue x
   fromHsonValue _ = fail "fromHsonValue: no conversion"
 
 instance HsonVal Binary where
@@ -579,8 +623,3 @@ fitInt n = if fromIntegral (minBound :: b) <= n
              then return $ fromIntegral n
              else fail "fitInt: number is too big"
 
--- | Generic monad version of 'cast'.
-castM :: (Typeable a, Typeable b, Monad m) => a -> m b
-castM x = case cast x of
-            Just v -> return v
-            _      -> fail "castM: cast failed"

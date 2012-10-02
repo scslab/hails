@@ -156,7 +156,7 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   -- Example implementation:
   --
   -- > endorseInstance _ = MyPolicyModuleTCB {- May leave other values undefined -}
-  endorseInstance :: a -> pm
+  endorseInstance :: DCLabeled a -> pm
 
   --
   -- Default definitions for insert/save
@@ -188,7 +188,7 @@ toDocumentP :: (DCLabeledRecord pm a)
             -> DC (DCLabeled Document)
 toDocumentP p' lr = do
   -- Fail if not endorsed:
-  pmPriv <- getPMPrivTCB (getEndorsement lr)
+  pmPriv <- getPMPrivTCB (endorseInstance lr)
   let p = p' `mappend` pmPriv
   r <- unlabelP p lr
   lcur <- getLabel
@@ -199,7 +199,6 @@ toDocumentP p' lr = do
             let tn = policyModuleTypeName pm
                 f  = mintTCB . dcPrivDesc . fst
             return $ maybe noPriv f $ Map.lookup tn availablePolicyModules
-          getEndorsement = endorseInstance . forceType 
 
 --
 -- Misc helpers
@@ -208,3 +207,4 @@ toDocumentP p' lr = do
 -- | Get the type of a 'DCLabeled' value
 forceType :: DCLabeled a -> a
 forceType = undefined
+

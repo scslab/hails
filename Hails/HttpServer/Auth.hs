@@ -23,7 +23,7 @@ module Hails.HttpServer.Auth
   -- * Development: basic authentication
   , devBasicAuth
   ) where
-
+import           Control.Monad.IO.Class (liftIO)
 import           Blaze.ByteString.Builder (toByteString)
 import           Control.Monad
 import           Control.Monad.Trans.Resource
@@ -32,6 +32,7 @@ import           Data.ByteString.Base64
 import qualified Data.Text as T
 import           Data.Maybe (fromMaybe, isJust, fromJust)
 import qualified Data.ByteString.Char8 as S8
+import qualified Data.ByteString.Lazy.Char8 as L8
 import           Network.HTTP.Conduit (withManager)
 import           Network.HTTP.Types
 import           Network.Wai
@@ -70,6 +71,7 @@ openIdAuth openIdUrl app0 req0 = do
       let qry = map (\(n,v) -> (n, fromJust v)) $ filter (isJust . snd) $
                   parseQueryText $ rawQueryString req0
       oidResp <- withManager $ authenticateClaimed qry
+      liftIO $ print $ oirParams oidResp
       let cookie = toByteString . renderSetCookie $ def
                      { setCookieName = "hails_session"
                      , setCookiePath = Just "/"
@@ -77,8 +79,8 @@ openIdAuth openIdUrl app0 req0 = do
       let redirectTo = fromMaybe "/" $ do
                         rawCookies <- lookup "Cookie" $ requestHeaders req0
                         lookup "redirect_to" $ parseCookies rawCookies
-      return $ responseLBS status302 [ ("Set-Cookie", cookie)
-                                     , ("Location", redirectTo)] ""
+      return $ responseLBS status200 [] (L8.pack $ show qry) -- [ ("Set-Cookie", cookie)
+                                     -- , ("Location", redirectTo)] ""
     _ -> do
       let req = fromMaybe req0 $ do
                   rawCookies <- lookup "Cookie" $ requestHeaders req0
@@ -88,7 +90,11 @@ openIdAuth openIdUrl app0 req0 = do
                                 }
       let redirectResp = do
           let returnUrl = T.pack . S8.unpack $ requestToUri req "/_hails/login"
-          url <- withManager $ getForwardUrl openIdUrl returnUrl Nothing []
+          url <- withManager $ getForwardUrl openIdUrl returnUrl Nothing
+                                [ ("openid.ns.ax", "http://openid.net/srv/ax/1.0")
+                                , ("openid.ax.mode", "fetch_request")
+                                , ("openid.ax.type.email", "http://schema.openid.net/contact/email")
+                                , ("openid.ax.required", "email")]
           let cookie = toByteString . renderSetCookie $ def
                          { setCookieName = "redirect_to"
                          , setCookiePath = Just "/_hails/"
