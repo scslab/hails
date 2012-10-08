@@ -3,6 +3,7 @@
 *_hsc.[ch]
 *~
 *.sw?
+cabal-dev
 /Setup
 /dist
 /tmp
