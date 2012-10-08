@@ -1,212 +1,151 @@
-{-# LANGUAGE CPP #-}
-#if __GLASGOW_HASKELL__ >= 704
 {-# LANGUAGE Trustworthy #-}
-#endif
 {-# LANGUAGE OverloadedStrings #-}
-{-| This module exports various authentication methods. -}
-module Hails.HttpServer.Auth ( Auth, AuthMethod(..)
-                             -- * Basic authentication
-                             , basicAuth, basicNoAuth
-                             -- * External authentication
-                             , externalAuth
-                             -- * Login action
-                             , withUserOrDoAuth 
-                             ) where
+{- |
 
-import qualified Data.ByteString.Lazy.Char8 as L8
+This module exports generic definitions for Wai-authentication pipelines
+in Hails.  'requireLoginMiddleware' looks for the @X-Hails-Login@
+header from an 'Application' \'s 'Response' and, if present, responds to
+the user with an authentication request instead of the 'Application'
+response (e.g., a redirect to a login page or an HTTP response with
+status 401). 
+
+Additionally, this module exports authentication 'Middleware's for basic HTTP
+authentication, 'devBasicAuth', (useful in development environments)
+and federated (OpenID) authentication, 'openIdAuth'. In general,
+authentication 'Middleware's are expected to set the @X-Hails-User@
+header on the request if it is from an authenticated user.
+
+-}
+module Hails.HttpServer.Auth
+  ( requireLoginMiddleware
+  -- * Production: OpenID
+  , openIdAuth
+  -- * Development: basic authentication
+  , devBasicAuth
+  ) where
+import           Control.Monad.IO.Class (liftIO)
+import           Blaze.ByteString.Builder (toByteString)
+import           Control.Monad
+import           Control.Monad.Trans.Resource
+import           Data.Time.Clock
+import           Data.ByteString.Base64
+import qualified Data.Text as T
+import           Data.Maybe (fromMaybe, isJust, fromJust)
 import qualified Data.ByteString.Char8 as S8
-import Data.ByteString.Base64
-import Data.IterIO.Http
-import Data.IterIO.Http.Support (Action, requestHeader, actionResp)
-import Data.Maybe
-import Data.Functor ((<$>))
-
-import Hails.Crypto
-
-import LIO.DCLabel
-
-import Control.Monad
-import Control.Monad.Trans.State (modify)
-import Control.Applicative (Applicative(..))
-import System.FilePath (takeExtensions)
+import qualified Data.ByteString.Lazy.Char8 as L8
+import           Network.HTTP.Conduit (withManager)
+import           Network.HTTP.Types
+import           Network.Wai
+import           Web.Authenticate.OpenId
+import           Web.Cookie
 
 
-type S = S8.ByteString
-type L = L8.ByteString
-
--- | Authentication function. Given a request return an authentication
--- method
-type Auth m s = HttpReq s -> AuthMethod m s 
-
--- | Authentication method consists of a computation that validates
--- provided credentials in a request, and a computation that given an
--- app response returns an action that inturn returns a response used
--- to present the user with a login \"form\".
-data AuthMethod m s = AuthMethod { authValid :: m (HttpReq s)
-                                   -- ^ Validator
-                                 , authLogin :: HttpResp m -> HttpResp m
-                                   -- ^ Login authentication
-                                 }
-
---
--- Basic authentication
---
-
--- | Perform basic authentication
-basicAuth :: (HttpReq s -> DC Bool) -- ^ Authentication function
-          -> Auth DC s
-basicAuth authFunc req =
-  let aV = case userFromReq of
-             Just [user,_] -> do
-               success <- authFunc req
-               let hdrs = filter ((/= "authorization") . fst) $ reqHeaders req
-                   req' = req { reqHeaders =  hdrs }
-               return $ if success
-                          then maybeAddXHailsUser user req'
-                          else req
-             _ -> return req
-      aL resp = resp `orIfXHailsLogin` respAuthRequired
-  in AuthMethod { authValid = aV, authLogin = aL }
-  where respAuthRequired = respBasicAuth "Hails"
-        -- Get user and password information from request header:
-        userFromReq  = let mAuthCode = lookup "authorization" $ reqHeaders req
-                       in extractUser . S8.dropWhile (/= ' ') <$> mAuthCode
-        --
-        extractUser b64u = S8.split ':' $ decodeLenient b64u
-
--- | Basic authentication, that always succeeds. The function uses the
--- username in the cookie (as in 'externalAuth'), if it is set. If the
--- cookie is not set, 'bsicAuth' is used. The cookie is useful when in
--- production mode 'externalAuth' is used can there is a callback to a
--- hails app. See the gitstar-ssh project.
-basicNoAuth :: Auth DC s
-basicNoAuth req =
-  let req' = case userFromReq of
-               Just [user,_] -> maybeAddXHailsUser user req
-               _             -> req
-      aL resp = addUserCookie req' resp `orIfXHailsLogin` respAuthRequired
-  in AuthMethod { authValid = return req', authLogin = aL }
-  where respAuthRequired = respBasicAuth "Hails Development"
-        -- Get user and password information from request header:
-        userFromReq  =
-          let mUser     = lookup "_hails_user"   $ reqCookies req
-              mAuthCode = lookup "authorization" $ reqHeaders req
-          in case mUser of
-               Just u -> Just $ [u, undefined]
-               Nothing -> extractUser . S8.dropWhile (/= ' ') <$> mAuthCode
-        --
-        extractUser b64u = S8.split ':' $ decodeLenient b64u
-        --
-        addUserCookie r resp = 
-          let mUser = lookup "x-hails-user"   $ reqHeaders r
-          in case mUser of
-               Nothing -> resp
-               Just u  -> respAddHeader ( S8.pack "Set-Cookie"
-                                        , S8.concat [ "_hails_user="
-                                                    , S8.pack $ show u
-                                                    , ";path=/;domain="
-                                                    , dropSubDomain (reqHost r)
-                                                    ]) resp
+-- | Basic HTTP authentication middleware for development. Accepts any username
+-- and password.
+devBasicAuth :: Middleware
+devBasicAuth app0 req0 = do
+  let resp = responseLBS status401
+               [( "WWW-Authenticate", "Basic realm=\"Hails development.\"")] ""
+  let req = case getBasicAuthUser req0 of
+              Nothing -> req0
+              Just user -> req0 { requestHeaders = ("X-Hails-User", user)
+                                                 : requestHeaders req0 }
+  requireLoginMiddleware (return resp) app0 req
 
 
--- | Send 401 basic authenticate
-respBasicAuth :: Monad m => String -> HttpResp m
-respBasicAuth msg =
- let resp = mkHttpHead stat401
-     authHdr = ("WWW-Authenticate", "Basic realm=" `S8.append` (S8.pack msg))
- in respAddHeader authHdr resp
+-- | Perform OpenID authentication.
+openIdAuth :: T.Text -- ^ OpenID Provider 
+           -> Middleware
+openIdAuth openIdUrl app0 req0 = do
+  case pathInfo req0 of
+    "_hails":"logout":_ -> do
+      let cookie = toByteString . renderSetCookie $ def
+                      { setCookieName = "hails_session"
+                      , setCookiePath = Just "/"
+                      , setCookieValue = "deleted"
+                      , setCookieExpires = Just $ UTCTime (toEnum 0) 0}
+      let redirectTo = fromMaybe "/" $ lookup "Referer" $ requestHeaders req0
+      return $ responseLBS status302 [ ("Set-Cookie", cookie)
+                                     , ("Location", redirectTo)] ""
+    "_hails":"login":_ -> do
+      let qry = map (\(n,v) -> (n, fromJust v)) $ filter (isJust . snd) $
+                  parseQueryText $ rawQueryString req0
+      oidResp <- withManager $ authenticateClaimed qry
+      liftIO $ print $ oirParams oidResp
+      let cookie = toByteString . renderSetCookie $ def
+                     { setCookieName = "hails_session"
+                     , setCookiePath = Just "/"
+                     , setCookieValue = S8.pack . T.unpack . identifier . oirOpLocal $ oidResp }
+      let redirectTo = fromMaybe "/" $ do
+                        rawCookies <- lookup "Cookie" $ requestHeaders req0
+                        lookup "redirect_to" $ parseCookies rawCookies
+      return $ responseLBS status200 [] (L8.pack $ show qry) -- [ ("Set-Cookie", cookie)
+                                     -- , ("Location", redirectTo)] ""
+    _ -> do
+      let req = fromMaybe req0 $ do
+                  rawCookies <- lookup "Cookie" $ requestHeaders req0
+                  user <- lookup "hails_session" $ parseCookies rawCookies
+                  return $ req0 { requestHeaders =
+                                    ("X-Hails-User", user):(requestHeaders req0)
+                                }
+      let redirectResp = do
+          let returnUrl = T.pack . S8.unpack $ requestToUri req "/_hails/login"
+          url <- withManager $ getForwardUrl openIdUrl returnUrl Nothing
+                                [ ("openid.ns.ax", "http://openid.net/srv/ax/1.0")
+                                , ("openid.ax.mode", "fetch_request")
+                                , ("openid.ax.type.email", "http://schema.openid.net/contact/email")
+                                , ("openid.ax.required", "email")]
+          let cookie = toByteString . renderSetCookie $ def
+                         { setCookieName = "redirect_to"
+                         , setCookiePath = Just "/_hails/"
+                         , setCookieValue = rawPathInfo req }
+          return $ responseLBS status302 [ ("Location", (S8.pack . T.unpack $ url))
+                                         , ("Set-Cookie", cookie)] ""
+      requireLoginMiddleware redirectResp app0 req
 
--- Add x-hails-user if username is not null
-maybeAddXHailsUser :: S -> HttpReq s -> HttpReq s
-maybeAddXHailsUser user r =
-  if S8.null user
-    then r
-    else r { reqHeaders = ("x-hails-user", user) : reqHeaders r }
+-- | Executes the app and if the app 'Response' has header
+-- @X-Hails-Login@ and the user is not logged in, respond with an
+-- authentication response (Basic Auth, redirect, etc.)
+requireLoginMiddleware :: ResourceT IO Response -> Middleware
+requireLoginMiddleware loginResp app0 req = do
+  appResp <- app0 req
+  if hasLogin appResp && notLoggedIn
+    then loginResp
+    else return appResp
+  where hasLogin r = "X-Hails-Login" `isIn` responseHeaders r
+        notLoggedIn = not $ "X-Hails-User" `isIn` requestHeaders req
+        isIn n xs = isJust $ lookup n xs
 
---
--- Cookie authentication
---
-
--- | Use an external authentication service that sets cookies.
--- The cookie names are @_hails_user@, whose contents contains the
--- @user-name@, and @_hails_user_hmac@, whose contents contains
--- @HMAC-SHA1(user-name)@. This function simply checks that the cookie
--- exists and the MAC'd user name is correct. If this is the case, it
--- returns a request with the cookie removed and @x-hails-user@ header
--- set. Otherwies the original request is returned.
--- The login service retuns a redirect (to the provided url).
--- Additionally, cookie @_hails_refer$ is set to the current
--- URL (@scheme://domain:port/path@).
-externalAuth :: Show s => L -> String -> Auth DC s
-externalAuth key url req =
-  let mreqAuth = do
-        mac0 <- lookup "_hails_user_hmac" cookies
-        user <- lookup "_hails_user" cookies
-        let mac1 = showDigest $ hmacSha1 key (lazyfy user)
-        if S8.unpack mac0 == mac1
-          then return $ req { reqHeaders = ("x-hails-user", user)
-                                           : reqHeaders req }
-          else Nothing
-      aV = return $ fromMaybe req mreqAuth
-      aL resp = resp `orIfXHailsLogin` redirectResp
-  in AuthMethod { authValid = aV, authLogin = aL }
-    where cookies = reqCookies req
-          -- redirect to auth service:
-          redirectResp = addRedirCookie $ resp303 url
-          --
-          lazyfy = L8.pack . S8.unpack
-          -- "current" url, i.e., referer
-          curUrl = S8.unpack $ S8.concat ([ reqScheme', const "://"
-                                          , reqHost, const ":", reqPort'
-                                          , reqPath] <*> pure req)
-          -- add cookie indicating current referer
-          addRedirCookie = respAddHeader
-                ( S8.pack "Set-Cookie"
-                , S8.concat [ "_hails_referer="
-                            , S8.pack $ show curUrl
-                            , ";path=/;domain="
-                            , dropSubDomain (reqHost req)
-                            ])
-          -- Request scheme with defaults
-          reqScheme' r = let sch  = reqScheme r
-                             port = reqPort r
-                         in case () of
-                             _ | not $ S8.null sch -> sch
-                             _ | S8.null sch && port == Just 443 -> "https"
-                             _ -> "http"
-          -- Request port with defaults
-          reqPort' r = let sch  = reqScheme r
-                           port = reqPort r
-                         in case port of
-                              Just p -> S8.pack . show $ p
-                              Nothing | sch == "https" -> "443"
-                              _ -> "80"
-
-
--- | Execute action with user or \"invoke\" authentication service
-withUserOrDoAuth :: (String -> Action t b DC ()) -> Action t b DC ()
-withUserOrDoAuth act = do
-  muser <- getHailsUser
-  maybe respond401 act muser
-    where getHailsUser = fmap S8.unpack `liftM`
-                          requestHeader (S8.pack "x-hails-user")
-          resp = respAddHeader ("x-hails-login","yes") $ mkHttpHead stat401
-          respond401 = modify $ \s -> s { actionResp = resp }
-
+-- | Get the hreaders from a response.
+responseHeaders :: Response -> ResponseHeaders
+responseHeaders (ResponseFile _ hdrs _ _) = hdrs
+responseHeaders (ResponseBuilder _ hdrs _) = hdrs
+responseHeaders (ResponseSource _ hdrs _) = hdrs
 
 --
 -- Helpers
 --
 
--- | Respond with login response action if \"x-hails-login\" header exists.
-orIfXHailsLogin :: Monad m
-                => HttpResp m -- ^ App response
-                -> HttpResp m -- ^ Response containing the login \"form\"
-                -> HttpResp m
-orIfXHailsLogin resp0 resp1 =
-  if not reqLogin then resp0 else resp1
-  where reqLogin = isJust $ lookup "x-hails-login" $ respHeaders resp0
+-- | Helper method for implementing basic authentication. Given a
+-- 'Request' returns the usernamepair from the basic authentication
+-- header if present.
+getBasicAuthUser :: Request -> Maybe S8.ByteString
+getBasicAuthUser req = do
+  authStr <- lookup hAuthorization $ requestHeaders req
+  unless ("Basic" `S8.isPrefixOf` authStr) $ fail "Not basic auth."
+  let up = fmap (S8.split ':') $ decode $ S8.drop 6 authStr
+  case up of
+     Right (user:_:[]) -> return user
+     _ -> fail "Malformed basic auth header."
 
--- Remove subdomain of a host
-dropSubDomain :: S -> S
-dropSubDomain = S8.pack . takeExtensions . S8.unpack
+-- | Given a request and path, extract the scheme,
+-- hostname and port from the request and createand a URI
+-- @scheme://hostname[:port]/path@.
+requestToUri :: Request -> S8.ByteString -> S8.ByteString
+requestToUri req path = S8.concat $
+  [ "http"
+  , if isSecure req then "s://" else "://"
+  , serverName req
+  , if serverPort req `notElem` [80, 443] then portBS else ""
+  , path ]
+  where portBS = S8.pack $ ":" ++ show (serverPort req)

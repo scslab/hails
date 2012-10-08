@@ -1,74 +1,99 @@
-{-# LANGUAGE Trustworthy, ScopedTypeVariables #-}
+{-# LANGUAGE Trustworthy #-}
 
-module Hails.Database ( mkPolicy, withDB ) where
+{- |
 
-import Data.Typeable
-import LIO.MonadCatch
-import LIO.DCLabel
-import LIO.TCB
-import DCLabel.Core
-import Data.String.Utils
-import Hails.Database.MongoDB.TCB.Types
-import Hails.Database.MongoDB.TCB.DCAccess
-import qualified Data.UString as U
-import System.Environment
-import qualified Data.ByteString.Char8 as C
+This module exports the database interface used by apps and policy
+modules to carry out database queries. The Hails data model is similar
+to that of MongoDB. Below we highlight some similarities and
+difference. We refer the interested reader to the documentation in
+"Hails.PolicyModule" for more details on the role of labels in Hails.
 
--- | Given a principal corresponding to the database owner and a
--- database name create the corresponding database object in @LIO@.
-loadDatabase :: DatabasePolicy dbp
-             => Principal
-             -> DatabaseName
-             -> (DC dbp)
-loadDatabase dbPrincipal dbName = do
-    let policyPriv = createPrivTCB $ newPriv dbPrincipal
-    let dbConf = DBConf dbName policyPriv
-    clr <- getClearance
-    lbl <- getLabel
-    lowerClrTCB $ newDC dbPrincipal (<>) `lub` lbl
-    res <- createDatabasePolicy dbConf policyPriv
-    lowerClrTCB clr
-    return res
+At the coarsest level code can execute database actions ('DBAction')
+against the 'Database' of a policy module using 'withPolicyModule'.
+Different from MongoDB's notion of a database, Hails databases have an
+associated 'Label' which is used to restrict who can access the
+database.
 
--- | Create a @DatabasePolicy@ with the appropriate underline databse
--- name and privileges, determined by the actual instance requested.
-mkPolicy :: forall dbp. (DatabasePolicy dbp, Typeable dbp) => DC dbp
-mkPolicy = do
-  let tp = typeRepTyCon $ typeOf $ (undefined :: dbp)
-  let typeName = tyConPackage tp ++ ":" ++ tyConModule tp ++
-                  "." ++ tyConName tp
-  dbs <- ioTCB $ databases
-  maybe (err typeName) doit $ lookup typeName dbs
-    where doit (dbName, dbPrincipal) = loadDatabase dbPrincipal dbName
-          err tn = throwIO . userError $ "mkPolicy: could not find policy for "
-                                          ++ tn
+Each 'Database' is composed of a set of 'Collection's. The existence
+of a collection is protected by a collection-set label, which is,
+intern, protected by the database label. A collection is an approach
+to organizing and grouping elements of the same model. For example,
+collection \"users\" may contain elements (documents) corresponding to
+users of the system. Each collection has a label, clearance, and
+associated collection policy. The label of a collection serves the
+same role as the database label, but at a finer grain: it protects who
+can read and write to the collection. The collection clearance is also
+a label, but its role is to set an upper bound on the sensitivity of
+data that is and can be stored in the collection. For example, the
+collection \"user\" may set a clearance such that the system\'s
+private keys cannot be stored in the collection (by accident or
+malice). The collection policy specifies how elements of the
+collection are to be labeled when retrieved from the database.
 
--- | Get the DB pair from a configuration line.
-confLineToConfPair :: String
-                   -> (String, (DatabaseName, Principal))
-confLineToConfPair line = do
-  case split "," line of
-    (typeName:dbPrincipal:dbName:[]) -> (typeName, (dbN, dbP))
-      where dbP = principal . C.pack $ dbPrincipal
-            dbN = U.pack dbName
-    _ -> ("",(undefined, undefined))
+The aforementioned elements of a collection are documents of type
+'HsonDocument'. Documents are the basic storage units composed of a
+fields (of type 'HsonField'), which are effectively key-value pairs.
+The first part of the collection policy is to specify how such
+documents are labeled upon retrieval from the database. Namely, by
+providing a function from the document to a label.  Keys, or field
+names, have type 'FieldName' while values have type 'HsonValue'. Hails
+values are a subset of MongoDB's BSON specification. The second part
+of the collection policy is used to specify if a field value is
+publicly-searchable (i.e., readable by anybody that can read from the
+collection) or labeled according to a function that may depend on the
+data contained within the document itself. Hence, different form
+MongoDB\'s documents, Hails documents are typically labeled and thus
+protect the potentially-sensitive data contained within.
 
--- | Cache database specifications
-databases :: IO [(String, (DatabaseName, Principal))]
-databases = do
-  env <- getEnvironment
-  let configFile = maybe "/etc/share/hails/conf/databases.conf" id
-                      (lookup "DATABASE_CONFIG_FILE" env)
-  confLines <- fmap lines $ readFile configFile
-  return $ map confLineToConfPair $ filter (not.null) confLines
+This module is analogous to "Database.MongoDB" and uses MongoDB as the
+backed. Since the interfaces are similar we recommend glancing at
+their documentation as well.
 
--- | Given a database name and a database action, execute the action
--- on the database.
-withDB :: DatabasePolicy dbp
-       => dbp
-       -> DCAction a
-       -> DC (Either Failure a)
-withDB dbp act = do
-  let db = policyDB dbp
-  dcAccess db act
+-}
 
+module Hails.Database (
+  -- * Hails database monad
+    DBAction, MonadDB(..)
+  , withPolicyModule
+  , getDatabase, getDatabaseP
+  -- ** Exception thrown by failed database actions
+  , DBError(..)
+  -- * Database layers
+  -- ** Database
+  , DatabaseName
+  , Database, databaseName, databaseLabel, databaseCollections
+  -- ** Collection
+  , CollectionName
+  , CollectionSet
+  , Collection, colName, colLabel, colClearance, colPolicy
+  -- ** Policy errors
+  , PolicyError(..)
+  -- ** Documents
+  , module Hails.Data.Hson
+  , LabeledHsonDocument 
+  -- * Database queries
+  -- ** Write (insert/save)
+  , InsertLike(..)
+  -- ** Read
+  , find, findP
+  , next, nextP
+  , findOne, findOneP
+  -- *** Cursor
+  , Cursor, curLabel
+  -- *** Selection
+  , Select(..)
+  , Selection(..)
+  , Selector
+  -- *** Query
+  , Query(..)
+  , QueryOption(..)
+  , Limit
+  , BatchSize
+  , Order(..)
+  ) where
+
+import Hails.Data.Hson
+import Hails.Database.Core
+import Hails.Database.TCB
+import Hails.Database.Query
+import Hails.PolicyModule
