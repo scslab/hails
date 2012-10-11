@@ -187,7 +187,7 @@ data DBActionState = DBActionStateTCB {
     -- ^ Types of reads/write to perform
   , dbActionDB   :: Database
     -- ^ Database computation is currently executing against
-  , dbActionPriv :: DCPriv 
+  , dbActionPriv :: DCPriv
     -- ^ Privilege of the policy module related to the DB
   }
 

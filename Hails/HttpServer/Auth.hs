@@ -79,8 +79,9 @@ openIdAuth openIdUrl app0 req0 = do
       let redirectTo = fromMaybe "/" $ do
                         rawCookies <- lookup "Cookie" $ requestHeaders req0
                         lookup "redirect_to" $ parseCookies rawCookies
-      return $ responseLBS status200 [] (L8.pack $ show qry) -- [ ("Set-Cookie", cookie)
-                                     -- , ("Location", redirectTo)] ""
+      return $ responseLBS status200 ([ ("Set-Cookie", cookie)
+                                      , ("Location", redirectTo)])
+                                      (L8.pack $ show qry)
     _ -> do
       let req = fromMaybe req0 $ do
                   rawCookies <- lookup "Cookie" $ requestHeaders req0

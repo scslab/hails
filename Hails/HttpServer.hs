@@ -54,7 +54,6 @@ import qualified Network.Wai.Application.Static as W
 import           LIO
 import           LIO.TCB
 import           LIO.DCLabel
-import           LIO.DCLabel.Core (principalName)
 import           LIO.DCLabel.Privs.TCB
 import           LIO.Labeled.TCB
 
