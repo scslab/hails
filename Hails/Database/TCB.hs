@@ -180,13 +180,15 @@ data Database = DatabaseTCB { databaseName :: DatabaseName
 --
 
 -- | The database system state threaded within a Hails computation.
-data DBActionState = DBActionState {
+data DBActionState = DBActionStateTCB {
     dbActionPipe :: Pipe
     -- ^ Pipe to underlying database system
   , dbActionMode :: AccessMode
     -- ^ Types of reads/write to perform
   , dbActionDB   :: Database
-    -- ^ Current database executing computation against
+    -- ^ Database computation is currently executing against
+  , dbActionPriv :: DCPriv 
+    -- ^ Privilege of the policy module related to the DB
   }
 
 -- | A @DBAction@ is the monad within which database actions can be
@@ -229,9 +231,10 @@ makeDBActionStateTCB :: DCPriv
                      -> AccessMode
                      -> DBActionState
 makeDBActionStateTCB priv dbName pipe mode = 
-  DBActionState { dbActionPipe = pipe
-                , dbActionMode = mode
-                , dbActionDB   = db }
+  DBActionStateTCB { dbActionPipe = pipe
+                   , dbActionMode = mode
+                   , dbActionDB   = db
+                   , dbActionPriv = priv }
     where db = DatabaseTCB { databaseName  = dbName 
                            , databaseLabel = l
                            , databaseCollections = labelTCB l Set.empty }

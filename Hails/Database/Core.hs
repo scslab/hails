@@ -21,7 +21,7 @@ module Hails.Database.Core (
   -- * Labeled documents
   , LabeledHsonDocument 
   -- * Hails DB monad
-  , DBAction, DBActionState(..)
+  , DBAction, DBActionState
   , MonadDB(..)
   , runDBAction, evalDBAction
   , getDatabase, getDatabaseP

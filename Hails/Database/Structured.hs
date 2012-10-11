@@ -31,7 +31,7 @@ import           Hails.Data.Hson
 import           Hails.PolicyModule
 import           Hails.Database.Core
 import           Hails.Database.Query
-
+import           Hails.Database.TCB
 
 -- | Class for converting from \"structured\" records to documents
 -- (and vice versa). Minimal definition consists of 'toDocument',
@@ -163,9 +163,13 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   --
 
   --
-  insertLabeledRecord = insertLabeledRecordP noPriv
+  insertLabeledRecord lrec = liftDB $ do
+    dbPriv <- dbActionPriv `liftM` getActionStateTCB
+    insertLabeledRecordP dbPriv lrec
   --
-  saveLabeledRecord = saveLabeledRecordP noPriv
+  saveLabeledRecord lrec = liftDB $ do
+    dbPriv <- dbActionPriv `liftM` getActionStateTCB
+    saveLabeledRecordP dbPriv lrec
   --
   insertLabeledRecordP p lrec = liftDB $ do
     let cName = recordCollection (forceType lrec)

@@ -561,29 +561,24 @@ applyCollectionPolicyP p col doc0 = do
   typeCheckDocument fieldPolicies doc1
 
   c <- getClearance
-  let colclr = colClearance col
-  -- Apply fied policies:
-  doc2 <- T.for doc1 $ \f@(HsonField n v) ->
-    case v of
-      (HsonValue _) -> return f
-      (HsonLabeled pl) -> do
-        -- NOTE: typeCheckDocument MUST be run before this:
-        let (FieldPolicy fieldPolicy) = fieldPolicies Map.! n
-            l = fieldPolicy doc1
-        case pl of
-          (NeedPolicyTCB bv) -> do
-            if l `canFlowTo` colclr then
-              let lbv = labelTCB l bv
-              in return (n -: hasPolicy lbv)
-              else throwLIO PolicyViolation
-          (HasPolicyTCB lbv) -> do
-            unless (labelOf lbv == l) $ throwLIO PolicyViolation
-            return f
-  -- Apply document policy:
-  let docLabel = docPolicy doc2
-  if docLabel `canFlowTo` colclr then
-    return $ labelTCB docLabel doc2
-    else throwLIO PolicyViolation
+  withClearanceP p ((colClearance col) `glb` c) $ do
+    -- Apply fied policies:
+    doc2 <- T.for doc1 $ \f@(HsonField n v) ->
+      case v of
+        (HsonValue _) -> return f
+        (HsonLabeled pl) -> do
+          -- NOTE: typeCheckDocument MUST be run before this:
+          let (FieldPolicy fieldPolicy) = fieldPolicies Map.! n
+              l = fieldPolicy doc1
+          case pl of
+            (NeedPolicyTCB bv) -> do
+              lbv <- labelP p l bv `onException` throwLIO PolicyViolation
+              return (n -: hasPolicy lbv)
+            (HasPolicyTCB lbv) -> do
+              unless (labelOf lbv == l) $ throwLIO PolicyViolation
+              return f
+    -- Apply document policy:
+    labelP p (docPolicy doc2) doc2
   where docPolicy     = documentLabelPolicy . colPolicy $ col
         fieldPolicies = fieldLabelPolicies  . colPolicy $ col
 
