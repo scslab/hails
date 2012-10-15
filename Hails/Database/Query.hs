@@ -439,7 +439,7 @@ next = nextP noPriv
 -- | Same as 'next', but usess privileges when raising the current label.
 nextP :: DCPriv -> Cursor -> DBAction (Maybe LabeledHsonDocument)
 nextP p cur = do
-  -- Rause current label, can read from DB+collection:
+  -- Raise current label, can read from DB+collection:
   taintP p $ curLabel cur
   -- Read the document:
   mMongoDoc <- execMongoActionTCB $ Mongo.next $ curInternal cur
@@ -447,7 +447,9 @@ nextP p cur = do
     Nothing -> return Nothing
     Just mongoDoc -> do
       let doc0 = dataBsonDocToHsonDocTCB mongoDoc
-      ldoc <- liftLIO $ applyCollectionPolicyP allPrivTCB (curCollection cur) doc0
+      dbPriv <- dbActionPriv `liftM` getActionStateTCB
+      ldoc <- liftLIO $ do 
+                applyCollectionPolicyP dbPriv (curCollection cur) doc0
       let doc = unlabelTCB ldoc
           l   = labelOf ldoc
           proj = case curProject cur of
@@ -578,7 +580,7 @@ applyCollectionPolicyP p col doc0 = do
               unless (labelOf lbv == l) $ throwLIO PolicyViolation
               return f
     -- Apply document policy:
-    labelP p (docPolicy doc2) doc2
+    return $ labelTCB (docPolicy doc2) doc2
   where docPolicy     = documentLabelPolicy . colPolicy $ col
         fieldPolicies = fieldLabelPolicies  . colPolicy $ col
 
