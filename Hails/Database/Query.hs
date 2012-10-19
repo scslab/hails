@@ -72,7 +72,6 @@ import           Database.MongoDB.Query ( QueryOption(..)
 
 import           LIO
 import           LIO.DCLabel
-import           LIO.DCLabel.Privs.TCB (allPrivTCB)
 import           LIO.Labeled.TCB (unlabelTCB, labelTCB)
 
 import           Hails.Data.Hson
@@ -347,8 +346,9 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
       let doc = unlabelTCB ldoc
       -- Apply policies to the unlabeled document,
       -- asserts that labeled values are below collection clearance:
+      dbPriv <- dbActionPriv `liftM` getActionStateTCB
       ldocTCB <- liftLIO $ onExceptionP priv 
-        (applyCollectionPolicyP allPrivTCB col doc)
+        (applyCollectionPolicyP dbPriv col doc)
         (throwLIO PolicyViolation)
       -- Check that all the fields are the same (i.e., if there was a
       -- unlabeled PolicyLabeled value an this will fail):
@@ -580,7 +580,8 @@ applyCollectionPolicyP p col doc0 = do
               unless (labelOf lbv == l) $ throwLIO PolicyViolation
               return f
     -- Apply document policy:
-    return $ labelTCB (docPolicy doc2) doc2
+    withClearanceP p (colClearance col) $
+      labelP p (docPolicy doc2) doc2
   where docPolicy     = documentLabelPolicy . colPolicy $ col
         fieldPolicies = fieldLabelPolicies  . colPolicy $ col
 
