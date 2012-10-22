@@ -10,8 +10,8 @@ module Hails.Web.Responses
 
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
-import Network.HTTP.Types
-import Hails.HttpServer
+import           Network.HTTP.Types
+import           Hails.HttpServer
 
 -- | Type alias for 'S8.ByteString'
 type ContentType = S8.ByteString

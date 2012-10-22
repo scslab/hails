@@ -20,24 +20,32 @@ module Hails.Web.Router
     Routeable(..)
   , mkRouter
   -- * Route Monad
-  , Route(..)
+  , Route, RouteM(..)
   -- * Common Routes
   , routeAll, routeHost, routeTop, routeMethod
   , routePattern, routeName, routeVar
   ) where
 
-import Prelude hiding (pi)
+import           Prelude hiding (pi)
 
-import LIO
-import LIO.DCLabel
+import           LIO
+import           LIO.DCLabel
 
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
-import Data.Monoid
+import           Data.Monoid
+import           Data.Text (Text)
 import qualified Data.Text as T
-import Network.HTTP.Types
-import Hails.HttpServer
-import Hails.Web.Responses
+import           Network.HTTP.Types
+import           Hails.HttpServer
+import           Hails.Web.Responses
+
+-- | Route handler is a fucntion from the path info, request
+-- configuration, and labeled request to a response.
+type RouteHandler = [Text]              -- ^ Path info
+                  -> RequestConfig      -- ^ Request configuration
+                  -> DCLabeled Request  -- ^ Labeled request
+                  -> DC (Maybe Response)
 
 {- |
 'Routeable' types can be converted into a route function using 'runRoute'.
@@ -54,10 +62,11 @@ returns a 'Response':
 
 -}
 class Routeable r where
-  runRoute :: r -> [T.Text] -> RequestConfig -> DCLabeled Request -> DC (Maybe Response)
+  -- | Run a route
+  runRoute :: r -> RouteHandler
 
--- | Converts any 'Routeable' into an 'Application' that can be passed directly
--- to a WAI server.
+-- | Converts any 'Routeable' into an 'Application' that can be passed
+-- directly to a WAI server.
 mkRouter :: Routeable r => r -> Application
 mkRouter route conf lreq = do
   req <- liftLIO $ unlabel lreq
@@ -75,19 +84,22 @@ instance Routeable Response where
   runRoute resp _ _ _ = return . Just $ resp
 
 {- |
-The 'Route' type is a basic instance of 'Routeable' that simply holds the
-routing function and an arbitrary additional data parameter. The power is
-derived from the instances of 'Monad' and 'Monoid', which allow the
-simple construction of complex routing rules using either lists ('Monoid') or
-do-notation. Moreover, because of it's simple type, any 'Routeable' can be used
-as a 'Route' (using 'routeAll' or by applying it to 'runRoute'), making it
-possible to leverage the monadic or monoid syntax for any 'Routeable'.
+The 'RouteM' type is a basic instance of 'Routeable' that simply holds
+the routing function and an arbitrary additional data parameter. In
+most cases this paramter is simply '()', hence we have a synonym for
+@'RouteM' '()'@ called 'Route'.  The power is derived from the
+instances of 'Monad' and 'Monoid', which allow the simple construction
+of complex routing rules using either lists ('Monoid') or do-notation.
+Moreover, because of it's simple type, any 'Routeable' can be used as
+a 'Route' (using 'routeAll' or by applying it to 'runRoute'), making
+it possible to leverage the monadic or monoid syntax for any
+'Routeable'.
 
 Commonly, route functions that construct a 'Route' only inspect the 'Request'
 and other parameters. For example, 'routeHost' looks at the hostname:
 
 @
-  routeHost :: Routeable r => S.ByteString -> r -> Route ()
+  routeHost :: Routeable r => S.ByteString -> r -> Route
   routeHost host route = Route func ()
     where func req = if host == serverName req
                        then runRoute route req
@@ -101,25 +113,28 @@ succeeds for every other request (perhaps for A/B testing):
 
 @
   routeEveryOther :: (Routeable r1, Routeable r2)
-                  => TVar Int -> r1 -> r2 -> Route ()
+                  => MVar Int -> r1 -> r2 -> Route
   routeEveryOther counter r1 r2 = Route func ()
     where func req = do
-            i <- liftIO . atomically $ do
-                    i' <- readTVar counter
-                    writeTVar counter (i' + 1)
-                    return i'
+            i <- liftIO . modifyMVar $ \i ->
+                    let i' = i+1
+                    in return (i', i')
             if i `mod` 2 == 0
               then runRoute r1 req
               else runRoute r2 req
 @
 
 -}
-data Route a = Route ([T.Text] -> RequestConfig -> DCLabeled Request -> DC (Maybe Response)) a
+data RouteM a = Route RouteHandler a
 
-mroute :: ([T.Text] -> RequestConfig -> DCLabeled Request -> DC (Maybe Response)) -> Route ()
+-- | Synonym for 'RouteM', the common case where the data parameter is '()'.
+type Route = RouteM ()
+
+-- | Create a route given the route handler.
+mroute :: RouteHandler -> Route
 mroute handler = Route handler ()
 
-instance Monad Route where
+instance Monad RouteM where
   return a = Route (const . const . const $ return Nothing) a
   (Route rtA valA) >>= fn =
     let (Route rtB valB) = fn valA
@@ -129,7 +144,7 @@ instance Monad Route where
         Nothing -> rtB pi conf req
         Just _ -> return resA) valB
 
-instance Monoid (Route ()) where
+instance Monoid Route where
   mempty = mroute $ const . const . const $ return Nothing
   mappend (Route a _) (Route b _) = mroute $ \pi conf req -> do
     c <- a pi conf req
@@ -137,17 +152,17 @@ instance Monoid (Route ()) where
       Nothing -> b pi conf req
       Just _ -> return c
 
-instance Routeable (Route a) where
+instance Routeable (RouteM a) where
   runRoute (Route rtr _) pi conf req = rtr pi conf req
 
 -- | A route that always matches (useful for converting a 'Routeable' into a
 -- 'Route').
-routeAll :: Routeable r => r -> Route ()
+routeAll :: Routeable r => r -> Route
 routeAll = mroute . runRoute
 
 -- | Matches on the hostname from the 'Request'. The route only successeds on
 -- exact matches.
-routeHost :: Routeable r => S.ByteString -> r -> Route ()
+routeHost :: Routeable r => S.ByteString -> r -> Route
 routeHost host route = mroute $ \pi conf lreq -> do
   req <- unlabel lreq
   if host == serverName req
@@ -157,14 +172,14 @@ routeHost host route = mroute $ \pi conf lreq -> do
 -- | Matches if the path is empty. Note that this route checks that 'pathInfo'
 -- is empty, so it works as expected when nested under namespaces or other
 -- routes that pop the 'pathInfo' list.
-routeTop :: Routeable r => r -> Route ()
+routeTop :: Routeable r => r -> Route
 routeTop route = mroute $ \pi conf lreq -> do
-  if null pi || (T.length . head $ pi) == 0
+  if null pi || (T.null . head $ pi)
     then runRoute route pi conf lreq
     else return Nothing
 
 -- | Matches on the HTTP request method (e.g. 'GET', 'POST', 'PUT')
-routeMethod :: Routeable r => StdMethod -> r -> Route ()
+routeMethod :: Routeable r => StdMethod -> r -> Route
 routeMethod method route = mroute $ \pi conf lreq -> do
   req <- unlabel lreq
   if renderStdMethod method == requestMethod req then
@@ -181,35 +196,31 @@ routeMethod method route = mroute $ \pi conf lreq -> do
 --
 --  * \/:date\/posts\/:category\/new
 --
-routePattern :: Routeable r => S.ByteString -> r -> Route ()
+routePattern :: Routeable r => S.ByteString -> r -> Route
 routePattern pattern route =
   let patternParts = map T.unpack $ decodePathSegments pattern
-  in routeTop $ foldr mkRoute (mroute . runRoute $ route) patternParts
+  in foldr mkRoute (routeTop route) patternParts
   where mkRoute (':':varName) = routeVar (S8.pack varName)
         mkRoute varName = routeName (S8.pack varName)
 
 -- | Matches if the first directory in the path matches the given 'ByteString'
-routeName :: Routeable r => S.ByteString -> r -> Route ()
+routeName :: Routeable r => S.ByteString -> r -> Route
 routeName name route = mroute $ \pi conf lreq -> do
-  if (length $ pi) > 0 && S8.unpack name == (T.unpack . head $ pi)
+  if (not . null $ pi) && S8.unpack name == (T.unpack . head $ pi)
     then runRoute route (tail pi) conf lreq
     else return Nothing
 
 -- | Always matches if there is at least one directory in 'pathInfo' but and
--- adds a parameter to 'queryString' where the key is the first parameter and
--- the value is the directory consumed from the path.
-routeVar :: Routeable r => S.ByteString -> r -> Route ()
+-- adds a parameter to 'queryString' where the key is the supplied
+-- variable name and the value is the directory consumed from the path.
+routeVar :: Routeable r => S.ByteString -> r -> Route
 routeVar varName route = mroute $ \pi conf lreq -> do
-  if (length pi) > 0
-    then do
-      req <- unlabel lreq
-      let varVal = S8.pack . T.unpack . head $ pi
-          poppedHdrReq = req {
-            queryString = (varName, Just varVal):(queryString req)}
-      currentLabel <- getLabel
-      lreqNext <- label (currentLabel `upperBound` labelOf lreq) poppedHdrReq
-      runRoute route (tail pi) conf lreqNext
-    else return Nothing
+  if null pi
+    then return Nothing
+    else do lreqNext  <- liftLIO $ lFmap lreq $ \req ->
+                let varVal = S8.pack . T.unpack . head $ pi
+                in req {queryString = (varName, Just varVal):(queryString req)}
+            runRoute route (tail pi) conf lreqNext
 
 {- $Example
  #example#
