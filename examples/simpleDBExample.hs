@@ -43,8 +43,9 @@ instance PolicyModule UsersPolicyModule where
           writers ==> anybody
         field "name"     $ searchable
         field "password" $ labeled $ \doc -> do
-          readers ==> this \/ ("name" `at` doc :: String)
-          writers ==> this \/ ("name" `at` doc :: String)
+          let user = "name" `at` doc :: String
+          readers ==> this \/ user
+          writers ==> this \/ user
     return $ UsersPolicyModuleTCB priv
       where this = privDesc priv
 
@@ -57,8 +58,8 @@ mkDBConfFile :: IO ()
 mkDBConfFile = do
   writeFile dbConfFile (unlines [show pm])
   setEnv "DATABASE_CONFIG_FILE" dbConfFile False
-   where pm :: (String, String, String)
-         pm = (mkName (UsersPolicyModuleTCB undefined), "_users", "users_db")
+   where pm :: (String, String)
+         pm = (mkName (UsersPolicyModuleTCB undefined), "users_db")
          dbConfFile = "/tmp/hails_example_database.conf"
          mkName x =
             let tp = typeRepTyCon $ typeOf x

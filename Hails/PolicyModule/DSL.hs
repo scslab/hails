@@ -21,33 +21,35 @@ passwords must always belong to the named user. Specifically, only the
 user (or policy module) may read and modify the password. This policy
 is implemented below:
 
-> data UsersPolicyModule = UsersPolicyModuleTCB DCPriv
->   deriving Typeable
-> 
-> instance PolicyModule UsersPolicyModule where
->   initPolicyModule priv = do
->     setPolicy priv $ do
->       database $ do
->         readers ==> anybody
->         writers ==> anybody
->         admins  ==> this
->       collection "users" $ do
->         access $ do
->           readers ==> anybody
->           writers ==> anybody
->         clearance $ do
->           secrecy   ==> this
->           integrity ==> anybody
->         document $ \doc -> do
->           readers ==> anybody
->           writers ==> anybody
->         field "name"     $ searchable
->         field "password" $ labeled $ \doc -> do
->           let user = "name" `at` doc :: String
->           readers ==> this \/ user
->           writers ==> this \/ user
->     return $ UsersPolicyModuleTCB priv
->       where this = privDesc priv
+@
+data UsersPolicyModule = UsersPolicyModuleTCB DCPriv
+  deriving Typeable
+
+instance PolicyModule UsersPolicyModule where
+  'initPolicyModule' priv = do
+    'setPolicy' priv $ do
+      'database' $ do
+        'readers' '==>' 'anybody'
+        'writers' '==>' 'anybody'
+        'admins'  '==>' this
+      'collection' \"users\" $ do
+        'access' $ do
+          'readers' '==>' 'anybody'
+          'writers' '==>' 'anybody'
+        'clearance' $ do
+          'secrecy'   '==>' this
+          'integrity' '==>' 'anybody'
+        'document' $ \doc -> do
+          'readers' '==>' 'anybody'
+          'writers' '==>' 'anybody'
+        'field' \"name\"     $ 'searchable'
+        'field' \"password\" $ 'labeled' $ \doc -> do
+          let user = \"name\" ``at`` doc :: String
+          'readers' '==>' this \\/ user
+          'writers' '==>' this \\/ user
+    return $ UsersPolicyModuleTCB priv
+      where this = 'privDesc' priv
+@
 
 
 Notice that the database is public, as described above, but only this
@@ -129,7 +131,8 @@ writers =  Writers
 integrity =  Writers 
 
 -- | Used when setting integrity component of the collection-set label, i.e.,
--- the principals/administrators that can modify a database's underlying collections.
+-- the principals/administrators that can modify a database's underlying
+-- collections.
 data Admins  = Admins
 instance Show Admins where show _ = "admins"
 
@@ -420,16 +423,10 @@ labeled fpol = do
   (fN, cN) <- ask
   when (isJust s) $ fail $ "Collection " ++ show cN ++ " field " ++
                            show fN ++ " policy already specified."
-  case eval (act fN cN) fN cN of
-    Left e -> fail e
-    Right labFieldE -> put (Just labFieldE)
-  where act fN cN = do fpol (undefined :: HsonDocument)
-                       s <- get
-                       _ <- lookup' fN cN (show readers) s
-                       _ <- lookup' fN cN (show writers) s
-                       return . ColLabFieldExp $ 
-                         \doc -> fromRight $ eval (fpol' doc fN cN) fN cN
-        eval (ColLabFieldExpM e) fN cN =
+  let labFieldE = ColLabFieldExp $ \doc ->
+                      fromRight $ eval (fpol' doc fN cN) fN cN
+  put (Just labFieldE)
+  where eval (ColLabFieldExpM e) fN cN =
           runReader (evalStateT (runErrorT e) Map.empty) (fN, cN)
         fpol' doc fN cN = do fpol doc
                              s <- get
@@ -577,7 +574,7 @@ clearance (ColClrExpM acc) = do
 -- >     readers ==> anybody
 -- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
 --
--- states that every document in the collection is resable by anybody,
+-- states that every document in the collection is readable by anybody,
 -- and only Alice or the principal named by the @name@ value in the
 -- document can modify or insert such data.
 document :: (HsonDocument -> ColDocExpM ()) -> ColExpM ()
@@ -587,16 +584,10 @@ document fpol = do
   case Map.lookup "document" s of
     Just _ -> fail $ "Collection " ++ show cN
                         ++ " document policy already specified."
-    _ -> case eval (act cN) cN of
-              Left e -> fail e
-              Right docT -> put (Map.insert "document" docT s)
-  where act cN = do fpol (undefined :: HsonDocument)
-                    s <- get
-                    _ <- lookup' cN (show readers) s
-                    _ <- lookup' cN (show writers) s
-                    return . ColDocT $ ColDocExp $ 
-                      \doc -> fromRight $ eval (fpol' doc cN) cN
-        eval (ColDocExpM e) cN =
+    _ -> let docT = ColDocT $ ColDocExp $ \doc ->
+                                fromRight $ eval (fpol' doc cN) cN
+         in put (Map.insert "document" docT s)
+  where eval (ColDocExpM e) cN =
           runReader (evalStateT (runErrorT e) Map.empty) cN
         fpol' doc cN = do fpol doc
                           s <- get
@@ -712,7 +703,7 @@ runPolicy (PolicyExpM e) = evalState (runErrorT e') Map.empty
 setPolicy :: DCPriv -> PolicyExpM () -> PMAction ()
 setPolicy priv pol = 
   case runPolicy pol of
-    Left err -> throwLIO $ PolicyCompilerError err
+    Left err -> throwLIO $ PolicyCompileError err
     Right policy -> execPolicy policy
   where execPolicy (PolicyExp db cs) = do
           execPolicyDB db 
@@ -738,16 +729,18 @@ setPolicy priv pol =
         unFieldExp ColFieldSearchable = SearchableField
         unFieldExp (ColLabFieldExp f) = FieldPolicy (unDataPolicy f)
 
--- | Exception thrown if a policy cannot be compiled.
-data PolicyCompilerError = PolicyCompilerError String
+-- | Exception thrown if a policy cannot be \"compiled\" or if we
+-- deternmine that it's faulty at \"runtime\".
+data PolicySpecificiationError = PolicyCompileError String
+                               | PolicyRuntimeError String
   deriving (Show, Typeable)
 
-instance Exception PolicyCompilerError 
+instance Exception PolicySpecificiationError
 
 
 --
 -- Helpers
 
-fromRight :: Either a b -> b
+fromRight :: Either String b -> b
 fromRight (Right x) = x
-fromRight _ = error "fromRight: unexpected value"
+fromRight (Left e)  = throw . PolicyRuntimeError $ e

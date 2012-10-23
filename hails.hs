@@ -85,20 +85,18 @@ main = do
 -- | Given an application module name, load the main controller named
 -- @server@.
 loadApp :: Bool             -- -XSafe ?
-        -> Maybe String     -- -package-config
+        -> Maybe FilePath   -- -package-db
         -> String           -- Application name
         -> IO Application
-loadApp safe mpkgConf appName = runGhc (Just libdir) $ do
+loadApp safe mpkgDb appName = runGhc (Just libdir) $ do
   dflags0 <- getSessionDynFlags
   let dflags1 = if safe
                   then dopt_set (dflags0 { safeHaskell = Sf_Safe })
                                 Opt_PackageTrust
                   else dflags0
-      dflags2 = case mpkgConf of
-                  Just pkgConf ->
-                    dopt_unset (dflags1 { extraPkgConfs =
-                                            pkgConf : extraPkgConfs dflags1 })
-                               Opt_ReadUserPackageConf
+      dflags2 = case mpkgDb of
+                  Just pkgDb ->
+                    dflags1 { extraPkgConfs = (PkgConfFile pkgDb:)}
                   _ -> dflags1
   void $ setSessionDynFlags dflags2
   target <- guessTarget appName Nothing

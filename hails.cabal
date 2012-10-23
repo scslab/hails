@@ -133,6 +133,7 @@ Library
     Hails.PolicyModule.TCB
     Hails.HttpClient
     Hails.Version
+    Hails.Web
     Hails.Web.Controller
     Hails.Web.Frank
     Hails.Web.REST
