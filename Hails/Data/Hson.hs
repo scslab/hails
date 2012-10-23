@@ -73,6 +73,7 @@ module Hails.Data.Hson (
   , isBsonDoc
   , hsonDocToBsonDoc
   , hsonDocToBsonDocStrict
+  -- ** Converting labeled requests
   , labeledRequestToHson
   -- * Fields
   , FieldName, HsonField(..), BsonField(..)
@@ -96,6 +97,7 @@ import           Data.Monoid (mconcat)
 import qualified Data.List as List
 import           Data.Text (Text)
 import qualified Data.Text as T
+import           Data.Text.Encoding (decodeUtf8)
 import           Data.Int (Int32, Int64)
 import           Data.Time.Clock (UTCTime)
 import           Data.Typeable
@@ -311,15 +313,16 @@ hsonFieldToBsonField (HsonField n _) =
   fail $ "hsonFieldToBsonField: field " ++ show n ++ " is PolicyLabeled"
 
 
-labeledRequestToHson :: Label l => Labeled l Request -> LIO l (Labeled l HsonDocument)
-labeledRequestToHson lreq = do
+-- | Convert a labeled request to a labeled document
+labeledRequestToHson :: DCLabeled Request -> DCLabeled HsonDocument
+labeledRequestToHson lreq =
   let origLabel = labelOf lreq
-  let req = unlabelTCB lreq
-  let body = mconcat . L8.toChunks $ requestBody req
-  let q = map convert $ parseSimpleQuery body
-  return $ labelTCB origLabel q
+      req       = unlabelTCB lreq
+      body      = mconcat . L8.toChunks $ requestBody req
+      q         = map convert $ parseSimpleQuery body
+  in labelTCB origLabel q
   where convert (k,v) = HsonField
-                        (T.pack . S8.unpack $ k)
+                        (decodeUtf8 k)
                         (toHsonValue . S8.unpack $ v)
 
 --
