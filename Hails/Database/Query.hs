@@ -561,9 +561,8 @@ applyCollectionPolicyP :: DCPriv        -- ^ Privileges
 applyCollectionPolicyP p col doc0 = do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
   typeCheckDocument fieldPolicies doc1
-
   c <- getClearance
-  withClearanceP p ((colClearance col) `glb` c) $ do
+  withClearanceP p ((colClearance col) `lowerBound` c) $ do
     -- Apply fied policies:
     doc2 <- T.for doc1 $ \f@(HsonField n v) ->
       case v of
@@ -580,8 +579,7 @@ applyCollectionPolicyP p col doc0 = do
               unless (labelOf lbv == l) $ throwLIO PolicyViolation
               return f
     -- Apply document policy:
-    withClearanceP p (colClearance col) $
-      labelP p (docPolicy doc2) doc2
+    labelP p (docPolicy doc2) doc2
   where docPolicy     = documentLabelPolicy . colPolicy $ col
         fieldPolicies = fieldLabelPolicies  . colPolicy $ col
 
