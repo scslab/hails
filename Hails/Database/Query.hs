@@ -347,9 +347,12 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
       -- Apply policies to the unlabeled document,
       -- asserts that labeled values are below collection clearance:
       dbPriv <- dbActionPriv `liftM` getActionStateTCB
+      {- DON'T HIDE EXCEPTION:
       ldocTCB <- liftLIO $ onExceptionP priv 
         (applyCollectionPolicyP dbPriv col doc)
         (throwLIO PolicyViolation)
+      -}
+      ldocTCB <- liftLIO $ applyCollectionPolicyP dbPriv col doc
       -- Check that all the fields are the same (i.e., if there was a
       -- unlabeled PolicyLabeled value an this will fail):
       let same = compareDoc doc  (unlabelTCB ldocTCB)

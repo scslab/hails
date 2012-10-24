@@ -21,6 +21,7 @@ module Hails.Database.Structured ( DCRecord(..)
 
 import           Data.Monoid (mappend)
 import           Control.Monad (liftM)
+import           Control.Exception (SomeException)
                  
 import           LIO
 import           LIO.DCLabel
@@ -136,7 +137,8 @@ findAllP p query = liftDB $ do
 -- allowed to create an instance of this class. Thus, we leverage the 
 -- fact that the value constructor for a 'PolicyModule' is not exposed
 -- to untrusted code and require the policy module to create such a
--- value in 'endorseInstance'.
+-- value in 'endorseInstance'. The minimal implementation needs to
+-- define 'endorseInstance'.
 class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   -- | Insert a labeled record into the database.
   insertLabeledRecord :: MonadDB m => DCLabeled a -> m ObjectId
@@ -185,8 +187,10 @@ toDocumentP :: (MonadDB m, DCLabeledRecord pm a)
             -> DCLabeled a -- ^ Labeled record
             -> m (DCLabeled Document)
 toDocumentP p' lr = liftDB $ do
+  pmPriv' <- dbActionPriv `liftM` getActionStateTCB
   -- Fail if not endorsed:
-  pmPriv <- dbActionPriv `liftM` getActionStateTCB
+  pmPriv <- liftLIO $ (evaluate . endorseInstance $ lr) >> return pmPriv'
+                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
   let p = p' `mappend` pmPriv
   r <- unlabelP p lr
   lcur <- getLabel
