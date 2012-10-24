@@ -1,4 +1,4 @@
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, CPP #-}
 
 module Main (main) where
 import qualified Data.ByteString.Char8 as S8
@@ -35,21 +35,26 @@ import           Unsafe.Coerce
 
 
 about :: String -> String
-about prog = prog ++ " " ++ showVersion version ++                   "\n\n\
- \Simple tool for launching Hails apps.  This tool can be used in       \n\
- \both development and production mode.  It allows you configure the    \n\
- \environment your app runs in (e.g., the port number the Hails HTTP    \n\
- \server should listen on, the MongoDB server it should connect to,     \n\
- \etc.). In development mode (default), " ++ prog ++ " uses some default\n\
- \settings (e.g., port 8080).  In production, mode all configuration    \n\
- \settings must be specified.  To simplify deployment, this tool        \n\
- \checks the program environment for configuration settings (e.g.,      \n\
- \variable PORT is used for the port number), but you can override      \n\
- \these with arguments. See \'" ++ prog ++ " --help\' for a list of     \n\
- \configuration settings and corresponding environment variables.     \n\n"
-   ++ prog ++ " dynamically loads your app requst handler. Hence, the   \n\
- \app name is the module name where your \'server\' function is         \n\
- \defined."
+about prog = prog ++ " " ++ showVersion version ++                   "\n\n" ++
+  concat [ "Simple tool for launching Hails apps.  This tool can be used in\n"
+         , "both development and production mode.  It allows you configure the\n"
+         , "environment your app runs in (e.g., the port number the Hails HTTP\n"
+         , "server should listen on, the MongoDB server it should connect to,\n"
+         , "etc.). In development mode (default), "
+         , prog
+         , " uses some default\n"
+         , "settings (e.g., port 8080).  In production, mode all configuration\n"
+         , "settings must be specified.  To simplify deployment, this tool\n"
+         , "checks the program environment for configuration settings (e.g.,\n"
+         , "variable PORT is used for the port number), but you can override\n"
+         , "these with arguments. See \'"
+         , prog
+         , " --help\' for a list of     \n"
+         , "configuration settings and corresponding environment variables.\n\n"
+         , prog
+         , " dynamically loads your app requst handler. Hence, the\n"
+         , "app name is the module name where your \'server\' function is\n"
+         , "defined."]
 
 --
 --
@@ -95,8 +100,15 @@ loadApp safe mpkgDb appName = runGhc (Just libdir) $ do
                                 Opt_PackageTrust
                   else dflags0
       dflags2 = case mpkgDb of
+#if MIN_VERSION_base(4,6,0)
                   Just pkgDb ->
                     dflags1 { extraPkgConfs = (PkgConfFile pkgDb:)}
+#else
+                  Just pkgConf ->
+                    dopt_unset (dflags1 { extraPkgConfs =
+                                           pkgConf : extraPkgConfs dflags1 })
+                                        Opt_ReadUserPackageConf
+#endif
                   _ -> dflags1
   void $ setSessionDynFlags dflags2
   target <- guessTarget appName Nothing
