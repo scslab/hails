@@ -19,19 +19,18 @@ module Hails.Database.Structured ( DCRecord(..)
                                  , DCLabeledRecord(..)
                                  ) where
 
-import qualified Data.Map as Map
 import           Data.Monoid (mappend)
 import           Control.Monad (liftM)
+import           Control.Exception (SomeException)
                  
 import           LIO
 import           LIO.DCLabel
-import           LIO.Privs.TCB (mintTCB) 
                  
 import           Hails.Data.Hson
 import           Hails.PolicyModule
 import           Hails.Database.Core
 import           Hails.Database.Query
-
+import           Hails.Database.TCB
 
 -- | Class for converting from \"structured\" records to documents
 -- (and vice versa). Minimal definition consists of 'toDocument',
@@ -138,7 +137,8 @@ findAllP p query = liftDB $ do
 -- allowed to create an instance of this class. Thus, we leverage the 
 -- fact that the value constructor for a 'PolicyModule' is not exposed
 -- to untrusted code and require the policy module to create such a
--- value in 'endorseInstance'.
+-- value in 'endorseInstance'. The minimal implementation needs to
+-- define 'endorseInstance'.
 class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   -- | Insert a labeled record into the database.
   insertLabeledRecord :: MonadDB m => DCLabeled a -> m ObjectId
@@ -163,42 +163,39 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   --
 
   --
-  insertLabeledRecord = insertLabeledRecordP noPriv
+  insertLabeledRecord lrec = insertLabeledRecordP noPriv lrec
   --
-  saveLabeledRecord = saveLabeledRecordP noPriv
+  saveLabeledRecord lrec = saveLabeledRecordP noPriv lrec
   --
   insertLabeledRecordP p lrec = liftDB $ do
     let cName = recordCollection (forceType lrec)
-    ldoc <- liftLIO $ toDocumentP p lrec
+    ldoc <- toDocumentP p lrec
     insertP p cName ldoc
 
   --
   saveLabeledRecordP p lrec = liftDB $ do
     let cName = recordCollection (forceType lrec)
-    ldoc <- liftLIO $ toDocumentP p lrec
+    ldoc <- toDocumentP p lrec
     saveP p cName ldoc
 
 
 -- | Uses the policy modules\'s privileges to convert a labeled record
 -- to a labeled document, if the policy module created an instance of
 -- 'DCLabeledRecord'.
-toDocumentP :: (DCLabeledRecord pm a)
-            => DCPriv      -- ^ Policy module privileges
+toDocumentP :: (MonadDB m, DCLabeledRecord pm a)
+            => DCPriv
             -> DCLabeled a -- ^ Labeled record
-            -> DC (DCLabeled Document)
-toDocumentP p' lr = do
+            -> m (DCLabeled Document)
+toDocumentP p' lr = liftDB $ do
+  pmPriv' <- dbActionPriv `liftM` getActionStateTCB
   -- Fail if not endorsed:
-  pmPriv <- getPMPrivTCB (endorseInstance lr)
+  pmPriv <- liftLIO $ (evaluate . endorseInstance $ lr) >> return pmPriv'
+                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
   let p = p' `mappend` pmPriv
   r <- unlabelP p lr
   lcur <- getLabel
   let lres = partDowngradeP p lcur (labelOf lr)
   labelP p lres $ toDocument r
-    where getPMPrivTCB pm = do
-            _ <- evaluate pm
-            let tn = policyModuleTypeName pm
-                f  = mintTCB . dcPrivDesc . fst
-            return $ maybe noPriv f $ Map.lookup tn availablePolicyModules
 
 --
 -- Misc helpers

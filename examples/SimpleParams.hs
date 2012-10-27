@@ -11,7 +11,7 @@ import           Hails.Data.Hson
 server :: Application
 server _ lreq = do
   req <- unlabel lreq
-  let ldoc = labeledRequestToLabeledDocument lreq
+  let ldoc = labeledRequestToHson lreq
   doc <- unlabel ldoc
   return $ case pathInfo req of
     ("login":_) -> Response temporaryRedirect307 
