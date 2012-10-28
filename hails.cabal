@@ -134,6 +134,7 @@ Library
     Hails.HttpClient
     Hails.Version
     Hails.Web
+    Hails.Web.User
     Hails.Web.Controller
     Hails.Web.Frank
     Hails.Web.REST
