@@ -1,5 +1,6 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE ConstraintKinds,
+{-# LANGUAGE OverloadedStrings,
+             ConstraintKinds,
              FlexibleContexts,
              DeriveDataTypeable,
              MultiParamTypeClasses,
@@ -92,7 +93,7 @@ import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
 import           Data.Binary.Put
 import           Data.Bson.Binary
-import           Data.Maybe (mapMaybe)
+import           Data.Maybe (mapMaybe, fromJust)
 import           Data.Monoid (mconcat)
 import qualified Data.List as List
 import           Data.Text (Text)
@@ -313,17 +314,34 @@ hsonFieldToBsonField (HsonField n _) =
   fail $ "hsonFieldToBsonField: field " ++ show n ++ " is PolicyLabeled"
 
 
--- | Convert a labeled request to a labeled document
+-- | Convert a labeled request to a labeled document. Values of fields that
+-- have a name that ends with @[]@ are converted to arrays and the
+-- suffix @[]@ is stripped from the name.
 labeledRequestToHson :: DCLabeled Request -> DCLabeled HsonDocument
 labeledRequestToHson lreq =
   let origLabel = labelOf lreq
       req       = unlabelTCB lreq
       body      = mconcat . L8.toChunks $ requestBody req
-      q         = map convert $ parseSimpleQuery body
-  in labelTCB origLabel q
+      doc       = arrayify $ map convert $ parseSimpleQuery body
+  in labelTCB origLabel doc
   where convert (k,v) = HsonField
                         (decodeUtf8 k)
                         (toHsonValue . S8.unpack $ v)
+        arrayify doc =
+          let pred0 = (T.isSuffixOf "[]" . fieldName)
+              (doc0, doc0_keep) = List.partition pred0 doc
+              gs = List.groupBy (\x y -> fieldName x == fieldName y)
+                 . List.sortBy (\x y -> fieldName x `compare` fieldName y)
+                 $ doc0
+              doc1 = concat $ map toArray gs
+          in doc0_keep ++ doc1
+            where toArray [] = []
+                  toArray ds = let n = fromJust
+                                     . T.stripSuffix "[]"
+                                     . fieldName
+                                     . head $ ds
+                                   vs = map (fromJust .  fieldValue) ds
+                               in [ n -: BsonArray vs ]
 
 --
 -- Friendly interface for creating documents
