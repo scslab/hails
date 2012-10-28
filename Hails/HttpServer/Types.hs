@@ -6,7 +6,8 @@ module Hails.HttpServer.Types (
   , addResponseHeader, removeResponseHeader
   -- * Applications and middleware
   , Application, RequestConfig(..)
-  , Middleware) where
+  , Middleware
+  ) where
 
 import qualified Data.List as List
 import           Data.Text (Text)
