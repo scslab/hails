@@ -98,7 +98,6 @@ import           Data.Monoid (mconcat)
 import qualified Data.List as List
 import           Data.Text (Text)
 import qualified Data.Text as T
-import           Data.Text.Encoding (decodeUtf8)
 import           Data.Int (Int32, Int64)
 import           Data.Time.Clock (UTCTime)
 import           Data.Typeable
@@ -325,7 +324,7 @@ labeledRequestToHson lreq =
       doc       = arrayify $ map convert $ parseSimpleQuery body
   in labelTCB origLabel doc
   where convert (k,v) = HsonField
-                        (decodeUtf8 k)
+                        (T.pack . S8.unpack $ k)
                         (toHsonValue . S8.unpack $ v)
         arrayify doc =
           let pred0 = (T.isSuffixOf "[]" . fieldName)
