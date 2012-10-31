@@ -559,8 +559,7 @@ applyCollectionPolicyP :: DCPriv        -- ^ Privileges
 applyCollectionPolicyP p col doc0 = do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
   liftLIO $ typeCheckDocument fieldPolicies doc1
-  dbPriv <- dbActionPriv `liftM` getActionStateTCB
-  liftLIO $ withClearanceP dbPriv (colClearance col) $ do
+  liftLIO $ withClearanceP p (colClearance col) $ do
     -- Apply fied policies:
     doc2 <- T.for doc1 $ \f@(HsonField n v) ->
       case v of
