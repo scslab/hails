@@ -552,14 +552,16 @@ withCollection priv isWrite cName act = do
 -- Additionally, these labels must flow to the label of the collection
 -- clearance. (Of course, in both cases privileges are used to allow for
 -- more permissive flows.)
-applyCollectionPolicyP :: DCPriv        -- ^ Privileges
+applyCollectionPolicyP :: MonadDC m
+                       => DCPriv        -- ^ Privileges
                        -> Collection    -- ^ Collection and policies
                        -> HsonDocument  -- ^ Document to apply policies to
-                       -> DBAction (LabeledHsonDocument)
-applyCollectionPolicyP p col doc0 = do
+                       -> m (LabeledHsonDocument)
+applyCollectionPolicyP p col doc0 = liftLIO $ do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
-  liftLIO $ typeCheckDocument fieldPolicies doc1
-  liftLIO $ withClearanceP p (colClearance col) $ do
+  typeCheckDocument fieldPolicies doc1
+  c <- getClearance
+  withClearanceP p ((colClearance col) `lowerBound` c) $ do
     -- Apply fied policies:
     doc2 <- T.for doc1 $ \f@(HsonField n v) ->
       case v of
