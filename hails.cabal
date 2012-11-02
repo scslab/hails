@@ -130,6 +130,7 @@ Library
     Hails.HttpServer.Types
     Hails.PolicyModule
     Hails.PolicyModule.DSL
+    Hails.PolicyModule.Groups
     Hails.PolicyModule.TCB
     Hails.HttpClient
     Hails.Version

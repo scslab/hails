@@ -17,6 +17,8 @@ types as opposed to \"unstructured\" 'Document's.
 module Hails.Database.Structured ( DCRecord(..)
                                  , findAll, findAllP
                                  , DCLabeledRecord(..)
+                                 , toLabeledDocument, fromLabeledDocument
+                                 , toLabeledDocumentP, fromLabeledDocumentP
                                  ) where
 
 import           Data.Monoid (mappend)
@@ -125,7 +127,7 @@ findAllP p query = liftDB $ do
           case mldoc of
             Just ldoc -> do
               c <- getClearance
-              if canFlowToP p (labelOf ldoc) c
+              if canFlowTo (labelOf ldoc) c
                 then do md <- fromDocument `liftM` (liftLIO $ unlabelP p ldoc)
                         cursorToRecords cur $ maybe docs (:docs) md
                  else cursorToRecords cur docs
@@ -169,24 +171,29 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   --
   insertLabeledRecordP p lrec = liftDB $ do
     let cName = recordCollection (forceType lrec)
-    ldoc <- toDocumentP p lrec
+    ldoc <- toLabeledDocumentP p lrec
     insertP p cName ldoc
 
   --
   saveLabeledRecordP p lrec = liftDB $ do
     let cName = recordCollection (forceType lrec)
-    ldoc <- toDocumentP p lrec
+    ldoc <- toLabeledDocumentP p lrec
     saveP p cName ldoc
 
+-- | Convert labeled record to labeled document.
+toLabeledDocument :: (MonadDB m, DCLabeledRecord pm a)
+                  => DCLabeled a
+                  -> m (DCLabeled Document)
+toLabeledDocument = toLabeledDocumentP noPriv
 
 -- | Uses the policy modules\'s privileges to convert a labeled record
 -- to a labeled document, if the policy module created an instance of
 -- 'DCLabeledRecord'.
-toDocumentP :: (MonadDB m, DCLabeledRecord pm a)
-            => DCPriv
-            -> DCLabeled a -- ^ Labeled record
-            -> m (DCLabeled Document)
-toDocumentP p' lr = liftDB $ do
+toLabeledDocumentP :: (MonadDB m, DCLabeledRecord pm a)
+                   => DCPriv
+                   -> DCLabeled a -- ^ Labeled record
+                   -> m (DCLabeled Document)
+toLabeledDocumentP p' lr = liftDB $ do
   pmPriv' <- dbActionPriv `liftM` getActionStateTCB
   -- Fail if not endorsed:
   pmPriv <- liftLIO $ (evaluate . endorseInstance $ lr) >> return pmPriv'
@@ -196,6 +203,33 @@ toDocumentP p' lr = liftDB $ do
   lcur <- getLabel
   let lres = partDowngradeP p lcur (labelOf lr)
   labelP p lres $ toDocument r
+
+-- | Convert labeled document to labeled record
+fromLabeledDocument :: forall m pm a. (MonadDB m, DCLabeledRecord pm a)
+                    => DCLabeled Document
+                    -> m (DCLabeled a)
+fromLabeledDocument = fromLabeledDocumentP noPriv
+
+-- | Uses the policy modules\'s privileges to convert a labeled document
+-- to a labeled record, if the policy module created an instance of
+-- 'DCLabeledRecord'.
+fromLabeledDocumentP :: forall m pm a. (MonadDB m, DCLabeledRecord pm a)
+                     => DCPriv
+                     -> DCLabeled Document
+                     -> m (DCLabeled a)
+fromLabeledDocumentP p' ldoc = liftDB $ do
+  pmPriv' <- dbActionPriv `liftM` getActionStateTCB
+  -- Fail if not endorsed:
+  pmPriv <- liftLIO $ (evaluate . endorseInstance $ fake) >> return pmPriv'
+                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
+  let p = p' `mappend` pmPriv
+  doc <- unlabelP p ldoc
+  lcur <- getLabel
+  let lres = partDowngradeP p lcur (labelOf ldoc)
+  rec <- fromDocument doc
+  labelP p lres rec
+    where fake :: DCLabeled a
+          fake = undefined
 
 --
 -- Misc helpers
