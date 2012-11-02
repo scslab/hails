@@ -93,8 +93,7 @@ import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
 import           Data.Binary.Put
 import           Data.Bson.Binary
-import           Data.Maybe (mapMaybe, fromJust)
-import           Data.Monoid (mconcat)
+import           Data.Maybe (mapMaybe, fromJust, fromMaybe)
 import qualified Data.List as List
 import           Data.Text (Text)
 import qualified Data.Text as T
@@ -104,12 +103,17 @@ import           Data.Typeable
 import           Data.Functor.Identity (runIdentity)
 import qualified Data.Bson as Bson
 
+import           Data.Conduit (runResourceT, ($$))
+import           Data.Conduit.Binary (sourceLbs)
+
 import           LIO
 import           LIO.DCLabel
 import           LIO.Labeled.TCB
 import           LIO.TCB (ioTCB, ShowTCB(..))
 
-import           Network.HTTP.Types
+import           Network.Wai.Parse ( FileInfo(..)
+                                   , sinkRequestBody
+                                   , lbsBackEnd)
 
 import           Hails.Data.Hson.TCB
 import           Hails.HttpServer.Types
@@ -316,16 +320,27 @@ hsonFieldToBsonField (HsonField n _) =
 -- | Convert a labeled request to a labeled document. Values of fields that
 -- have a name that ends with @[]@ are converted to arrays and the
 -- suffix @[]@ is stripped from the name.
-labeledRequestToHson :: DCLabeled Request -> DCLabeled HsonDocument
-labeledRequestToHson lreq =
+labeledRequestToHson :: MonadDC m
+                     => DCLabeled Request -> m (DCLabeled HsonDocument)
+labeledRequestToHson lreq = do
   let origLabel = labelOf lreq
       req       = unlabelTCB lreq
-      body      = mconcat . L8.toChunks $ requestBody req
-      doc       = arrayify $ map convert $ parseSimpleQuery body
-  in labelTCB origLabel doc
-  where convert (k,v) = HsonField
-                        (T.pack . S8.unpack $ k)
-                        (toHsonValue . S8.unpack $ v)
+      btype     = fromMaybe UrlEncoded $ getRequestBodyType req
+  (ps, fs) <- liftLIO . ioTCB $ runResourceT $
+                sourceLbs (requestBody req) $$ sinkRequestBody lbsBackEnd btype
+  let psDoc     = map convertPS ps
+      fsDoc     = map convertFS fs
+  return $ labelTCB origLabel $ arrayify $ psDoc ++ fsDoc
+  where convertPS (k,v) = HsonField
+                           (T.pack . S8.unpack $ k)
+                           (toHsonValue . S8.unpack $ v)
+        convertFS (k,v) = HsonField (T.pack . S8.unpack $ k) 
+                                    (toHsonValue $ fsToDoc v)
+        fsToDoc f = [ "fileName" -: (T.pack . S8.unpack $ fileName f)
+                    , "fileContentType" -:
+                      (T.pack . S8.unpack $ fileContentType f)
+                    , "fileContent" -: (L8.toStrict $ fileContent f)
+                    ] :: BsonDocument
         arrayify doc =
           let pred0 = (T.isSuffixOf "[]" . fieldName)
               (doc0, doc0_keep) = List.partition pred0 doc
