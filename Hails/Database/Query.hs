@@ -578,7 +578,9 @@ applyCollectionPolicyP p col doc0 = liftLIO $ do
               unless (labelOf lbv == l) $ throwLIO PolicyViolation
               return f
     -- Apply document policy:
-    labelP p (docPolicy doc2) doc2
+    clnow <- getClearance
+    withClearanceP p (docPolicy doc2 `lub` clnow) $
+      labelP p (docPolicy doc2) doc2
   where docPolicy     = documentLabelPolicy . colPolicy $ col
         fieldPolicies = fieldLabelPolicies  . colPolicy $ col
 
