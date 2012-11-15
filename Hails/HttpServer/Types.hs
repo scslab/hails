@@ -1,6 +1,8 @@
+{-# LANGUAGE OverloadedStrings #-}
 module Hails.HttpServer.Types (
   -- * Requests
     Request(..)
+  , getRequestBodyType, RequestBodyType(..)
   -- * Responses
   , Response(..)
   , addResponseHeader, removeResponseHeader
@@ -12,11 +14,13 @@ module Hails.HttpServer.Types (
 import qualified Data.List as List
 import           Data.Text (Text)
 import qualified Data.ByteString as S
+import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
 
 import           Network.Socket (SockAddr)
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP.Types.Header as H
+import           Network.Wai.Parse (RequestBodyType(..))
 
 import           LIO.DCLabel
 
@@ -60,6 +64,27 @@ data Request = Request {
   ,  requestBody    :: L.ByteString
   } deriving Show
 
+-- | Get the request body type (copied from @wai-extra@).
+getRequestBodyType :: Request -> Maybe RequestBodyType
+getRequestBodyType req = do
+    ctype <- lookup "Content-Type" $ requestHeaders req
+    if urlenc `S.isPrefixOf` ctype
+        then Just UrlEncoded
+        else case boundary ctype of
+                Just x -> Just $ Multipart x
+                Nothing -> Nothing
+  where
+    urlenc = S8.pack "application/x-www-form-urlencoded"
+    formBound = S8.pack "multipart/form-data;"
+    bound' = "boundary="
+    boundary s =
+        if "multipart/form-data;" `S.isPrefixOf` s
+            then
+                let s' = S.dropWhile (== 32) $ S.drop (S.length formBound) s
+                 in if bound' `S.isPrefixOf` s'
+                        then Just $ S.drop (S.length bound') s'
+                        else Nothing
+            else Nothing
 
 --
 -- Response
