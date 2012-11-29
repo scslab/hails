@@ -1,3 +1,4 @@
+{-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE OverloadedStrings #-}
 -- | This module defines some convenience functions for creating responses.
 module Hails.Web.Responses
