@@ -1,3 +1,4 @@
+{-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE OverloadedStrings #-}
 module Hails.HttpServer.Types (
   -- * Requests
@@ -21,6 +22,8 @@ import           Network.Socket (SockAddr)
 import qualified Network.HTTP.Types as H
 import qualified Network.HTTP.Types.Header as H
 import           Network.Wai.Parse (RequestBodyType(..))
+
+import           Data.Time (UTCTime)
 
 import           LIO.DCLabel
 
@@ -62,6 +65,8 @@ data Request = Request {
   ,  queryString    :: H.Query
   -- | Lazy ByteString containing the request body.
   ,  requestBody    :: L.ByteString
+  -- | Time request was received.
+  ,  requestTime    :: UTCTime
   } deriving Show
 
 -- | Get the request body type (copied from @wai-extra@).

@@ -56,11 +56,15 @@ import           Hails.HttpServer.Auth
 import           Hails.HttpServer.Types
 
 import           System.IO
+import           Data.Time (getCurrentTime)
 
--- | Convert a WAI 'W.Request' to a Hails 'Request' by consuming the body into
--- a 'L.ByteString'.
+-- | Convert a WAI 'W.Request' to a Hails 'Request' by consuming the
+-- body into a 'L.ByteString'. The 'requestTime' is set to the
+-- current time at the time this action is executed (which is when
+-- the app is invoked).
 waiToHailsReq :: W.Request -> ResourceT IO Request
 waiToHailsReq req = do
+  curTime <- liftIO getCurrentTime
   body <- fmap L.fromChunks $ W.requestBody req $$ consume
   return $ Request { requestMethod = W.requestMethod req
                    , httpVersion = W.httpVersion req
@@ -73,7 +77,8 @@ waiToHailsReq req = do
                    , remoteHost = W.remoteHost req
                    , pathInfo = W.pathInfo req
                    , queryString = W.queryString req
-                   , requestBody = body }
+                   , requestBody = body 
+                   , requestTime = curTime }
 
 -- | Convert a Hails 'Response' to a WAI 'W.Response'
 hailsToWaiResponse :: Response -> W.Response

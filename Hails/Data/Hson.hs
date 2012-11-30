@@ -90,6 +90,7 @@ module Hails.Data.Hson (
 import           Prelude hiding (lookup)
 import           Control.Monad (liftM)
 import qualified Data.ByteString.Char8 as S8
+import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as L8
 import           Data.Binary.Put
 import           Data.Bson.Binary
@@ -339,7 +340,7 @@ labeledRequestToHson lreq = do
         fsToDoc f = [ "fileName" -: (T.pack . S8.unpack $ fileName f)
                     , "fileContentType" -:
                       (T.pack . S8.unpack $ fileContentType f)
-                    , "fileContent" -: (L8.toStrict $ fileContent f)
+                    , "fileContent" -: (S8.concat . L.toChunks $ fileContent f)
                     ] :: BsonDocument
         arrayify doc =
           let pred0 = (T.isSuffixOf "[]" . fieldName)

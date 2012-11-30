@@ -1,3 +1,4 @@
+{-# LANGUAGE Trustworthy #-}
 {- |
 Frank is a Sinatra-inspired DSL (see <http://www.sinatrarb.com>) for creating
 routes. It is composable with all 'Routeable' types, but is designed to be used

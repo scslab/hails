@@ -1,3 +1,4 @@
+{-# LANGUAGE Safe #-}
 {- |
 
 This module re-exports the routing and controller modules.
