@@ -1,5 +1,5 @@
 Name:           hails
-Version:        0.9.1.0
+Version:        0.9.2.0
 build-type:     Simple
 License:        GPL-2
 License-File:   LICENSE
@@ -83,7 +83,7 @@ Extra-source-files:
 
 Source-repository head
   Type:     git
-  Location: http://www.gitstar.com/scs/hails.git
+  Location: ssh://anonymous@gitstar.com/scs/lio.git
 
 
 Library
