@@ -56,7 +56,7 @@ import           Hails.HttpServer.Auth
 import           Hails.HttpServer.Types
 
 import           System.IO
-import           Data.Time.Clock (getCurrentTime)
+import           Data.Time (getCurrentTime)
 
 -- | Convert a WAI 'W.Request' to a Hails 'Request' by consuming the
 -- body into a 'L.ByteString'. The 'requestTime' is set to the
