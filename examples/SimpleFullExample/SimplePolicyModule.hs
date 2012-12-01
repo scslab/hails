@@ -18,9 +18,6 @@ import Hails.Database
 import Hails.PolicyModule
 import Hails.PolicyModule.DSL
 
-import LIO.TCB (ioTCB)
-import LIO.Privs.TCB (mintTCB)
-import LIO.DCLabel.Privs.TCB (allPrivTCB)
 import System.Posix.Env (setEnv)
 
 data StorePolicyModule = StorePolicyModuleTCB DCPriv

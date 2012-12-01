@@ -4,7 +4,6 @@ module SimpleApp (server) where
 import qualified Data.ByteString.Lazy.Char8 as L8
 
 import           LIO
-import           LIO.TCB
 import           LIO.DCLabel
 import           Hails.HttpServer
 import           Hails.Data.Hson
@@ -12,7 +11,7 @@ import           Hails.Data.Hson
 server :: Application
 server _ lreq = do
   req <- unlabel lreq
-  let ldoc = labeledRequestToHson lreq
+  ldoc <- labeledRequestToHson lreq
   doc <- unlabel ldoc
   case pathInfo req of
     ("login":_) -> return $

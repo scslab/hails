@@ -2,8 +2,6 @@
 module SimpleApp (server) where
 
 import           Data.Maybe
-import           Data.Text (Text) -- TODO: Data.Text should be trustworthy
-import qualified Data.Text as T
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
 

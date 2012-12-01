@@ -12,11 +12,13 @@ import qualified Hails.Web.Frank as Frank
 
 server :: Application
 server = mkRouter $ do
-    Frank.get "/users" $ do
-      req <- request >>= unlabel
-      return $ okHtml $ fromString $
-        "Welcome Home " ++ (show $ serverName req)
-    Frank.get "/users/:id" $ do
-      userId <- fromMaybe "" `liftM` queryParam "id"
-      return $ ok "text/json" $ fromString $
-        "{\"myid\": " ++ (show userId) ++ "}"
+  routeTop (redirectTo "/users")
+  Frank.get "/users" $ do
+    req <- request >>= unlabel
+    return $ okHtml $ fromString $
+      "Welcome to " ++ (show $ serverName req) ++
+      "<br/>Go to url: /users/:id/"
+  Frank.get "/users/:id" $ do
+    userId <- fromMaybe "" `liftM` queryParam "id"
+    return $ ok "text/json" $ fromString $
+      "{\"myid\": " ++ (show userId) ++ "}"

@@ -11,7 +11,7 @@ import           Hails.Data.Hson
 server :: Application
 server _ lreq = do
   req <- unlabel lreq
-  let ldoc = labeledRequestToHson lreq
+  ldoc <- labeledRequestToHson lreq
   doc <- unlabel ldoc
   return $ case pathInfo req of
     ("login":_) -> Response temporaryRedirect307 
@@ -31,8 +31,8 @@ topHtml (lr, req) (ld, doc) = L8.pack $
   \    <label for=\"name\">Name:</label>\
   \    <input type=\"text\" name=\"name\">\
   \    <label for=\"email\">Email:</label>\
-  \    <input type=\"email\" name=\"email\">\
-  \    <input type=\"email\" name=\"email\">\
+  \    <input type=\"email\" name=\"email[]\">\
+  \    <input type=\"email\" name=\"email[]\">\
   \    <input type=\"submit\">\
   \   </form>\
   \  <h1>File upload</h1>\
