@@ -90,6 +90,8 @@ module Hails.Database (
   , Limit
   , BatchSize
   , Order(..)
+  -- ** Delete
+  , delete, deleteP
   ) where
 
 import Hails.Data.Hson
