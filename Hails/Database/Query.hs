@@ -4,6 +4,7 @@
              DeriveDataTypeable,
              FlexibleInstances,
              ScopedTypeVariables,
+             OverloadedStrings,
              TypeSynonymInstances #-}
 
 {- |
@@ -38,6 +39,8 @@ module Hails.Database.Query (
   , find, findP
   , next, nextP
   , findOne, findOneP
+  -- * Delete
+  , deleteP, delete
   -- * Query failures
   , DBError(..)
   -- * Applying policies
@@ -464,6 +467,36 @@ findOne = findOneP noPriv
 -- comparisons.
 findOneP :: DCPriv -> Query -> DBAction (Maybe LabeledHsonDocument)
 findOneP p q = findP p q >>= nextP p
+
+--
+-- Delete
+--
+
+-- | Delete documents according to the selection.
+-- It must be that the current computation can overwrite the
+-- existing documents. That is, the current label must flow
+-- to the label of each document that matches the selection.
+delete :: Selection ->  DBAction ()
+delete = deleteP noPriv
+
+-- | Same as 'delete', but uses privileges.
+deleteP :: DCPriv -> Selection ->  DBAction ()
+deleteP p sel = do
+  let qry = select (selectionSelector sel) (selectionCollection sel)
+  cur <- findP p qry
+  forAll cur $ \ld -> do
+    -- Can write to the document?
+    guardWriteP p (labelOf ld)
+    -- Delete only _this_ document, avoid TOCTTOU
+    let doc' = hsonDocToDataBsonDocTCB $ ["_id"] `include` (unlabelTCB ld)
+    -- Remove this document
+    execMongoActionTCB $ Mongo.deleteOne $
+                          Mongo.select doc' (selectionCollection sel)
+  where forAll cur act = do
+          mldoc <- nextP p cur
+          maybe (return ()) (\ld -> act ld >> forAll cur act) mldoc
+    
+
 
 --
 -- Helpers
