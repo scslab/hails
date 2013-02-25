@@ -2,9 +2,11 @@
 
 module Main (main) where
 import qualified Data.ByteString.Char8 as S8
+import qualified Data.ByteString.Lazy.Char8 as L8
 
 import qualified Data.Text as T
 import           Data.List (isPrefixOf, isSuffixOf)
+import qualified Data.List as List
 import           Data.Maybe
 import           Data.Version
 import           Control.Monad
@@ -78,10 +80,17 @@ main = do
   putStrLn $ "Working environment:\n\n" ++ optsToEnvStr opts
   forM_ (optsToEnv opts) $ \(k,v) -> setEnv k v True
   let port = fromJust $ optPort opts
-      provider = T.pack . fromJust . optOpenID $ opts
-      f = if optDev opts
-               then logStdoutDev . devHailsApplication
-               else logStdout . (openIdAuth provider) . hailsApplicationToWai 
+      hmac_key = L8.pack . fromJust $ optHmacKey opts
+      persona = personaAuth hmac_key $ T.pack . fromJust . optPersonaAud $ opts
+      openid  = openIdAuth  $ T.pack . fromJust . optOpenID $ opts
+      prodHailsApplication = if (isJust $ optPersonaAud opts)
+                                then persona else openid
+      f = case () of
+           _ | optDev opts && isNothing (optPersonaAud opts) ->
+               logStdoutDev . devHailsApplication
+           _ | optDev opts && isJust (optPersonaAud opts) ->
+               logStdoutDev . prodHailsApplication . hailsApplicationToWai 
+           _ -> logStdout . prodHailsApplication . hailsApplicationToWai 
   app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
   runSettings (defaultSettings { settingsPort = port })
               (methodOverridePost $ f app)
@@ -135,6 +144,8 @@ data Options = Options
    , optForce       :: Bool          -- ^ Force unsafe in production
    , optDev         :: Bool          -- ^ Development/Production
    , optOpenID      :: Maybe String  -- ^ OpenID provider
+   , optHmacKey     :: Maybe String  -- ^ HMAC cookie key
+   , optPersonaAud  :: Maybe String  -- ^ Persona audience
    , optDBConf      :: Maybe String  -- ^ Filepath of databases conf file
    , optPkgConf     :: Maybe String  -- ^ Filepath of package-conf
    , optMongoServer :: Maybe String  -- ^ MongoDB server URL
@@ -152,6 +163,8 @@ defaultOpts = Options { optName        = Nothing
                       , optForce       = False
                       , optDev         = True
                       , optOpenID      = Nothing
+                      , optHmacKey     = Nothing
+                      , optPersonaAud  = Nothing
                       , optDBConf      = Nothing
                       , optPkgConf     = Nothing
                       , optCabalDev    = Nothing
@@ -168,7 +181,9 @@ defaultDevOpts = Options { optName        = Just "App"
                          , optSafe        = True
                          , optForce       = False
                          , optDev         = True
-                         , optOpenID      = Just "http://localhost"
+                         , optOpenID      = Nothing
+                         , optHmacKey     = Just "hails-d34adb33f-key"
+                         , optPersonaAud  = Nothing
                          , optDBConf      = Just "database.conf"
                          , optPkgConf     = Nothing
                          , optCabalDev    = Nothing
@@ -191,10 +206,16 @@ options =
         "Development mode, default (no authentication)."
   , GetOpt.Option []    ["prod", "production"]
         (NoArg (\opts -> opts { optDev = False }))
-        "Production mode (OpenID authentication). Must set OPENID_PROVIDER."
+        "Production mode (Persona/OpenID authentication). Must set OPENID_PROVIDER or PERSONA_AUDIENCE."
   , GetOpt.Option [] ["openid-provider"]
       (ReqArg (\u o -> o { optOpenID = Just u }) "OPENID_PROVIDER")
       "Set OPENID_PROVIDER as the OpenID provider."
+  , GetOpt.Option [] ["persona-audience"]
+      (ReqArg (\u o -> o { optPersonaAud = Just u }) "PERSONA_AUDIENCE")
+      "Set PERSONA_AUDIENCE as the persona audience (webserver sheme://host:prot)."
+  , GetOpt.Option [] ["hmac-key"]
+      (ReqArg (\u o -> o { optHmacKey = Just u }) "HMAC_KEY")
+      "Set HMAC_KEY as the MAC key for cookies." 
   , GetOpt.Option []    ["unsafe"]
         (NoArg (\opts -> opts { optSafe = False }))
         "Turn the -XSafe flag off."
@@ -246,6 +267,8 @@ envOpts opts env =
                             p@(Just _) -> p
                             _ -> optPort opts
        , optOpenID      = mFromEnvOrOpt "OPENID_PROVIDER" optOpenID 
+       , optPersonaAud  = mFromEnvOrOpt "PERSONA_AUDIENCE" optPersonaAud
+       , optHmacKey     = mFromEnvOrOpt "HMAC_KEY" optHmacKey
        , optDBConf      = mFromEnvOrOpt "DATABASE_CONFIG_FILE" optDBConf
        , optPkgConf     = mFromEnvOrOpt "PACKAGE_CONF" optPkgConf
        , optCabalDev    = mFromEnvOrOpt "CABAL_DEV_SANDBOX" optCabalDev
@@ -273,6 +296,8 @@ cleanDevOpts opts0 = do
   let opts1 = opts0 { optName        = mergeMaybe optName
                     , optPort        = mergeMaybe optPort
                     , optOpenID      = mergeMaybe optOpenID
+                    , optPersonaAud  = mergeMaybe optPersonaAud
+                    , optHmacKey     = mergeMaybe optHmacKey
                     , optDBConf      = mergeMaybe optDBConf
                     , optMongoServer = mergeMaybe optMongoServer }
   case (optPkgConf opts1, optCabalDev opts1) of
@@ -291,11 +316,16 @@ cleanDevOpts opts0 = do
 -- exist.
 cleanProdOpts :: Options -> IO Options
 cleanProdOpts opts0 = do
-  checkIsJust optName        "APP_NAME"
-  checkIsJust optPort        "PORT"
-  checkIsJust optOpenID      "OPENID_PROVIDER"
-  checkIsJust optDBConf      "DATABASE_CONFIG_FILE"
-  checkIsJust optMongoServer "HAILS_MONGODB_SERVER"
+  checkIsJust [(optName        ,"APP_NAME"            )]
+  checkIsJust [(optPort        ,"PORT"                )]
+  checkIsJust [(optOpenID      ,"OPENID_PROVIDER"     ) {- or -}
+              ,(optPersonaAud  ,"PERSONA_AUDIENCE"    )]
+  when (isJust $ optPersonaAud opts0) $ checkIsJust [(optHmacKey ,"HMAC_KEY")]
+  checkIsJust [(optDBConf      ,"DATABASE_CONFIG_FILE")]
+  checkIsJust [(optMongoServer ,"HAILS_MONGODB_SERVER")]
+  when ((isJust $ optPersonaAud opts0) && (isJust $ optOpenID opts0)) $ do
+    hPutStrLn stderr "Both OpenID and Persona are set."
+    exitFailure
   unless (optSafe opts0 || optForce opts0) $ do
     hPutStrLn stderr "Production code must be Safe, use --force to override"
     exitFailure
@@ -307,8 +337,9 @@ cleanProdOpts opts0 = do
       pkgConf <- findPackageConfInCabalDev cd
       return $ opts0 { optCabalDev = Nothing, optPkgConf = Just pkgConf }
     _ -> return opts0
-    where checkIsJust f msg =
-            when (isNothing $ f opts0) $ do
+    where checkIsJust fs = 
+            unless (any (\f -> isJust $ (fst f) opts0) fs) $ do
+              let msg = List.intercalate " or " $ map snd fs
               hPutStrLn stderr $ "Production mode is strict, missing " ++ msg
               exitFailure
 
@@ -347,6 +378,8 @@ optsToEnv opts = map (\(k, mv) -> (k, fromJust mv)) $
   [toLine optName        "APP_NAME"
   ,("PORT", show `liftM` optPort opts)
   ,toLine optOpenID      "OPENID_PROVIDER"
+  ,toLine optPersonaAud  "PERSONA_AUDIENCE"
+  ,toLine optHmacKey     "HMAC_KEY"
   ,toLine optDBConf      "DATABASE_CONFIG_FILE"
   ,toLine optMongoServer "HAILS_MONGODB_SERVER"
   ,toLine optPkgConf     "PACKAGE_CONF"

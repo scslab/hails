@@ -18,24 +18,34 @@ header on the request if it is from an authenticated user.
 -}
 module Hails.HttpServer.Auth
   ( requireLoginMiddleware
-  -- * Production: OpenID
+  -- * Production
+  -- ** Persona (BrowserID)
+  , personaAuth
+  -- ** OpenID
   , openIdAuth
   -- * Development: basic authentication
   , devBasicAuth
   ) where
+
 import           Control.Monad.IO.Class (liftIO)
 import           Blaze.ByteString.Builder (toByteString)
 import           Control.Monad
 import           Control.Monad.Trans.Resource
 import           Data.Time.Clock
 import           Data.ByteString.Base64
+import           Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as T
 import           Data.Maybe (fromMaybe, isJust, fromJust)
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
+import qualified Data.Conduit as C
+import qualified Data.Conduit.List as C
+import           Data.Digest.Pure.SHA
 import           Network.HTTP.Conduit (withManager)
 import           Network.HTTP.Types
 import           Network.Wai
+import           Web.Authenticate.BrowserId
 import           Web.Authenticate.OpenId
 import           Web.Cookie
 
@@ -52,6 +62,73 @@ devBasicAuth app0 req0 = do
                                                  : requestHeaders req0 }
   requireLoginMiddleware (return resp) app0 req
 
+-- | Authentica user with Mozilla's persona.
+-- If the @X-Hails-Persona-Login@ header is set, this intercepts the
+-- request and verifies the supplied identity assertion, supplied in the
+-- request body.
+--
+-- If the authentication is successful, set the @_hails_user@ and
+-- @_hails_user_hmac@ cookies to identify the user. The former
+-- contains the user email address, the latter contains the MAC that is
+-- used for verifications in later requests.
+--
+-- If the @X-Hails-Persona-Logout@ header is set, this intercepts the
+-- request and deletes the aforementioned cookies.
+-- 
+-- If the app wishes the user to authenticate (by setting @X-Hails-Login@)
+-- this redirects to @audience/login@ -- where the app can call
+-- @navigator.request()@.
+--
+personaAuth :: L8.ByteString -> Text -> Middleware
+personaAuth key audience app0 req0 = do
+   case () of
+    _ | doLogin -> do
+        assertion <- S8.concat `liftM` (requestBody req0 C.$$ C.consume)
+        muser <- withManager $ checkAssertion audience (T.decodeUtf8 $ assertion)
+        case muser of
+          Nothing -> return $ responseLBS status401 [] ""
+          Just usr -> let hmac   = T.pack $ showDigest $ hmacSha1 key
+                                            (L8.fromStrict . T.encodeUtf8 $ usr)
+                      in return $ responseLBS status200
+                            [ ("Set-Cookie", setCookie "_hails_user" usr) 
+                            , ("Set-Cookie", setCookie "_hails_user_hmac" hmac)]
+                            ""
+    _ | doLogout -> return $ responseLBS status200
+                              [ ("Set-Cookie", delCookie "_hails_user")
+                              , ("Set-Cookie", delCookie "_hails_user_hmac")]
+                              ""
+    _           ->
+      let mauth = do cookies <- parseCookies `liftM`
+                                     (lookup "Cookie" $ requestHeaders req0)
+                     usr   <- lookup "_hails_user" cookies
+                     hmac0 <- lookup "_hails_user_hmac" cookies
+                     let hmac1 = showDigest $ hmacSha1 key $ L8.fromStrict usr
+                     return (usr, hmac0 == S8.pack hmac1)
+          req = case mauth of
+                  Just (usr, True) -> req0 { requestHeaders =
+                                               ("X-Hails-User", usr)
+                                               :(requestHeaders req0) }
+                  _ -> req0
+      in requireLoginMiddleware (return $ respRedir req) app0 req
+  where doLogin  = isJust $ lookup "X-Hails-Persona-Login"  $ requestHeaders req0
+        doLogout = isJust $ lookup "X-Hails-Persona-Logout" $ requestHeaders req0
+        setCookie n v = toByteString . renderSetCookie $ def {
+                           setCookieName = n
+                         , setCookiePath = Just "/"
+                         , setCookieValue = T.encodeUtf8 v }
+        delCookie n = toByteString . renderSetCookie $ def {
+                         setCookieName = n
+                       , setCookiePath = Just "/"
+                       , setCookieValue = "deleted"
+                       , setCookieExpires = Just $ UTCTime (toEnum 0) 0 }
+        respRedir req =
+          let cookie =  toByteString . renderSetCookie $ def
+                         { setCookieName = "redirect_to"
+                         , setCookiePath = Just "/"
+                         , setCookieValue = rawPathInfo req }
+          in responseLBS status302
+              [ ("Set-Cookie", cookie)
+              , ("Location", (T.encodeUtf8 audience) `S8.append` "/login") ] ""
 
 -- | Perform OpenID authentication.
 openIdAuth :: T.Text -- ^ OpenID Provider 
