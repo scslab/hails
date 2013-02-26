@@ -86,10 +86,10 @@ main = do
       prodHailsApplication = if (isJust $ optPersonaAud opts)
                                 then persona else openid
       f = case () of
-           _ | optDev opts && isNothing (optPersonaAud opts) ->
-               logStdoutDev . devHailsApplication
-           _ | optDev opts && isJust (optPersonaAud opts) ->
+           _ | optDev opts && 
+               (isJust (optPersonaAud opts) || isJust (optOpenID opts) ) ->
                logStdoutDev . prodHailsApplication . hailsApplicationToWai 
+           _ | optDev opts -> logStdoutDev . devHailsApplication
            _ -> logStdout . prodHailsApplication . hailsApplicationToWai 
   app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
   runSettings (defaultSettings { settingsPort = port })
