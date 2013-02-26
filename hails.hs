@@ -93,7 +93,7 @@ main = do
            _ -> logStdout . prodHailsApplication . hailsApplicationToWai 
   app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
   runSettings (defaultSettings { settingsPort = port })
-              (methodOverridePost $ f app)
+              (catchAllExceptions $ methodOverridePost $ f app)
 
 
 -- | Given an application module name, load the main controller named
