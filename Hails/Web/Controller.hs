@@ -12,7 +12,7 @@ This module exports a definition of a 'Controller', which is simply a
 -}
 
 module Hails.Web.Controller
-  ( Controller
+  ( Controller, ControllerState(..)
   , request
   , requestHeader 
   , body

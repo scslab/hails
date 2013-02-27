@@ -28,6 +28,7 @@ module Hails.HttpServer (
   , browserLabelGuard
   , guardSensitiveResp 
   , sanitizeResp
+  , catchAllExceptions
   -- * Network types
   , module Network.HTTP.Types
   ) where
@@ -39,6 +40,7 @@ import           Data.Conduit
 import           Data.Conduit.List
 
 import           Control.Monad.IO.Class (liftIO)
+import           Control.Monad.Error.Class
 import           Control.Exception (fromException)
 
 
@@ -147,6 +149,12 @@ secureApplication :: Middleware
 secureApplication = browserLabelGuard  -- Return 403, if user should not read
                   . guardSensitiveResp -- Add X-Hails-Sensitive if not public
                   . sanitizeResp       -- Remove Cookies
+
+-- | Catch all exceptions thrown by middleware and return 500.
+catchAllExceptions :: W.Middleware
+catchAllExceptions app req = do
+  app req `catchError` (const $ return resp500)
+    where resp500 = W.responseLBS status500 [] "App threw an exception"
 
 --
 -- Executing Hails applications
