@@ -4,6 +4,7 @@ module Hails.HttpServer.Types (
   -- * Requests
     Request(..)
   , getRequestBodyType, RequestBodyType(..)
+  , addRequestHeader, removeRequestHeader
   -- * Responses
   , Response(..)
   , addResponseHeader, removeResponseHeader
@@ -90,6 +91,17 @@ getRequestBodyType req = do
                         then Just $ S.drop (S.length bound') s'
                         else Nothing
             else Nothing
+
+-- | Add/replace a 'H.Header' to the 'Request'
+addRequestHeader :: Request -> H.Header -> Request
+addRequestHeader req hdr@(hname, _) = req { requestHeaders = hdr:headers }
+
+  where headers = List.filter ((/= hname) . fst) $ requestHeaders req
+-- | Remove a header (if it exists) from the 'Request'
+removeRequestHeader :: Request -> H.HeaderName -> Request
+removeRequestHeader req hname = req { requestHeaders = headers }
+  where headers = List.filter ((/= hname) . fst) $ requestHeaders req
+
 
 --
 -- Response

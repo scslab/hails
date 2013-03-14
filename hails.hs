@@ -16,7 +16,6 @@ import           Hails.HttpServer.Auth
 import           Hails.Version
 
 import           Network.Wai.Handler.Warp
-import           Network.Wai.Middleware.MethodOverridePost
 import           Network.Wai.Middleware.RequestLogger
 
 import           System.Posix.Env (setEnv)
@@ -83,17 +82,17 @@ main = do
       hmac_key = L8.pack . fromJust $ optHmacKey opts
       persona = personaAuth hmac_key $ T.pack . fromJust . optPersonaAud $ opts
       openid  = openIdAuth  $ T.pack . fromJust . optOpenID $ opts
-      prodHailsApplication = if (isJust $ optPersonaAud opts)
-                                then persona else openid
-      f = case () of
-           _ | optDev opts && 
-               (isJust (optPersonaAud opts) || isJust (optOpenID opts) ) ->
-               logStdoutDev . prodHailsApplication . hailsApplicationToWai 
-           _ | optDev opts -> logStdoutDev . devHailsApplication
-           _ -> logStdout . prodHailsApplication . hailsApplicationToWai 
+      logMiddleware  = if optDev opts then logStdoutDev  else logStdout
+      authMiddleware = case () of
+         -- dev/production mode with persona:
+         _ | isJust (optPersonaAud opts) -> persona
+         -- dev/productoin mode with openid:
+         _ | isJust (optOpenID opts)     -> openid
+         -- dev mode:
+         _                               -> devBasicAuth
   app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
-  runSettings (defaultSettings { settingsPort = port })
-              (catchAllExceptions $ methodOverridePost $ f app)
+  runSettings (defaultSettings { settingsPort = port }) $
+    logMiddleware $ execHailsApplication authMiddleware app
 
 
 -- | Given an application module name, load the main controller named

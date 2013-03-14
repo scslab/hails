@@ -9,22 +9,19 @@ the Hails web server and untrusted Hails 'Application's.
 At a high level, a Hails 'Application', is a function from 'Request'
 to 'Response' in the 'DC' monad. Every application response is
 sanitized and sanity checked with the 'secureApplication'
-'Middleware'.
+'Middleware'. Moreover, every 'Request' is sanitized with 'sanitizeReq'
+before handed over to authenticators.
 
-Hails uses Wai, and as such we provide two functions for converting
-Hails 'Application's to Wai 'W.Applicatoin's: '
-'devHailsApplication' used to execute Hails apps in development
-mode, and 'hailsApplicationToWai' that should be used in production
-with an authentication service from "Hails.HttpServer.Auth".
+Hails uses Wai, and as such we provide a function for converting
+Hails 'Application's to Wai 'W.Applicatoin's: 'execHailsApplication'.
 
 -}
 module Hails.HttpServer (
   module Hails.HttpServer.Types
-  -- ** Execute Hails application in development mode
-  , devHailsApplication
   -- ** Execute Hails application
-  , hailsApplicationToWai
+  , execHailsApplication
   -- ** Middleware used by Hails
+  , sanitizeReqMiddleware
   , browserLabelGuard
   , guardSensitiveResp 
   , sanitizeResp
@@ -47,6 +44,7 @@ import           Control.Exception (fromException)
 import           Network.HTTP.Types
 import qualified Network.Wai as W
 import qualified Network.Wai.Application.Static as W
+import           Network.Wai.Middleware.MethodOverridePost
 
 import           LIO
 import           LIO.TCB
@@ -54,7 +52,6 @@ import           LIO.DCLabel
 import           LIO.DCLabel.Privs.TCB
 import           LIO.Labeled.TCB
 
-import           Hails.HttpServer.Auth
 import           Hails.HttpServer.Types
 
 import           System.IO
@@ -81,6 +78,11 @@ waiToHailsReq req = do
                    , queryString = W.queryString req
                    , requestBody = body 
                    , requestTime = curTime }
+
+-- | Remove any unsafe headers, in this case only @X-Hails-User@.
+sanitizeReqMiddleware :: W.Middleware
+sanitizeReqMiddleware app req =  app $ req { W.requestHeaders = headers }
+  where headers = List.filter ((/= "X-Hails-User") . fst) $ W.requestHeaders req
 
 -- | Convert a Hails 'Response' to a WAI 'W.Response'
 hailsToWaiResponse :: Response -> W.Response
@@ -135,7 +137,9 @@ guardSensitiveResp happ p req = do
 sanitizeResp :: Middleware
 sanitizeResp hailsApp conf req = do
   response <- hailsApp conf req
-  return $ removeResponseHeader response "Set-Cookie"
+  return $ foldr (\h r -> removeResponseHeader r h) response unsafeHeaders
+   where unsafeHeaders = ["Set-Cookie", "X-Hails-Label"]
+
   
 
 -- | Returns a secure Hails app such that the result 'Response' is guaranteed
@@ -147,26 +151,28 @@ sanitizeResp hailsApp conf req = do
 -- >                   . 'sanitizeResp'       -- Remove Cookies
 secureApplication :: Middleware
 secureApplication = browserLabelGuard  -- Return 403, if user should not read
+                  . sanitizeResp       -- Remove Cookies and X-Hails-Sensitive
                   . guardSensitiveResp -- Add X-Hails-Sensitive if not public
-                  . sanitizeResp       -- Remove Cookies
 
 -- | Catch all exceptions thrown by middleware and return 500.
 catchAllExceptions :: W.Middleware
-catchAllExceptions app req = do
-  app req `catchError` (const $ return resp500)
+catchAllExceptions app req = app req `catchError` (const $ return resp500)
     where resp500 = W.responseLBS status500 [] "App threw an exception"
 
 --
 -- Executing Hails applications
 --
 
--- | A default Hails handler for development environments. Safely runs
--- a Hails 'Application', using basic HTTP authentication for
--- authenticating users.  Note: authentication will accept any
--- username/password pair, it is solely used to set the user-name.
-devHailsApplication :: Application -> W.Application
-devHailsApplication = devBasicAuth . hailsApplicationToWai
-
+-- | Execute an application, safely filtering unsafe request headers,
+-- overriding method posts,  catching all exceptions, and sanitizing
+-- responses.
+execHailsApplication :: W.Middleware -> Application -> W.Application
+execHailsApplication authMiddleware app =
+    catchAllExceptions
+  . sanitizeReqMiddleware
+  . methodOverridePost
+  . authMiddleware
+  $ \req -> hailsApplicationToWai app req
 
 -- | Safely wraps a Hails 'Application' in a Wai 'W.Application' that can
 -- be run by an application server. The application is executed with the
@@ -176,6 +182,9 @@ devHailsApplication = devBasicAuth . hailsApplicationToWai
 -- label does not flow, it responds with a 403.
 --
 -- All applications serve static content from a @\"static\"@ directory.
+--
+-- Note: this function assumes that the request has already been sanitized.
+-- In most cases, you want to use 'execHailsApplication'.
 hailsApplicationToWai :: Application -> W.Application
 hailsApplicationToWai app0 req0 | isStatic req0 =
   -- Is static request, serve files:
