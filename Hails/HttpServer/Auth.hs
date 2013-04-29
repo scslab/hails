@@ -249,8 +249,8 @@ externalAuth key url app req = do
   let mreqAuth = do
         cookieHeaders <- lookup hCookie $ requestHeaders req
         let cookies = parseCookies cookieHeaders
-        mac0 <- fmap (S8.takeWhile (/= '"') . S8.dropWhile (/= '"')) $ lookup "_hails_user_hmac" cookies
-        user <- fmap (S8.takeWhile (/= '"') . S8.dropWhile (/= '"')) $ lookup "_hails_user" cookies
+        mac0 <- fmap (S8.takeWhile (/= '"') . S8.dropWhile (== '"')) $ lookup "_hails_user_hmac" cookies
+        user <- fmap (S8.takeWhile (/= '"') . S8.dropWhile (== '"')) $ lookup "_hails_user" cookies
         let mac1 = showDigest $ hmacSha1 key (lazyfy user)
         if S8.unpack mac0 == mac1
           then Just $ req { requestHeaders = ("X-Hails-User", user)
