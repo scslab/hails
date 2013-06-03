@@ -3,7 +3,6 @@ module Hails.Data.Hson.Instances (clean, sortDoc) where
 
 import Data.List (sortBy, nubBy)
 import qualified Data.Text as T
-import Data.Time.Clock
 import Control.Applicative ((<$>), (<*>))
 
 import Test.QuickCheck

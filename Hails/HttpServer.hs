@@ -49,8 +49,8 @@ import           Network.Wai.Middleware.MethodOverridePost
 import           LIO
 import           LIO.TCB
 import           LIO.DCLabel
-import           LIO.DCLabel.Privs.TCB
 import           LIO.Labeled.TCB
+import           LIO.Privs.TCB
 
 import           Hails.HttpServer.Types
 
@@ -230,7 +230,7 @@ getRequestConf req =
   let headers = requestHeaders req
       userName  = toComponent `fmap` lookup "x-hails-user" headers
       appName  = '@' : (S8.unpack . S8.takeWhile (/= '.') $ serverName req)
-      appPriv = DCPrivTCB $ toComponent appName
+      appPriv = MintTCB $ toComponent appName
   in RequestConfig
       { browserLabel = maybe dcPub (\un -> dcLabel un anybody) userName
       , requestLabel = maybe dcPub (\un -> dcLabel anybody un) userName

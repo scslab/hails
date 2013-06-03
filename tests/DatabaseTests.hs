@@ -29,7 +29,7 @@ import Data.Typeable
 import LIO
 import LIO.Labeled.TCB
 import LIO.TCB (ioTCB, catchTCB)
-import LIO.Privs.TCB (mintTCB)
+import LIO.Privs.TCB
 import LIO.DCLabel
 import LIO.DCLabel.Instances ()
 
@@ -175,7 +175,7 @@ testPM1Principal = '_' : mkName (TestPM1TCB undefined)
 
 -- | TestPM1's privileges
 testPM1Priv :: DCPriv
-testPM1Priv = mintTCB . dcPrivDesc $ testPM1Principal
+testPM1Priv = MintTCB . dcPrivDesc $ testPM1Principal
 
 -- | Only register TestPM1
 mkDBConfFile :: IO ()
@@ -497,7 +497,7 @@ test_applyCollectionPolicyP_label_by_field = monadicDC $ do
                      in dcLabel (n \/ ("A" :: String)) dcTrue
           lbl     = dcLabel (prin \/ ("A" :: String)) dcTrue
           prin    = "w00t" :: String
-          priv    = mintTCB . dcPrivDesc $ prin
+          priv    = MintTCB . dcPrivDesc $ prin
           cPolicy = CollectionPolicy {
               documentLabelPolicy = fpol
             , fieldLabelPolicies  = Map.fromList [ ("s1", SearchableField)
@@ -524,7 +524,7 @@ testPM2Principal = '_' : mkName (TestPM2TCB undefined)
 
 -- | TestPM2's privileges
 testPM2Priv :: DCPriv
-testPM2Priv = mintTCB . dcPrivDesc $ testPM2Principal
+testPM2Priv = MintTCB . dcPrivDesc $ testPM2Principal
 
 -- | Empty registered policy module
 newtype TestPM2 = TestPM2TCB DCPriv deriving (Show, Typeable)
@@ -618,7 +618,7 @@ test_basic_find_with_pl = monadicDC $ do
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
   Q.assert $ isJust mdoc
-  let priv = mintTCB . dcPrivDesc $ s
+  let priv = MintTCB . dcPrivDesc $ s
   doc' <- run $ unlabelP priv $ fromJust mdoc
   Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
              (sortDoc . merge ["_id" -: _id] . exclude ["pl"] $ doc)
@@ -645,7 +645,7 @@ test_basic_save_with_pl = monadicDC $ do
   plv  <- pick arbitrary
   let pl  = needPolicy (plv :: BsonValue)
   let s = "A" :: String
-      priv = mintTCB . dcPrivDesc $ s
+      priv = MintTCB . dcPrivDesc $ s
       doc1 = merge ["s" -: s , "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc1
   let doc2 = merge ["_id" -: _id, "x" -: ("f00ba12" :: String)] doc1

@@ -69,7 +69,7 @@ import qualified Database.MongoDB as Mongo
 import           Database.MongoDB (GetLastError)
 
 import           LIO
-import           LIO.Privs.TCB (mintTCB)
+import           LIO.Privs.TCB
 import           LIO.TCB (ioTCB, rethrowIoTCB)
 import           LIO.DCLabel
 import           Hails.Data.Hson
@@ -432,7 +432,7 @@ withPolicyModule act = do
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
       pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
-      let priv = mintTCB (toComponent pmOwner)
+      let priv = MintTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
       (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
