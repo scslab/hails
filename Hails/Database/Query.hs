@@ -269,7 +269,7 @@ instance InsertLike HsonDocument where
         Just (_id :: ObjectId) -> do
           mdoc <- findOneP priv $ select [_id_n -: _id] cName
           -- If document exists, check that we can overwrite it:
-          maybe (return ()) (guardWriteP priv . labelOf) mdoc
+          maybe (return ()) (liftLIO . guardWriteP priv . labelOf) mdoc
           -- Okay, save document:
           saveIt ldoc
       where saveIt ldoc =
@@ -306,7 +306,7 @@ instance InsertLike LabeledHsonDocument where
         Just (_id :: ObjectId) -> do
           mdoc <- findOneP priv $ select [_id_n -: _id] cName
           -- If document exists, check that we can overwrite it:
-          maybe (return ()) (guardWriteP' (labelOf ldoc) . labelOf) mdoc
+          maybe (return ()) (liftLIO . guardWriteP' (labelOf ldoc) . labelOf) mdoc
           -- Okay, save document:
           saveIt ldoc
      where guardWriteP' lnew lold = 
@@ -355,11 +355,12 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
       -- Check that all the fields are the same (i.e., if there was a
       -- unlabeled PolicyLabeled value an this will fail):
       let same = compareDoc doc  (unlabelTCB ldocTCB)
-      unless same $ throwLIO PolicyViolation
-      -- Check that label of the passed in document `canFlowToP`
-      -- the label of document created by the policy:
-      unless (canFlowToP priv (labelOf ldoc) (labelOf ldocTCB)) $
-        throwLIO PolicyViolation
+      liftLIO $ do
+        unless same $ throwLIO PolicyViolation
+        -- Check that label of the passed in document `canFlowToP`
+        -- the label of document created by the policy:
+        unless (canFlowToP priv (labelOf ldoc) (labelOf ldocTCB)) $
+          throwLIO PolicyViolation
       -- Perform action on policy-labeled document:
       act ldocTCB
   where compareDoc d1' d2' = 
@@ -442,7 +443,7 @@ next = nextP noPriv
 nextP :: DCPriv -> Cursor -> DBAction (Maybe LabeledHsonDocument)
 nextP p cur = do
   -- Raise current label, can read from DB+collection:
-  taintP p $ curLabel cur
+  liftLIO $ taintP p $ curLabel cur
   -- Read the document:
   mMongoDoc <- execMongoActionTCB $ Mongo.next $ curInternal cur
   case mMongoDoc of
@@ -486,7 +487,7 @@ deleteP p sel = do
   cur <- findP p qry
   forAll cur $ \ld -> do
     -- Can write to the document?
-    guardWriteP p (labelOf ld)
+    liftLIO $ guardWriteP p (labelOf ld)
     -- Delete only _this_ document, avoid TOCTTOU
     let doc' = hsonDocToDataBsonDocTCB $ ["_id"] `include` (unlabelTCB ld)
     -- Remove this document
@@ -540,14 +541,16 @@ withCollection :: DCPriv
                -> DBAction a
 withCollection priv isWrite cName act = do
   db <- getDatabaseP priv
-  -- If this is a write: check that we can write to database:
-  when isWrite $ guardWriteP priv (databaseLabel db)
-  -- Check that we can read collection names associated with DB:
-  cs <- unlabelP priv $ databaseCollections db
-  -- Lookup collection name in the collection set associated with DB:
-  col <- maybe (throwLIO UnknownCollection) return $ getCol cs
-  -- If this is a write: check that we can write to collection:
-  when isWrite $ guardWriteP priv (colLabel col)
+  col <- liftLIO $ do
+    -- If this is a write: check that we can write to database:
+    when isWrite $ guardWriteP priv (databaseLabel db)
+    -- Check that we can read collection names associated with DB:
+    cs <- unlabelP priv $ databaseCollections db
+    -- Lookup collection name in the collection set associated with DB:
+    col0 <- maybe (throwLIO UnknownCollection) return $ getCol cs
+    -- If this is a write: check that we can write to collection:
+    when isWrite $ guardWriteP priv (colLabel col0)
+    return col0
   -- Execute action on collection:
   act col
     where getCol = listToMaybe . Set.toList . Set.filter ((==cName) . colName)

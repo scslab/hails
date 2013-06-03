@@ -228,12 +228,12 @@ initTestPM1 act = do
   withTestPM1 . const . unPMActionTCB $ 
       withClearanceP' testPM1Priv $ act
   where withClearanceP' priv io = do
-          c <- getClearance
+          c <- liftLIO $ getClearance
           let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
-          setClearanceP priv lpriv
+          liftLIO $ setClearanceP priv lpriv
           res <- io
-          c' <- getClearance 
-          setClearanceP priv (partDowngradeP priv c' c)
+          c' <- liftLIO $ getClearance 
+          liftLIO $ setClearanceP priv (partDowngradeP priv c' c)
           return res
 
 -- | Execute a monadic quickcheck action against policy module TestPM1
@@ -265,8 +265,8 @@ prop_labelDatabase_ok :: Property
 prop_labelDatabase_ok = monadicPM1 $ \priv ->
   forAllM arbitrary $ \ldb -> 
   forAllM arbitrary $ \lcol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO $ getClearance
     pre $ canFlowToP priv l ldb  && ldb `canFlowTo` c
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ labelDatabaseP priv ldb lcol
@@ -276,8 +276,8 @@ prop_labelDatabase_ok = monadicPM1 $ \priv ->
 prop_setDatabaseLabel_fail :: Property
 prop_setDatabaseLabel_fail = monadicPM1_fail $ \priv -> do 
   forAllM arbitrary $ \ldb -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre . not $ canFlowToP priv l ldb  && ldb `canFlowTo` c
     run $ setDatabaseLabelP priv ldb
     Q.assert False
@@ -286,8 +286,8 @@ prop_setDatabaseLabel_fail = monadicPM1_fail $ \priv -> do
 prop_setCollectionSetLabel_fail :: Property
 prop_setCollectionSetLabel_fail = monadicPM1_fail $ \priv -> do 
   forAllM arbitrary $ \lcol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre . not $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ setCollectionSetLabelP priv lcol
     Q.assert False
@@ -301,8 +301,8 @@ prop_createCollection_empty_ok :: Property
 prop_createCollection_empty_ok = monadicPM1 $ \priv ->
   forAllM arbitrary $ \lcol -> 
   forAllM arbitrary $ \ccol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     pre $ canFlowToP priv l ccol  && ccol `canFlowTo` c
     let policy = CollectionPolicy {
@@ -315,8 +315,8 @@ prop_createCollection_empty_fail :: Property
 prop_createCollection_empty_fail = monadicPM1_fail $ \priv ->
   forAllM arbitrary $ \lcol -> 
   forAllM arbitrary $ \ccol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre . not $ (canFlowToP priv l lcol  && lcol `canFlowTo` c) && 
                 (canFlowToP priv l ccol  && ccol `canFlowTo` c)
     let policy = CollectionPolicy {
@@ -590,7 +590,7 @@ test_basic_insert_with_pl = monadicDC $ do
 test_basic_insert_fail :: Property
 test_basic_insert_fail = monadicDC $ do
   res <- run $ (withTestPM2 $ const $ do
-    getClearance >>= taint
+    liftLIO $ getClearance >>= taint
     insert_ "public" (["my" -: (1::Int)] :: HsonDocument)
     return False) `catchLIO` (\(_::SomeException) -> return True)
   Q.assert res

@@ -219,9 +219,9 @@ setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
                   -> DCLabel   -- ^ New database label
                   -> PMAction ()
 setDatabaseLabelP p l = liftDB $ do
-  guardAllocP p l
+  liftLIO $ guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
-  guardWriteP p (databaseLabel db)
+  liftLIO $ guardWriteP p (databaseLabel db)
   setDatabaseLabelTCB l
 
 -- | The collections label protects the collection-set of the database.
@@ -244,9 +244,9 @@ setCollectionSetLabelP :: DCPriv      -- ^ Set of privileges
                        -> DCLabel     -- ^ New collections label
                        -> PMAction ()
 setCollectionSetLabelP p l = liftDB $ do
-  guardAllocP p l
+  liftLIO $ guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
-  guardWriteP p (databaseLabel db)
+  liftLIO $ guardWriteP p (databaseLabel db)
   setCollectionSetLabelTCB l
 
 -- | This is the first action that any policy module should execute.  It
@@ -337,10 +337,11 @@ createCollectionP :: DCPriv           -- ^ Privileges
                   -> PMAction ()
 createCollectionP p n l c pol = liftDB $ do
   db <- dbActionDB `liftM` getActionStateTCB
-  taintP p $ databaseLabel db
-  guardWriteP p $ labelOf (databaseCollections db)
-  guardAllocP p l
-  guardAllocP p c
+  liftLIO $ do
+    taintP p $ databaseLabel db
+    guardWriteP p $ labelOf (databaseCollections db)
+    guardAllocP p l
+    guardAllocP p c
   associateCollectionTCB $ collectionTCB n l c newPol
     where newPol = let ps  = fieldLabelPolicies pol
                        ps' = Map.insert (T.pack "_id") SearchableField ps

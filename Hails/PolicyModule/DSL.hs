@@ -703,7 +703,7 @@ runPolicy (PolicyExpM e) = evalState (runErrorT e') Map.empty
 setPolicy :: DCPriv -> PolicyExpM () -> PMAction ()
 setPolicy priv pol = 
   case runPolicy pol of
-    Left err -> throwLIO $ PolicyCompileError err
+    Left err -> liftLIO $ throwLIO $ PolicyCompileError err
     Right policy -> execPolicy policy
   where execPolicy (PolicyExp db cs) = do
           execPolicyDB db 

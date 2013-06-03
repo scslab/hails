@@ -73,7 +73,7 @@ getDatabase = getDatabaseP noPriv
 getDatabaseP :: DCPriv -> DBAction Database
 getDatabaseP p = do
   db <- dbActionDB `liftM` getActionStateTCB
-  taintP p (databaseLabel db)
+  liftLIO $ taintP p (databaseLabel db)
   return db
 
 -- | Arbitrary monad that can perform database actions.
