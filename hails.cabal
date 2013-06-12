@@ -150,35 +150,35 @@ Executable hails
   ghc-options: -package ghc -Wall -fno-warn-orphans
   Build-Depends:
     base              >= 4.5     && < 5.0
-   ,transformers      >= 0.2.2
-   ,mtl               >= 2.0
-   ,containers        >= 0.4.2
-   ,bytestring        >= 0.9
-   ,text              >= 0.11
-   ,parsec            >= 3.1.2
-   ,binary            >= 0.5
-   ,time              >= 1.2.0.5
-   ,lio               >= 0.9.1
-   ,base64-bytestring >= 0.1
-   ,bson              >= 0.2
-   ,mongoDB           >= 1.3.0
-   ,network           >= 2.3
-   ,conduit           >= 0.5
-   ,resourcet         >= 0.3.3.1
-   ,http-conduit      >= 1.5
-   ,wai               >= 1.3
-   ,wai-extra         >= 1.3
-   ,wai-app-static    >= 1.3
-   ,warp              >= 1.3
-   ,http-types        >= 0.7
-   ,authenticate      >= 1.3
-   ,cookie            >= 0.4
-   ,blaze-builder     >= 0.3.1
-   ,directory         >= 1.1
-   ,filepath          >= 1.3
-   ,unix              >= 2.5.1
-   ,ghc-paths         >= 0.1.0.8
-   ,SHA               >= 1.5.0.0
+   ,transformers
+   ,mtl
+   ,containers
+   ,bytestring
+   ,text
+   ,parsec
+   ,binary
+   ,time
+   ,lio
+   ,base64-bytestring
+   ,bson
+   ,mongoDB
+   ,network
+   ,conduit
+   ,resourcet
+   ,http-conduit
+   ,wai
+   ,wai-extra
+   ,wai-app-static
+   ,warp
+   ,http-types
+   ,authenticate
+   ,cookie
+   ,blaze-builder
+   ,directory
+   ,filepath
+   ,unix
+   ,ghc-paths
+   ,SHA
    ,hails
 
 test-suite tests
@@ -190,21 +190,21 @@ test-suite tests
 
   build-depends:
     hails
-   ,base                       >= 4.5
-   ,containers                 >= 0.4.2
-   ,unix                       >= 2.5
-   ,time                       >= 1.2.0.5
-   ,text                       >= 0.11
-   ,QuickCheck                 >= 2.3
-   ,HUnit                      >= 1.2.5
-   ,quickcheck-instances       >= 0.3.0
-   ,test-framework             >= 0.6
-   ,test-framework-quickcheck2 >= 0.2.11
-   ,test-framework-hunit       >= 0.2.7
-   ,lio                        >= 0.9.0.0
-   ,quickcheck-lio-instances   >= 0.9.0.0
-   ,bson                       >= 0.2
-   ,mongoDB                    >= 1.3.0
-   ,wai                        >= 1.3
-   ,wai-test                   >= 1.3
-   ,http-types                 >= 0.7
+   ,base
+   ,containers
+   ,unix
+   ,time
+   ,text
+   ,QuickCheck
+   ,HUnit
+   ,quickcheck-instances
+   ,test-framework
+   ,test-framework-quickcheck2
+   ,test-framework-hunit
+   ,lio
+   ,quickcheck-lio-instances
+   ,bson
+   ,mongoDB
+   ,wai
+   ,wai-test
+   ,http-types
