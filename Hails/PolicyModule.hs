@@ -406,7 +406,7 @@ availablePolicyModules = unsafePerformIO $ do
   ls   <- lines `liftM` readFile conf
   Map.fromList `liftM` mapM xfmLine ls
     where xfmLine l = do (tn, dn) <- readIO l
-                         return (tn,(principal (S8.pack $ '_':tn), dn))
+                         return (tn,(Principal (S8.pack $ '_':tn), dn))
 
 -- | This function is the used to execute database queries on policy
 -- module databases. The function firstly invokes the policy module,
@@ -432,7 +432,7 @@ withPolicyModule act = do
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
       pipe <- ioTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
-      let priv = MintTCB (toComponent pmOwner)
+      let priv = PrivTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
       (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0

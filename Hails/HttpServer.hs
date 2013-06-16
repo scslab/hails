@@ -227,7 +227,7 @@ getRequestConf req =
   let headers = requestHeaders req
       userName  = toComponent `fmap` lookup "x-hails-user" headers
       appName  = '@' : (S8.unpack . S8.takeWhile (/= '.') $ serverName req)
-      appPriv = MintTCB $ toComponent appName
+      appPriv = PrivTCB $ toComponent appName
   in RequestConfig
       { browserLabel = maybe dcPub (\un -> dcLabel un anybody) userName
       , requestLabel = maybe dcPub (\un -> dcLabel anybody un) userName
