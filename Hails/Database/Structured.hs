@@ -23,8 +23,7 @@ module Hails.Database.Structured ( DCRecord(..)
 
 import           Data.Monoid (mappend)
 import           Control.Monad (liftM)
-import           Control.Exception (SomeException)
-                 
+
 import           LIO
 import           LIO.DCLabel
                  
@@ -90,7 +89,7 @@ class DCRecord a where
   --
   findWhereP p query  = liftDB $ do
     mldoc <- findOneP p query
-    c <- getClearance
+    c <- liftLIO $ getClearance
     case mldoc of
       Just ldoc | canFlowToP p (labelOf ldoc) c ->
                     fromDocument `liftM` (liftLIO $ unlabelP p ldoc)
@@ -126,7 +125,7 @@ findAllP p query = liftDB $ do
           mldoc <- nextP p cur
           case mldoc of
             Just ldoc -> do
-              c <- getClearance
+              c <- liftLIO getClearance
               if canFlowTo (labelOf ldoc) c
                 then do md <- fromDocument `liftM` (liftLIO $ unlabelP p ldoc)
                         cursorToRecords cur $ maybe docs (:docs) md
@@ -195,14 +194,15 @@ toLabeledDocumentP :: (MonadDB m, DCLabeledRecord pm a)
                    -> m (DCLabeled Document)
 toLabeledDocumentP p' lr = liftDB $ do
   pmPriv' <- dbActionPriv `liftM` getActionStateTCB
-  -- Fail if not endorsed:
-  pmPriv <- liftLIO $ (evaluate . endorseInstance $ lr) >> return pmPriv'
-                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
-  let p = p' `mappend` pmPriv
-  r <- unlabelP p lr
-  lcur <- getLabel
-  let lres = partDowngradeP p lcur (labelOf lr)
-  labelP p lres $ toDocument r
+  liftLIO $ do
+    -- Fail if not endorsed:
+    pmPriv <- (evaluate . endorseInstance $ lr) >> return pmPriv'
+                      `catch` (\(_ :: SomeException) -> return noPriv)
+    let p = p' `mappend` pmPriv
+    r <- unlabelP p lr
+    lcur <- getLabel
+    let lres = partDowngradeP p lcur (labelOf lr)
+    labelP p lres $ toDocument r
 
 -- | Convert labeled document to labeled record
 fromLabeledDocument :: forall m pm a. (MonadDB m, DCLabeledRecord pm a)
@@ -221,13 +221,13 @@ fromLabeledDocumentP p' ldoc = liftDB $ do
   pmPriv' <- dbActionPriv `liftM` getActionStateTCB
   -- Fail if not endorsed:
   pmPriv <- liftLIO $ (evaluate . endorseInstance $ fake) >> return pmPriv'
-                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
+                      `catch` (\(_ :: SomeException) -> return noPriv)
   let p = p' `mappend` pmPriv
-  doc <- unlabelP p ldoc
-  lcur <- getLabel
+  doc <- liftLIO $ unlabelP p ldoc
+  lcur <- liftLIO $ getLabel
   let lres = partDowngradeP p lcur (labelOf ldoc)
   rec <- fromDocument doc
-  labelP p lres rec
+  liftLIO $ labelP p lres rec
     where fake :: DCLabeled a
           fake = undefined
 

@@ -39,4 +39,6 @@ getTop = Request { requestMethod = methodGet
                  , pathInfo = []
                  , queryString = []
                  , requestBody = undefined
+                 , requestBodyLength = undefined
                  , vault = undefined }
+

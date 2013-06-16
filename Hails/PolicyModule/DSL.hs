@@ -29,19 +29,19 @@ instance PolicyModule UsersPolicyModule where
   'initPolicyModule' priv = do
     'setPolicy' priv $ do
       'database' $ do
-        'readers' '==>' 'anybody'
-        'writers' '==>' 'anybody'
+        'readers' '==>' 'unrestricted'
+        'writers' '==>' 'unrestricted'
         'admins'  '==>' this
       'collection' \"users\" $ do
         'access' $ do
-          'readers' '==>' 'anybody'
-          'writers' '==>' 'anybody'
+          'readers' '==>' 'unrestricted'
+          'writers' '==>' 'unrestricted'
         'clearance' $ do
           'secrecy'   '==>' this
-          'integrity' '==>' 'anybody'
+          'integrity' '==>' 'unrestricted'
         'document' $ \doc -> do
-          'readers' '==>' 'anybody'
-          'writers' '==>' 'anybody'
+          'readers' '==>' 'unrestricted'
+          'writers' '==>' 'unrestricted'
         'field' \"name\"     $ 'searchable'
         'field' \"password\" $ 'labeled' $ \doc -> do
           let user = \"name\" ``at`` doc :: String
@@ -451,7 +451,7 @@ labeled fpol = do
 -- >     secrecy   ==> "Users"
 -- >     integrity ==> "Alice"          
 -- >   document $ \doc ->  do
--- >     readers ==> anybody
+-- >     readers ==> unrestricted
 -- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
 -- >   field "name" searchable
 -- >   field "password" $ labeled $ \doc -> do
@@ -571,7 +571,7 @@ clearance (ColClrExpM acc) = do
 -- > collection "w00t" $ do
 -- >   ...
 -- >   document $ \doc ->  do
--- >     readers ==> anybody
+-- >     readers ==> 'unrestricted'
 -- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
 --
 -- states that every document in the collection is readable by anybody,
@@ -651,7 +651,7 @@ field fName (ColFieldExpM e) = do
 -- >     secrecy   ==> "Users"
 -- >     integrity ==> "Alice"          
 -- >   document $ \doc ->  do
--- >     readers ==> anybody
+-- >     readers ==> 'unrestricted'
 -- >     writers ==> "Alice" \/ (("name" `at`doc) :: String)
 -- >   field "name" searchable
 -- >   field "password" $ labeled $ \doc -> do
@@ -703,7 +703,7 @@ runPolicy (PolicyExpM e) = evalState (runErrorT e') Map.empty
 setPolicy :: DCPriv -> PolicyExpM () -> PMAction ()
 setPolicy priv pol = 
   case runPolicy pol of
-    Left err -> throwLIO $ PolicyCompileError err
+    Left err -> liftLIO $ throwLIO $ PolicyCompileError err
     Right policy -> execPolicy policy
   where execPolicy (PolicyExp db cs) = do
           execPolicyDB db 

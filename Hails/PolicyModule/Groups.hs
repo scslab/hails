@@ -61,7 +61,7 @@ labelRewrite pm lx = do
   -- Apply map to all principals in the label
   let lnew = dcLabel (mk pmap s) (mk pmap i)
   -- Relabel labeled value
-  relabelLabeledP pmPriv lnew lx
+  liftLIO $ relabelLabeledP pmPriv lnew lx
     where getPMPriv = do
             pmPriv <- dbActionPriv `liftM` getActionStateTCB
             -- Make sure that the underlying policy module

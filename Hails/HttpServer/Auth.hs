@@ -23,6 +23,8 @@ module Hails.HttpServer.Auth
   , personaAuth
   -- ** OpenID
   , openIdAuth
+  -- ** Authenticate with external app
+  , externalAuth
   -- * Development: basic authentication
   , devBasicAuth
   ) where
@@ -227,3 +229,37 @@ requestToUri req path = S8.concat $
   , if serverPort req `notElem` [80, 443] then portBS else ""
   , path ]
   where portBS = S8.pack $ ":" ++ show (serverPort req)
+
+
+-- Cookie authentication
+--
+
+-- | Use an external authentication service that sets cookies.
+-- The cookie names are @_hails_user@, whose contents contains the
+-- @user-name@, and @_hails_user_hmac@, whose contents contains
+-- @HMAC-SHA1(user-name)@. This function simply checks that the cookie
+-- exists and the MAC'd user name is correct. If this is the case, it
+-- returns a request with the cookie removed and @x-hails-user@ header
+-- set. Otherwies the original request is returned.
+-- The login service retuns a redirect (to the provided url).
+-- Additionally, cookie @_hails_refer$ is set to the current
+-- URL (@scheme://domain:port/path@).
+externalAuth :: L8.ByteString -> String -> Middleware
+externalAuth key url app req = do
+  let mreqAuth = do
+        cookieHeaders <- lookup hCookie $ requestHeaders req
+        let cookies = parseCookies cookieHeaders
+        mac0 <- fmap (S8.takeWhile (/= '"') . S8.dropWhile (== '"')) $ lookup "_hails_user_hmac" cookies
+        user <- fmap (S8.takeWhile (/= '"') . S8.dropWhile (== '"')) $ lookup "_hails_user" cookies
+        let mac1 = showDigest $ hmacSha1 key (lazyfy user)
+        if S8.unpack mac0 == mac1
+          then Just $ req { requestHeaders = ("X-Hails-User", user)
+                                               : requestHeaders req }
+          else Nothing
+      req0 = maybe req id mreqAuth
+  requireLoginMiddleware redirectResp app req0
+  where redirectResp = return $ responseLBS status302
+                          [(hLocation, S8.pack url)] ""
+        --
+        lazyfy = L8.fromChunks . (:[])
+

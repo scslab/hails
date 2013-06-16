@@ -1,9 +1,13 @@
 *.hi
 *.o
-*_hsc.[ch]
+*.swp
 *~
-*.sw?
-cabal-dev
 /Setup
 /dist
+/doc
+/ls
+/ps
 /tmp
+/cabal-dev
+/.cabal-sandbox
+/cabal.sandbox.config

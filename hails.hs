@@ -82,12 +82,15 @@ main = do
       hmac_key = L8.pack . fromJust $ optHmacKey opts
       persona = personaAuth hmac_key $ T.pack . fromJust . optPersonaAud $ opts
       openid  = openIdAuth  $ T.pack . fromJust . optOpenID $ opts
+      external  = externalAuth  hmac_key
+                                (fromJust $ optExternal $ opts)
       logMiddleware  = if optDev opts then logStdoutDev  else logStdout
       authMiddleware = case () of
          -- dev/production mode with persona:
          _ | isJust (optPersonaAud opts) -> persona
          -- dev/productoin mode with openid:
          _ | isJust (optOpenID opts)     -> openid
+         _ | isJust (optExternal opts)     -> external
          -- dev mode:
          _                               -> devBasicAuth
   app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
@@ -142,6 +145,7 @@ data Options = Options
    , optSafe        :: Bool          -- ^ Use @-XSafe@
    , optForce       :: Bool          -- ^ Force unsafe in production
    , optDev         :: Bool          -- ^ Development/Production
+   , optExternal    :: Maybe String  -- ^ External Auth URL
    , optOpenID      :: Maybe String  -- ^ OpenID provider
    , optHmacKey     :: Maybe String  -- ^ HMAC cookie key
    , optPersonaAud  :: Maybe String  -- ^ Persona audience
@@ -161,6 +165,7 @@ defaultOpts = Options { optName        = Nothing
                       , optSafe        = True
                       , optForce       = False
                       , optDev         = True
+                      , optExternal    = Nothing
                       , optOpenID      = Nothing
                       , optHmacKey     = Nothing
                       , optPersonaAud  = Nothing
@@ -180,6 +185,7 @@ defaultDevOpts = Options { optName        = Just "App"
                          , optSafe        = True
                          , optForce       = False
                          , optDev         = True
+                         , optExternal    = Nothing
                          , optOpenID      = Nothing
                          , optHmacKey     = Just "hails-d34adb33f-key"
                          , optPersonaAud  = Nothing
@@ -267,6 +273,7 @@ envOpts opts env =
                             _ -> optPort opts
        , optOpenID      = mFromEnvOrOpt "OPENID_PROVIDER" optOpenID 
        , optPersonaAud  = mFromEnvOrOpt "PERSONA_AUDIENCE" optPersonaAud
+       , optExternal    = mFromEnvOrOpt "AUTH_URL" optPersonaAud
        , optHmacKey     = mFromEnvOrOpt "HMAC_KEY" optHmacKey
        , optDBConf      = mFromEnvOrOpt "DATABASE_CONFIG_FILE" optDBConf
        , optPkgConf     = mFromEnvOrOpt "PACKAGE_CONF" optPkgConf
@@ -296,6 +303,7 @@ cleanDevOpts opts0 = do
                     , optPort        = mergeMaybe optPort
                     , optOpenID      = mergeMaybe optOpenID
                     , optPersonaAud  = mergeMaybe optPersonaAud
+                    , optExternal    = mergeMaybe optExternal
                     , optHmacKey     = mergeMaybe optHmacKey
                     , optDBConf      = mergeMaybe optDBConf
                     , optMongoServer = mergeMaybe optMongoServer }
@@ -318,7 +326,8 @@ cleanProdOpts opts0 = do
   checkIsJust [(optName        ,"APP_NAME"            )]
   checkIsJust [(optPort        ,"PORT"                )]
   checkIsJust [(optOpenID      ,"OPENID_PROVIDER"     ) {- or -}
-              ,(optPersonaAud  ,"PERSONA_AUDIENCE"    )]
+              ,(optPersonaAud  ,"PERSONA_AUDIENCE"    ) {- or -}
+              ,(optExternal    ,"AUTH_URL")]
   when (isJust $ optPersonaAud opts0) $ checkIsJust [(optHmacKey ,"HMAC_KEY")]
   checkIsJust [(optDBConf      ,"DATABASE_CONFIG_FILE")]
   checkIsJust [(optMongoServer ,"HAILS_MONGODB_SERVER")]

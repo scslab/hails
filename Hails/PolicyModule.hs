@@ -69,8 +69,7 @@ import qualified Database.MongoDB as Mongo
 import           Database.MongoDB (GetLastError)
 
 import           LIO
-import           LIO.Privs.TCB (mintTCB)
-import           LIO.TCB (ioTCB, rethrowIoTCB)
+import           LIO.TCB
 import           LIO.DCLabel
 import           Hails.Data.Hson
 import           Hails.Database.Core
@@ -219,9 +218,9 @@ setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
                   -> DCLabel   -- ^ New database label
                   -> PMAction ()
 setDatabaseLabelP p l = liftDB $ do
-  guardAllocP p l
+  liftLIO $ guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
-  guardWriteP p (databaseLabel db)
+  liftLIO $ guardWriteP p (databaseLabel db)
   setDatabaseLabelTCB l
 
 -- | The collections label protects the collection-set of the database.
@@ -244,9 +243,9 @@ setCollectionSetLabelP :: DCPriv      -- ^ Set of privileges
                        -> DCLabel     -- ^ New collections label
                        -> PMAction ()
 setCollectionSetLabelP p l = liftDB $ do
-  guardAllocP p l
+  liftLIO $ guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
-  guardWriteP p (databaseLabel db)
+  liftLIO $ guardWriteP p (databaseLabel db)
   setCollectionSetLabelTCB l
 
 -- | This is the first action that any policy module should execute.  It
@@ -337,10 +336,11 @@ createCollectionP :: DCPriv           -- ^ Privileges
                   -> PMAction ()
 createCollectionP p n l c pol = liftDB $ do
   db <- dbActionDB `liftM` getActionStateTCB
-  taintP p $ databaseLabel db
-  guardWriteP p $ labelOf (databaseCollections db)
-  guardAllocP p l
-  guardAllocP p c
+  liftLIO $ do
+    taintP p $ databaseLabel db
+    guardWriteP p $ labelOf (databaseCollections db)
+    guardAllocP p l
+    guardAllocP p c
   associateCollectionTCB $ collectionTCB n l c newPol
     where newPol = let ps  = fieldLabelPolicies pol
                        ps' = Map.insert (T.pack "_id") SearchableField ps
@@ -406,7 +406,7 @@ availablePolicyModules = unsafePerformIO $ do
   ls   <- lines `liftM` readFile conf
   Map.fromList `liftM` mapM xfmLine ls
     where xfmLine l = do (tn, dn) <- readIO l
-                         return (tn,(principal (S8.pack $ '_':tn), dn))
+                         return (tn,(Principal (S8.pack $ '_':tn), dn))
 
 -- | This function is the used to execute database queries on policy
 -- module databases. The function firstly invokes the policy module,
@@ -431,21 +431,22 @@ withPolicyModule act = do
                                List.lookup "HAILS_MONGODB_SERVER" env
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
-      pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
-      let priv = mintTCB (toComponent pmOwner)
+      pipe <- ioTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
+      let priv = PrivTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
       (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
       let s2 = s1 { dbActionDB = dbActionDB s1 }
       res <- evalDBAction (act policy) s2
-      rethrowIoTCB $ Mongo.close pipe
+      ioTCB $ Mongo.close pipe
       return res
   where tn = policyModuleTypeName (undefined :: pm)
         pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
         withClearanceP' priv io = do
           c <- getClearance
           let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
-          bracketP priv
+          -- XXX: does this actually work? Used to be bracketP
+          bracket
                    -- Raise clearance:
                    (setClearanceP priv lpriv)
                    -- Lower clearance:

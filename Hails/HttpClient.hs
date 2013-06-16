@@ -137,7 +137,7 @@ simpleHttpP :: DCPriv      -- ^ Privilege
 simpleHttpP p req' = do
   let req = req' { proxy = Nothing, socksProxy = Nothing }
   guardWriteURLP p req
-  resp <- rethrowIoTCB $ C.withManager $ C.httpLbs req
+  resp <- ioTCB $ C.withManager $ C.httpLbs req
   return $ Response { respStatus  = C.responseStatus resp
                     , respHeaders = C.responseHeaders resp
                     , respBody    = C.responseBody resp

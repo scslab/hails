@@ -14,7 +14,7 @@ server :: Application
 server = mkRouter $ do
   routeTop (redirectTo "/users")
   Frank.get "/users" $ do
-    req <- request >>= unlabel
+    req <- request >>= liftLIO . unlabel
     return $ okHtml $ fromString $
       "Welcome to " ++ (show $ serverName req) ++
       "<br/>Go to url: /users/:id/"

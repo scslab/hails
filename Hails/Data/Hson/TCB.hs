@@ -60,8 +60,8 @@ import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.Binary.Put as Binary
 import qualified Data.Binary.Get as Binary
 
-import           LIO.Labeled.TCB (unlabelTCB)
 import           LIO.DCLabel
+import           LIO.TCB
 
 -- | Strict ByeString
 type S8 = S8.ByteString
@@ -171,9 +171,10 @@ newtype Binary = Binary { unBinary :: S8 }
 -- applied to label the field.
 hsonToDataBsonTCB :: HsonValue -> Bson.Value
 hsonToDataBsonTCB (HsonValue b) = bsonToDataBsonTCB b
-hsonToDataBsonTCB (HsonLabeled (HasPolicyTCB lv)) =
+hsonToDataBsonTCB (HsonLabeled (HasPolicyTCB (LabeledTCB _ lv))) =
   toUserDef . hsonDocToDataBsonDocTCB $ 
-     [ HsonField __hails_HsonLabeled_value $ HsonValue (unlabelTCB lv) ]
+     [ HsonField __hails_HsonLabeled_value $
+            HsonValue lv ]
     where toUserDef = Bson.UserDef
                     . Bson.UserDefined
                     . strictify

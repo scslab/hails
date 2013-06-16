@@ -29,7 +29,7 @@ import Data.Typeable
 import LIO
 import LIO.Labeled.TCB
 import LIO.TCB (ioTCB, catchTCB)
-import LIO.Privs.TCB (mintTCB)
+import LIO.Privs.TCB
 import LIO.DCLabel
 import LIO.DCLabel.Instances ()
 
@@ -175,7 +175,7 @@ testPM1Principal = '_' : mkName (TestPM1TCB undefined)
 
 -- | TestPM1's privileges
 testPM1Priv :: DCPriv
-testPM1Priv = mintTCB . dcPrivDesc $ testPM1Principal
+testPM1Priv = MintTCB . dcPrivDesc $ testPM1Principal
 
 -- | Only register TestPM1
 mkDBConfFile :: IO ()
@@ -228,12 +228,12 @@ initTestPM1 act = do
   withTestPM1 . const . unPMActionTCB $ 
       withClearanceP' testPM1Priv $ act
   where withClearanceP' priv io = do
-          c <- getClearance
+          c <- liftLIO $ getClearance
           let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
-          setClearanceP priv lpriv
+          liftLIO $ setClearanceP priv lpriv
           res <- io
-          c' <- getClearance 
-          setClearanceP priv (partDowngradeP priv c' c)
+          c' <- liftLIO $ getClearance 
+          liftLIO $ setClearanceP priv (partDowngradeP priv c' c)
           return res
 
 -- | Execute a monadic quickcheck action against policy module TestPM1
@@ -265,8 +265,8 @@ prop_labelDatabase_ok :: Property
 prop_labelDatabase_ok = monadicPM1 $ \priv ->
   forAllM arbitrary $ \ldb -> 
   forAllM arbitrary $ \lcol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO $ getClearance
     pre $ canFlowToP priv l ldb  && ldb `canFlowTo` c
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ labelDatabaseP priv ldb lcol
@@ -276,8 +276,8 @@ prop_labelDatabase_ok = monadicPM1 $ \priv ->
 prop_setDatabaseLabel_fail :: Property
 prop_setDatabaseLabel_fail = monadicPM1_fail $ \priv -> do 
   forAllM arbitrary $ \ldb -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre . not $ canFlowToP priv l ldb  && ldb `canFlowTo` c
     run $ setDatabaseLabelP priv ldb
     Q.assert False
@@ -286,8 +286,8 @@ prop_setDatabaseLabel_fail = monadicPM1_fail $ \priv -> do
 prop_setCollectionSetLabel_fail :: Property
 prop_setCollectionSetLabel_fail = monadicPM1_fail $ \priv -> do 
   forAllM arbitrary $ \lcol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre . not $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     run $ setCollectionSetLabelP priv lcol
     Q.assert False
@@ -301,8 +301,8 @@ prop_createCollection_empty_ok :: Property
 prop_createCollection_empty_ok = monadicPM1 $ \priv ->
   forAllM arbitrary $ \lcol -> 
   forAllM arbitrary $ \ccol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     pre $ canFlowToP priv l ccol  && ccol `canFlowTo` c
     let policy = CollectionPolicy {
@@ -315,8 +315,8 @@ prop_createCollection_empty_fail :: Property
 prop_createCollection_empty_fail = monadicPM1_fail $ \priv ->
   forAllM arbitrary $ \lcol -> 
   forAllM arbitrary $ \ccol -> do
-    l <- run $ liftDB getLabel
-    c <- run $ liftDB getClearance
+    l <- run $ liftDB $ liftLIO getLabel
+    c <- run $ liftDB $ liftLIO getClearance
     pre . not $ (canFlowToP priv l lcol  && lcol `canFlowTo` c) && 
                 (canFlowToP priv l ccol  && ccol `canFlowTo` c)
     let policy = CollectionPolicy {
@@ -497,7 +497,7 @@ test_applyCollectionPolicyP_label_by_field = monadicDC $ do
                      in dcLabel (n \/ ("A" :: String)) dcTrue
           lbl     = dcLabel (prin \/ ("A" :: String)) dcTrue
           prin    = "w00t" :: String
-          priv    = mintTCB . dcPrivDesc $ prin
+          priv    = MintTCB . dcPrivDesc $ prin
           cPolicy = CollectionPolicy {
               documentLabelPolicy = fpol
             , fieldLabelPolicies  = Map.fromList [ ("s1", SearchableField)
@@ -524,7 +524,7 @@ testPM2Principal = '_' : mkName (TestPM2TCB undefined)
 
 -- | TestPM2's privileges
 testPM2Priv :: DCPriv
-testPM2Priv = mintTCB . dcPrivDesc $ testPM2Principal
+testPM2Priv = MintTCB . dcPrivDesc $ testPM2Principal
 
 -- | Empty registered policy module
 newtype TestPM2 = TestPM2TCB DCPriv deriving (Show, Typeable)
@@ -590,7 +590,7 @@ test_basic_insert_with_pl = monadicDC $ do
 test_basic_insert_fail :: Property
 test_basic_insert_fail = monadicDC $ do
   res <- run $ (withTestPM2 $ const $ do
-    getClearance >>= taint
+    liftLIO $ getClearance >>= taint
     insert_ "public" (["my" -: (1::Int)] :: HsonDocument)
     return False) `catchLIO` (\(_::SomeException) -> return True)
   Q.assert res
@@ -618,7 +618,7 @@ test_basic_find_with_pl = monadicDC $ do
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
   Q.assert $ isJust mdoc
-  let priv = mintTCB . dcPrivDesc $ s
+  let priv = MintTCB . dcPrivDesc $ s
   doc' <- run $ unlabelP priv $ fromJust mdoc
   Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
              (sortDoc . merge ["_id" -: _id] . exclude ["pl"] $ doc)
@@ -645,7 +645,7 @@ test_basic_save_with_pl = monadicDC $ do
   plv  <- pick arbitrary
   let pl  = needPolicy (plv :: BsonValue)
   let s = "A" :: String
-      priv = mintTCB . dcPrivDesc $ s
+      priv = MintTCB . dcPrivDesc $ s
       doc1 = merge ["s" -: s , "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc1
   let doc2 = merge ["_id" -: _id, "x" -: ("f00ba12" :: String)] doc1
