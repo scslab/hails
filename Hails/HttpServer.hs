@@ -36,11 +36,13 @@ import qualified Data.ByteString.Lazy as L
 import           Data.Conduit
 import           Data.Conduit.List
 
+import           Control.Monad (liftM)
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Error.Class
 
 
 import           Network.HTTP.Types
+import           Network.URI (isURI)
 import qualified Network.Wai as W
 import qualified Network.Wai.Application.Static as W
 import           Network.Wai.Middleware.MethodOverridePost
@@ -99,35 +101,32 @@ browserLabelGuard hailsApp conf req = do
              then response
              else Response status403 [] ""
 
--- | Adds the header @X-Hails-Label@ to the response. If the
+-- | Adds the header @Content-Security-Policy@ to the response, if the
 -- label of the computation does not flow to the public label,
--- 'dcPub', the JSON field @isPublic@ is set to @true@, otherwise
--- it is set to @true@ and the JSON @label@ is set to the secrecy
+-- 'dcPub'.  The @default-src@ directive is set to the secrecy
 -- component of the response label (if it is a disjunction
--- of principals is added). An example may be:
+-- of principals). Currently, @'self'@ is always added to the
+-- whitelist. An example may be:
 --
--- > X-Hails-Label = { isPublic: true }
--- 
--- or
---
--- > X-Hails-Label = { isPublic: false, label : ["http://google.com:80", "alice"] }
+-- > Content-Security-Policy: default-src 'self' http://google.com:80 https://a.lvh.me:3000;
 --
 guardSensitiveResp :: Middleware
 guardSensitiveResp happ p req = do
-  response <- happ p req
+  response <- (flip removeResponseHeader) csp `liftM` happ p req
   resultLabel <- getLabel
-  return $ addResponseHeader response $ 
-    ("X-Hails-Label", S8.pack $
-      if resultLabel `canFlowTo` dcPub
-        then "{\"isPublic\": true}"
-        else "{\"isPublic\": false, \"label\": [" ++ mkClientLabel resultLabel ++ "]}")
-      where mkClientLabel l = let s  = dcSecrecy l
-                                  cs = toList s
-                              in if s == dcFalse || length cs /= 1
-                                   then ""
-                                   else List.intercalate ", " $ 
-                                        List.map (show . S8.unpack . principalName) $
-                                        List.head cs
+  return $ if resultLabel `canFlowTo` dcPub
+    then response
+    else addResponseHeader response $ (csp, S8.pack $
+           "default-src "++ mkClientLabel resultLabel ++ ";")
+      where csp = "Content-Security-Policy"
+            mkClientLabel l = 
+              let s  = dcSecrecy l
+                  cs = List.filter isURI $ 
+                       List.map (S8.unpack . principalName) $ 
+                       List.head $ toList s
+              in if s == dcFalse || length (toList s) > 1
+                   then "\'none\'" -- false/conjunction
+                   else unwords $ ["\'self\'", "\'unsafe-inline\'"] ++ cs
 
 -- | Remove anything from the response that could cause inadvertant
 -- declasification. Currently this only removes the @Set-Cookie@
@@ -136,7 +135,7 @@ sanitizeResp :: Middleware
 sanitizeResp hailsApp conf req = do
   response <- hailsApp conf req
   return $ foldr (\h r -> removeResponseHeader r h) response unsafeHeaders
-   where unsafeHeaders = ["Set-Cookie", "X-Hails-Label"]
+   where unsafeHeaders = ["Set-Cookie"]
 
   
 
@@ -145,12 +144,12 @@ sanitizeResp hailsApp conf req = do
 -- straight forward from other middleware:
 --
 -- > secureApplication = 'browserLabelGuard'  -- Return 403, if user should not read
--- >                   . 'guardSensitiveResp' -- Add X-Hails-Sensitive if not public
--- >                   . 'sanitizeResp'       -- Remove Cookies
+-- >                   . 'sanitizeResp'       -- Remove Cookies/CSP
+-- >                   . 'guardSensitiveResp' -- Add CSP if not public
 secureApplication :: Middleware
 secureApplication = browserLabelGuard  -- Return 403, if user should not read
                   . sanitizeResp       -- Remove Cookies and X-Hails-Sensitive
-                  . guardSensitiveResp -- Add X-Hails-Sensitive if not public
+                  . guardSensitiveResp -- Add CSP if not public
 
 -- | Catch all exceptions thrown by middleware and return 500.
 catchAllExceptions :: W.Middleware
