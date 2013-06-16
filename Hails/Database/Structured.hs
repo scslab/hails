@@ -23,8 +23,7 @@ module Hails.Database.Structured ( DCRecord(..)
 
 import           Data.Monoid (mappend)
 import           Control.Monad (liftM)
-import           Control.Exception (SomeException)
-                 
+
 import           LIO
 import           LIO.DCLabel
                  
@@ -198,7 +197,7 @@ toLabeledDocumentP p' lr = liftDB $ do
   liftLIO $ do
     -- Fail if not endorsed:
     pmPriv <- (evaluate . endorseInstance $ lr) >> return pmPriv'
-                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
+                      `catch` (\(_ :: SomeException) -> return noPriv)
     let p = p' `mappend` pmPriv
     r <- unlabelP p lr
     lcur <- getLabel
@@ -222,7 +221,7 @@ fromLabeledDocumentP p' ldoc = liftDB $ do
   pmPriv' <- dbActionPriv `liftM` getActionStateTCB
   -- Fail if not endorsed:
   pmPriv <- liftLIO $ (evaluate . endorseInstance $ fake) >> return pmPriv'
-                      `catchLIO` (\(_ :: SomeException) -> return noPriv)
+                      `catch` (\(_ :: SomeException) -> return noPriv)
   let p = p' `mappend` pmPriv
   doc <- liftLIO $ unlabelP p ldoc
   lcur <- liftLIO $ getLabel

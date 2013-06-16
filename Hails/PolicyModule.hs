@@ -69,8 +69,7 @@ import qualified Database.MongoDB as Mongo
 import           Database.MongoDB (GetLastError)
 
 import           LIO
-import           LIO.Privs.TCB
-import           LIO.TCB (ioTCB, rethrowIoTCB)
+import           LIO.TCB
 import           LIO.DCLabel
 import           Hails.Data.Hson
 import           Hails.Database.Core
@@ -432,21 +431,22 @@ withPolicyModule act = do
                                List.lookup "HAILS_MONGODB_SERVER" env
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
-      pipe <- rethrowIoTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
+      pipe <- ioTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
       let priv = MintTCB (toComponent pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
       (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
       let s2 = s1 { dbActionDB = dbActionDB s1 }
       res <- evalDBAction (act policy) s2
-      rethrowIoTCB $ Mongo.close pipe
+      ioTCB $ Mongo.close pipe
       return res
   where tn = policyModuleTypeName (undefined :: pm)
         pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
         withClearanceP' priv io = do
           c <- getClearance
           let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
-          bracketP priv
+          -- XXX: does this actually work? Used to be bracketP
+          bracket
                    -- Raise clearance:
                    (setClearanceP priv lpriv)
                    -- Lower clearance:

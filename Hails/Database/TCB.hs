@@ -61,8 +61,7 @@ import           Database.MongoDB.Query ( AccessMode(..)
                                         )
 
 import           LIO
-import           LIO.TCB (rethrowIoTCB)
-import           LIO.Labeled.TCB (labelTCB, unlabelTCB)
+import           LIO.TCB
 import           LIO.DCLabel
 
 import           Hails.Data.Hson
@@ -237,7 +236,7 @@ makeDBActionStateTCB priv dbName pipe mode =
                    , dbActionPriv = priv }
     where db = DatabaseTCB { databaseName  = dbName 
                            , databaseLabel = l
-                           , databaseCollections = labelTCB l Set.empty }
+                           , databaseCollections = LabeledTCB l Set.empty }
           l = dcLabel prin prin
           prin = privDesc priv
 
@@ -253,8 +252,8 @@ setDatabaseLabelTCB l = updateActionStateTCB $ \s ->
 setCollectionSetLabelTCB :: DCLabel -> DBAction ()
 setCollectionSetLabelTCB l = updateActionStateTCB $ \s -> 
  let db = dbActionDB s
-     cs = databaseCollections db
-     cs' = labelTCB l $! unlabelTCB cs
+     (LabeledTCB _ cs) = databaseCollections db
+     cs' = LabeledTCB l $! cs
  in s { dbActionDB = db { databaseCollections = cs' } }
 
 -- | Associate a collection with underlying database, ignoring IFC.
@@ -264,9 +263,9 @@ associateCollectionTCB col = updateActionStateTCB $ \s ->
  let db = dbActionDB s
  in s { dbActionDB = doUpdate db }
   where doUpdate db = 
-          let cs = databaseCollections db
-          in  db { databaseCollections = labelTCB (labelOf cs) $
-                                         Set.insert col $ unlabelTCB cs }
+          let (LabeledTCB l cs) = databaseCollections db
+          in  db { databaseCollections = LabeledTCB l $
+                                         Set.insert col cs }
 
 -- | Lift a mongoDB action into the 'DBAction' monad. This function
 -- always executes the action with "Database.MongoDB"\'s @access@. If
@@ -277,7 +276,7 @@ execMongoActionTCB act = do
   let pipe = dbActionPipe s
       mode = dbActionMode s
       db   = databaseName . dbActionDB $ s
-  liftLIO $ rethrowIoTCB $ do
+  liftLIO $ ioTCB $ do
     res <- Mongo.access pipe mode db act
     case res of
       Left err -> throwIO $ ExecFailure err

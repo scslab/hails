@@ -38,7 +38,6 @@ import           Data.Conduit.List
 
 import           Control.Monad.IO.Class (liftIO)
 import           Control.Monad.Error.Class
-import           Control.Exception (fromException)
 
 
 import           Network.HTTP.Types
@@ -49,8 +48,7 @@ import           Network.Wai.Middleware.MethodOverridePost
 import           LIO
 import           LIO.TCB
 import           LIO.DCLabel
-import           LIO.Labeled.TCB
-import           LIO.Privs.TCB
+import           LIO.TCB.DCLabel
 
 import           Hails.HttpServer.Types
 
@@ -195,28 +193,27 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
   hailsRequest <- waiToHailsReq req0
   -- Extract browser/request configuration
   let conf = getRequestConf hailsRequest
-  result <- liftIO $ paranoidDC' conf $ do
-    let lreq = labelTCB (requestLabel conf) hailsRequest
+  (result, dcState) <- liftIO $ tryDCDef conf $ do
+    lreq <- labelP allPrivTCB (requestLabel conf) hailsRequest
     app conf lreq
   case result of
-    Right (response,_) -> return $ hailsToWaiResponse response
+    Right response -> return $ hailsToWaiResponse response
     Left err -> do
       liftIO $ hPutStrLn stderr $ "App threw exception: " ++ show err
-      return $ case fromException err of
-        Just (LabeledExceptionTCB l _) -> 
-          -- as in browserLabelGuard :
-          if l `canFlowTo` (browserLabel conf)
-            then resp500 else resp403 
-        _ -> resp500
+      return $
+        if lioLabel dcState `canFlowTo` (browserLabel conf) then
+          resp500
+          else resp403
     where app = secureApplication app0
           isStatic req = case W.pathInfo req of
                            ("static":_) -> True
                            _            -> False
           resp403 = W.responseLBS status403 [] "" 
           resp500 = W.responseLBS status500 [] ""
-          paranoidDC' conf act =
-            paranoidLIO act $ LIOState { lioLabel = dcPub
-                                       , lioClearance = browserLabel conf}
+          tryDCDef conf act = tryDC $ do
+            putLIOStateTCB $ LIOState { lioLabel = dcPub
+                                     , lioClearance = browserLabel conf}
+            act
 
 
 --

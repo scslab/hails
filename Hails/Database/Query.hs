@@ -65,7 +65,6 @@ import qualified Data.Text as Text
 import qualified Data.Traversable as T
 
 import           Control.Monad
-import           Control.Exception (Exception)
 
 import qualified Data.Bson        as Bson
 import qualified Database.MongoDB as Mongo
@@ -75,7 +74,7 @@ import           Database.MongoDB.Query ( QueryOption(..)
 
 import           LIO
 import           LIO.DCLabel
-import           LIO.Labeled.TCB (unlabelTCB, labelTCB)
+import           LIO.TCB
 
 import           Hails.Data.Hson
 import           Hails.Data.Hson.TCB
@@ -252,9 +251,9 @@ instance InsertLike HsonDocument where
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection,
       -- apply policies:
-      ldoc <- applyCollectionPolicyP priv col doc
+      (LabeledTCB _ ndoc) <- applyCollectionPolicyP priv col doc
       -- No IFC violation, perform insert:
-      let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
+      let bsonDoc = hsonDocToDataBsonDocTCB ndoc
       _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
     where _id i = let HsonValue (BsonObjId i') = dataBsonValueToHsonValueTCB i
                   in i'
@@ -272,8 +271,8 @@ instance InsertLike HsonDocument where
           maybe (return ()) (liftLIO . guardWriteP priv . labelOf) mdoc
           -- Okay, save document:
           saveIt ldoc
-      where saveIt ldoc =
-              let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
+      where saveIt (LabeledTCB _ nd) =
+              let bsonDoc = hsonDocToDataBsonDocTCB nd
               in execMongoActionTCB $ Mongo.save cName bsonDoc
 
 instance InsertLike LabeledHsonDocument where
@@ -284,9 +283,10 @@ instance InsertLike LabeledHsonDocument where
   -- current computation may insert a document it could otherwise not
   -- have created.
   insertP priv cName ldoc' = do
-    guardInsertOrSaveLabeledHsonDocument priv cName ldoc' $ \ldoc ->
+    guardInsertOrSaveLabeledHsonDocument priv cName ldoc' $
+      \(LabeledTCB _ doc) ->
       -- No IFC violation, perform insert:
-      let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
+      let bsonDoc = hsonDocToDataBsonDocTCB doc
       in _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
     where _id i = let HsonValue (BsonObjId i') = dataBsonValueToHsonValueTCB i
                   in i'
@@ -299,14 +299,14 @@ instance InsertLike LabeledHsonDocument where
   -- document it could otherwise not have created.
   saveP priv cName ldoc' = do
     guardInsertOrSaveLabeledHsonDocument priv cName ldoc' $ \ldoc ->
-      let doc   = unlabelTCB ldoc
+      let (LabeledTCB ld doc)   = ldoc
           _id_n = Text.pack "_id"
       in case lookup _id_n doc of
         Nothing -> saveIt ldoc
         Just (_id :: ObjectId) -> do
           mdoc <- findOneP priv $ select [_id_n -: _id] cName
           -- If document exists, check that we can overwrite it:
-          maybe (return ()) (liftLIO . guardWriteP' (labelOf ldoc) . labelOf) mdoc
+          maybe (return ()) (liftLIO . guardWriteP' ld . labelOf) mdoc
           -- Okay, save document:
           saveIt ldoc
      where guardWriteP' lnew lold = 
@@ -314,8 +314,8 @@ instance InsertLike LabeledHsonDocument where
                VMonitorFailure {
                  monitorFailure = CanFlowToViolation
                , monitorMessage = "New document label doesn't flow to the old" }
-           saveIt ldoc =
-             let bsonDoc = hsonDocToDataBsonDocTCB . unlabelTCB $ ldoc
+           saveIt (LabeledTCB _ doc) =
+             let bsonDoc = hsonDocToDataBsonDocTCB doc
              in execMongoActionTCB $ Mongo.save cName bsonDoc
 
 --
@@ -346,23 +346,23 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection
       -- Document is labeled, remove label:
-      let doc = unlabelTCB ldoc
+      let (LabeledTCB ld doc) = ldoc
       -- Check that labels are same as if we had applied them
       -- Apply policies to the unlabeled document,
       -- asserts that labeled values are below collection clearance:
       dbPriv <- dbActionPriv `liftM` getActionStateTCB
-      ldocTCB <- applyCollectionPolicyP dbPriv col doc
+      (LabeledTCB ltcb docTCB) <- applyCollectionPolicyP dbPriv col doc
       -- Check that all the fields are the same (i.e., if there was a
       -- unlabeled PolicyLabeled value an this will fail):
-      let same = compareDoc doc  (unlabelTCB ldocTCB)
+      let same = compareDoc doc docTCB
       liftLIO $ do
         unless same $ throwLIO PolicyViolation
         -- Check that label of the passed in document `canFlowToP`
         -- the label of document created by the policy:
-        unless (canFlowToP priv (labelOf ldoc) (labelOf ldocTCB)) $
+        unless (canFlowToP priv ld ltcb) $
           throwLIO PolicyViolation
       -- Perform action on policy-labeled document:
-      act ldocTCB
+      act $ LabeledTCB ltcb docTCB
   where compareDoc d1' d2' = 
           let d1 = sortDoc d1'
               d2 = sortDoc d2'
@@ -452,12 +452,11 @@ nextP p cur = do
       let doc0 = dataBsonDocToHsonDocTCB mongoDoc
       dbPriv <- dbActionPriv `liftM` getActionStateTCB
       ldoc <- applyCollectionPolicyP dbPriv (curCollection cur) doc0
-      let doc = unlabelTCB ldoc
-          l   = labelOf ldoc
+      let (LabeledTCB l doc) = ldoc
           proj = case curProject cur of
                   [] -> id
                   xs -> include xs
-      return . Just . labelTCB l . proj $ doc
+      return . Just . LabeledTCB l . proj $ doc
 
 -- | Fetch the first document satisfying query, or 'Nothing' if not
 -- documents matched the query.
@@ -485,11 +484,11 @@ deleteP :: DCPriv -> Selection ->  DBAction ()
 deleteP p sel = do
   let qry = select (selectionSelector sel) (selectionCollection sel)
   cur <- findP p qry
-  forAll cur $ \ld -> do
+  forAll cur $ \(LabeledTCB l ld) -> do
     -- Can write to the document?
-    liftLIO $ guardWriteP p (labelOf ld)
+    liftLIO $ guardWriteP p l
     -- Delete only _this_ document, avoid TOCTTOU
-    let doc' = hsonDocToDataBsonDocTCB $ ["_id"] `include` (unlabelTCB ld)
+    let doc' = hsonDocToDataBsonDocTCB $ ["_id"] `include` ld
     -- Remove this document
     execMongoActionTCB $ Mongo.deleteOne $
                           Mongo.select doc' (selectionCollection sel)
@@ -597,7 +596,7 @@ applyCollectionPolicyP p col doc0 = liftLIO $ do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
   typeCheckDocument fieldPolicies doc1
   c <- getClearance
-  withClearanceP p ((colClearance col) `lowerBound` c) $ do
+  withClearanceP p ((colClearance col) `glb` c) $ do
     -- Apply fied policies:
     doc2 <- T.for doc1 $ \f@(HsonField n v) ->
       case v of

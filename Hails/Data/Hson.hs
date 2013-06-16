@@ -109,8 +109,8 @@ import           Data.Conduit.Binary (sourceLbs)
 
 import           LIO
 import           LIO.DCLabel
-import           LIO.Labeled.TCB
-import           LIO.TCB (ioTCB, ShowTCB(..))
+import           LIO.TCB
+import           LIO.TCB.DCLabel
 
 import           Network.Wai.Parse ( FileInfo(..)
                                    , sinkRequestBody
@@ -321,17 +321,17 @@ hsonFieldToBsonField (HsonField n _) =
 -- | Convert a labeled request to a labeled document. Values of fields that
 -- have a name that ends with @[]@ are converted to arrays and the
 -- suffix @[]@ is stripped from the name.
-labeledRequestToHson :: MonadDC m
+labeledRequestToHson :: MonadLIO DCLabel m
                      => DCLabeled Request -> m (DCLabeled HsonDocument)
-labeledRequestToHson lreq = do
+labeledRequestToHson lreq = liftLIO $ do
+  req <- unlabelP allPrivTCB lreq
   let origLabel = labelOf lreq
-      req       = unlabelTCB lreq
       btype     = fromMaybe UrlEncoded $ getRequestBodyType req
   (ps, fs) <- liftLIO . ioTCB $ runResourceT $
                 sourceLbs (requestBody req) $$ sinkRequestBody lbsBackEnd btype
   let psDoc     = map convertPS ps
       fsDoc     = map convertFS fs
-  return $ labelTCB origLabel $ arrayify $ psDoc ++ fsDoc
+  labelP allPrivTCB origLabel $ arrayify $ psDoc ++ fsDoc
   where convertPS (k,v) = HsonField
                            (T.pack . S8.unpack $ k)
                            (toHsonValue . S8.unpack $ v)
