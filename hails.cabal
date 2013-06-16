@@ -83,7 +83,7 @@ Extra-source-files:
 
 Source-repository head
   Type:     git
-  Location: ssh://anonymous@gitstar.com/scs/hails.git
+  Location: ssh://git@github.com.com/scslab/hails.git
 
 
 Library
