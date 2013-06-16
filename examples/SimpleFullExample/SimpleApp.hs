@@ -33,5 +33,5 @@ server _ lreq = do
     [] -> return $ "Welcome to the simple key-value store!\n" ++ use
     _ -> return $ "Unrecognized query. Expecting:\n" ++ use
   return $ Response ok200 [] (L8.pack resp)
-    where use = " Insert: /insert?key1=val1,key2=val2,..\n"
-             ++ " Fetch:  /fetch?key1,key2\n"
+    where use = " Insert: /insert?key1=val1&key2=val2&..\n"
+             ++ " Fetch:  /fetch?key1&key2\n"

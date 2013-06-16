@@ -10,9 +10,9 @@ import           Hails.Data.Hson
 
 server :: Application
 server _ lreq = do
-  req <- unlabel lreq
+  req <- liftLIO $ unlabel lreq
   ldoc <- labeledRequestToHson lreq
-  doc <- unlabel ldoc
+  doc <- liftLIO $ unlabel ldoc
   return $ case pathInfo req of
     ("login":_) -> Response temporaryRedirect307 
                             [("x-hails-login",""),(hLocation,"/")] ""

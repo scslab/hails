@@ -27,19 +27,19 @@ instance PolicyModule StorePolicyModule where
   initPolicyModule priv = do
     setPolicy priv $ do
       database $ do
-        readers ==> anybody
-        writers ==> anybody
+        readers ==> unrestricted
+        writers ==> unrestricted
         admins  ==> this
       collection "store" $ do
         access $ do
-          readers ==> anybody
-          writers ==> anybody
+          readers ==> unrestricted
+          writers ==> unrestricted
         clearance $ do
           secrecy   ==> this
-          integrity ==> anybody
+          integrity ==> unrestricted
         document $ \_ -> do
-          readers ==> anybody
-          writers ==> anybody
+          readers ==> unrestricted
+          writers ==> unrestricted
         field "key" key
     return $ StorePolicyModuleTCB priv
       where this = privDesc priv

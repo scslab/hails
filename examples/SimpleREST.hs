@@ -15,7 +15,7 @@ server = mkRouter $ do
   routeTop (redirectTo "/users")
   routeName "users" $ do
     REST.index $ do
-      req <- request >>= unlabel
+      req <- request >>= liftLIO . unlabel
       return $ okHtml $ fromString $
         "Welcome to " ++ (show $ serverName req) ++
         "<br/>Go to url: /users/:id/"
