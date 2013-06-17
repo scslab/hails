@@ -7,6 +7,7 @@ module Hails.HttpServer.Types (
   , addRequestHeader, removeRequestHeader
   -- * Responses
   , Response(..)
+  , module Network.HTTP.Types
   , addResponseHeader, removeResponseHeader
   -- * Applications and middleware
   , Application, RequestConfig(..)
@@ -20,7 +21,7 @@ import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
 
 import           Network.Socket (SockAddr)
-import qualified Network.HTTP.Types as H
+import           Network.HTTP.Types
 import           Network.Wai.Parse (RequestBodyType(..))
 
 import           Data.Time (UTCTime)
@@ -34,9 +35,9 @@ import           LIO.DCLabel
 -- | A request sent by the end-user.
 data Request = Request {  
   -- | HTTP Request (e.g., @GET@, @POST@, etc.).
-  requestMethod  :: H.Method
+  requestMethod  :: Method
   -- | HTTP version (e.g., 1.1 or 1.0).
-  ,  httpVersion    :: H.HttpVersion
+  ,  httpVersion    :: HttpVersion
   -- | Extra path information sent by the client.
   ,  rawPathInfo    :: S.ByteString
   -- | If no query string was specified, this should be empty. This value
@@ -53,7 +54,7 @@ data Request = Request {
   -- this value should not be used in URL construction.
   ,  serverPort     :: Int
   -- | The request headers.
-  ,  requestHeaders :: H.RequestHeaders
+  ,  requestHeaders :: RequestHeaders
   -- | Was this request made over an SSL connection?
   ,  isSecure       :: Bool
   -- | The client\'s host information.
@@ -62,7 +63,7 @@ data Request = Request {
   -- and without a query string, split on forward slashes,
   ,  pathInfo       :: [Text]
   -- | Parsed query string information
-  ,  queryString    :: H.Query
+  ,  queryString    :: Query
   -- | Lazy ByteString containing the request body.
   ,  requestBody    :: L.ByteString
   -- | Time request was received.
@@ -91,13 +92,13 @@ getRequestBodyType req = do
                         else Nothing
             else Nothing
 
--- | Add/replace a 'H.Header' to the 'Request'
-addRequestHeader :: Request -> H.Header -> Request
+-- | Add/replace a 'Header' to the 'Request'
+addRequestHeader :: Request -> Header -> Request
 addRequestHeader req hdr@(hname, _) = req { requestHeaders = hdr:headers }
 
   where headers = List.filter ((/= hname) . fst) $ requestHeaders req
 -- | Remove a header (if it exists) from the 'Request'
-removeRequestHeader :: Request -> H.HeaderName -> Request
+removeRequestHeader :: Request -> HeaderName -> Request
 removeRequestHeader req hname = req { requestHeaders = headers }
   where headers = List.filter ((/= hname) . fst) $ requestHeaders req
 
@@ -109,20 +110,20 @@ removeRequestHeader req hname = req { requestHeaders = headers }
 -- | A response sent by the app.
 data Response = Response {
   -- | Response status
-    respStatus :: H.Status
+    respStatus :: Status
   -- | Response headers
-  , respHeaders :: H.ResponseHeaders 
+  , respHeaders :: ResponseHeaders 
   -- | Response body
   , respBody :: L.ByteString
   } deriving Show
 
--- | Add/replace a 'H.Header' to the 'Response'
-addResponseHeader :: Response -> H.Header -> Response
+-- | Add/replace a 'Header' to the 'Response'
+addResponseHeader :: Response -> Header -> Response
 addResponseHeader resp hdr@(hname, _) = resp { respHeaders = hdr:headers }
   where headers = List.filter ((/= hname) . fst) $ respHeaders resp
 
 -- | Remove a header (if it exists) from the 'Response'
-removeResponseHeader :: Response -> H.HeaderName -> Response
+removeResponseHeader :: Response -> HeaderName -> Response
 removeResponseHeader resp hname = resp { respHeaders = headers }
   where headers = List.filter ((/= hname) . fst) $ respHeaders resp
 
