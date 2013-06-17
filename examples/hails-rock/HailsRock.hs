@@ -33,7 +33,11 @@ server = mkRouter $ do
   -- List games
   Frank.get "/game" $ withUserOrDoAuth $ \usr -> do
     lreq <- request 
-    gs <- liftLIO . withHailsRockDB $ findAll $ select [] "games"
+    gs <- liftLIO . withHailsRockDB $ do
+      games <- findAll $ select [] "games"
+      plays' <- findAll $ select ["player" -: usr] "plays"
+      let plays = map (Just . game) plays'
+      return $ filter ((`notElem` plays) . gameId) games   
     return $ respondHtml $ listGames usr gs
 
   -- Create a new game view
@@ -52,10 +56,13 @@ server = mkRouter $ do
   Frank.get "/game/:id" $ withUserOrDoAuth $ \usr -> do
     (Just gid) <- queryParam "id"
     let _id = read . S8.unpack $ gid :: ObjectId
-    mgame <- liftLIO . withHailsRockDB $ findBy "games" "_id" _id
+    (mgame, played) <- liftLIO . withHailsRockDB $ do
+      mgame <- findBy "games" "_id" _id
+      mplay <- findWhere $ select ["game" -: _id, "player" -: usr] "plays"
+      return (mgame, isJust (mplay :: Maybe Play))
     return $ case mgame of
                Nothing -> forbidden
-               Just game -> respondHtml $ playGame usr game
+               Just game -> respondHtml $ playGame usr game played
 
   -- Make the move
   Frank.post "/game/:id/play" $ withUserOrDoAuth $ \usr -> do

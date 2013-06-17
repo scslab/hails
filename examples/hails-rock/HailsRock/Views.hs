@@ -89,8 +89,10 @@ listGames usr gs' = do
                td $ toHtml $ creator game
                td $ when (isJust $ opponent game) $ "1-vs-1"
 
-playGame :: UserName -> Game -> Html
-playGame usr game = do
+playGame :: UserName -> Game -> Bool -> Html
+playGame usr game True = do
+  h1 $ "You already played!"
+playGame usr game False = do
   h1 $ "Make your move..."
   div $ do
     let gid = show . fromJust . gameId $ game
