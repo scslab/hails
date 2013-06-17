@@ -30,6 +30,7 @@ module Hails.Web.Router
 import           Prelude hiding (pi)
 
 import           LIO
+import           LIO.TCB
 import           LIO.DCLabel
 
 import qualified Data.ByteString as S
@@ -215,13 +216,14 @@ routeName name route = mroute $ \pi conf lreq -> do
 -- adds a parameter to 'queryString' where the key is the supplied
 -- variable name and the value is the directory consumed from the path.
 routeVar :: Routeable r => S.ByteString -> r -> Route
-routeVar varName route = mroute $ \pi conf lreq -> do
+routeVar varName route = mroute $ \pi conf lreq ->
   if null pi
     then return Nothing
-    else do lreqNext  <- liftLIO $ lFmap lreq $ \req ->
-                let varVal = S8.pack . T.unpack . head $ pi
-                in req {queryString = (varName, Just varVal):(queryString req)}
-            runRoute route (tail pi) conf lreqNext
+    else let lreqNext = lFmapTCB lreq $ \req ->
+               let varVal = S8.pack . T.unpack . head $ pi
+               in req {queryString = (varName, Just varVal):(queryString req)}
+         in runRoute route (tail pi) conf lreqNext
+      where lFmapTCB (LabeledTCB l v) f = LabeledTCB l $ f v
 
 {- $Example
  #example#
