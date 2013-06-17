@@ -109,9 +109,9 @@ type RESTController = RESTControllerM ()
 
 instance Routeable (RESTControllerM a) where
   runRoute controller = rt
-    where rt pi conf req = do
+    where rt pi eq conf req = do
             (_, st) <- runStateT controller defaultRESTControllerState
-            runRoute st pi conf req
+            runRoute st pi eq conf req
 
 
 -- |GET \/

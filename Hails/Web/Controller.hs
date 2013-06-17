@@ -1,4 +1,4 @@
-{-# LANGUAGE Trustworthy #-}
+{-# LANGUAGE Safe #-}
 {-# LANGUAGE OverloadedStrings
            , TypeSynonymInstances
            , FlexibleInstances
@@ -31,12 +31,13 @@ import           Control.Monad.Trans.Reader
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
 
-import           Network.HTTP.Types.Header
 import           Hails.HttpServer
 import           Hails.Web.Router
 import           Hails.Web.Responses
 
-data ControllerState = ControllerState { csRequest :: DCLabeled Request }
+data ControllerState = ControllerState
+                        { csRequest :: DCLabeled Request
+                        , csPathParams :: Query }
 
 -- | A controller is simply a reader monad atop 'DC' with the 'Labeled'
 -- 'Request' as the environment.
@@ -46,19 +47,24 @@ instance MonadLIO DCLabel Controller where
   liftLIO = lift
 
 instance Routeable (Controller Response) where
-  runRoute controller _ _ req = fmap Just $
-    runReaderT controller $ ControllerState req
+  runRoute controller _ eq _ req = fmap Just $
+    runReaderT controller $ ControllerState req eq
 
 -- | Get the underlying request.
 request :: Controller (DCLabeled Request)
 request = fmap csRequest ask
 
+-- | Get the underlying request.
+pathParams :: Controller [(S8.ByteString, Maybe S8.ByteString)]
+pathParams = fmap csPathParams ask
+
 -- | Get the query parameter mathing the supplied variable name.
 queryParam :: S8.ByteString -> Controller (Maybe S8.ByteString)
 queryParam varName = do
   req <- request >>= liftLIO . unlabel
+  params <- pathParams
   let qr = queryString req
-  case lookup varName qr of
+  case lookup varName (params ++ qr) of
     Just n -> return n
     _ -> return Nothing
 
