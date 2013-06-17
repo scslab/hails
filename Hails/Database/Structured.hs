@@ -199,10 +199,15 @@ toLabeledDocumentP p' lr = liftDB $ do
     pmPriv <- (evaluate . endorseInstance $ lr) >> return pmPriv'
                       `catch` (\(_ :: SomeException) -> return noPriv)
     let p = p' `mappend` pmPriv
-    r <- unlabelP p lr
-    lcur <- getLabel
-    let lres = partDowngradeP p lcur (labelOf lr)
-    labelP p lres $ toDocument r
+    scopeClearance $ do
+      -- raise clearance:
+      clr <- getClearance
+      setClearanceP p $ clr `lub` (p %% unrestricted)
+      --
+      r <- unlabelP p lr
+      lcur <- getLabel
+      let lres = partDowngradeP p lcur (labelOf lr)
+      labelP p lres $ toDocument r
 
 -- | Convert labeled document to labeled record
 fromLabeledDocument :: forall m pm a. (MonadDB m, DCLabeledRecord pm a)
@@ -223,11 +228,16 @@ fromLabeledDocumentP p' ldoc = liftDB $ do
   pmPriv <- liftLIO $ (evaluate . endorseInstance $ fake) >> return pmPriv'
                       `catch` (\(_ :: SomeException) -> return noPriv)
   let p = p' `mappend` pmPriv
-  doc <- liftLIO $ unlabelP p ldoc
-  lcur <- liftLIO $ getLabel
-  let lres = partDowngradeP p lcur (labelOf ldoc)
-  rec <- fromDocument doc
-  liftLIO $ labelP p lres rec
+  liftLIO $ scopeClearance $ do
+    -- raise clearance:
+    clr <- getClearance
+    setClearanceP p $ clr `lub` (p %% unrestricted)
+    -- get at the document
+    doc <- liftLIO $ unlabelP p ldoc
+    lcur <- liftLIO $ getLabel
+    let lres = partDowngradeP p lcur (labelOf ldoc)
+    rec <- fromDocument doc
+    labelP p lres rec
     where fake :: DCLabeled a
           fake = undefined
 
