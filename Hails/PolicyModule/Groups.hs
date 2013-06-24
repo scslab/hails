@@ -76,7 +76,7 @@ labelRewrite pm lx = do
           expandPrincipals pMap origPrincipals =
                 -- Function to fold over disjunctions in a CNF, expanding each
                 -- principal with the groups map
-            let cFoldF :: CNF -> CNF -> CNF
+            let cFoldF :: Disjunction -> CNF -> CNF
                 cFoldF disj accm =
                   (Set.foldr expandOne cFalse $ dToSet disj) /\ accm
                 -- Inner fold function, expands a single principal and adds
