@@ -74,9 +74,15 @@ labelRewrite pm lx = do
                                        else mempty
           -- Modify label by expanding principals according to the map
           expandPrincipals pMap origPrincipals =
-            let cFoldF disj accm =
-                  (Set.foldr dFoldF cFalse $ dToSet disj) /\ accm
-                dFoldF princ accm =
+                -- Function to fold over disjunctions in a CNF, expanding each
+                -- principal with the groups map
+            let cFoldF :: CNF -> CNF -> CNF
+                cFoldF disj accm =
+                  (Set.foldr expandOne cFalse $ dToSet disj) /\ accm
+                -- Inner fold function, expands a single principal and adds
+                -- to a CNF (that represents a Disjunction
+                expandOne :: Principal -> CNF -> CNF
+                expandOne princ accm =
                   (dFromList $ pMap Map.! princ) \/ accm
             in Set.foldr cFoldF cTrue $ cToSet origPrincipals
           -- Label components
