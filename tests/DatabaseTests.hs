@@ -17,19 +17,19 @@ import qualified Test.QuickCheck.Monadic as Q
 import Data.Maybe
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Monoid (mempty)
 import Data.Text ()
 
 import qualified Database.MongoDB as Mongo
 
 import Control.Monad
-import Control.Exception
+import Control.Exception hiding (catch)
 
 import Data.Typeable
 
 import LIO
-import LIO.Labeled.TCB
-import LIO.TCB (ioTCB, catchTCB)
-import LIO.Privs.TCB
+import LIO.Labeled
+import LIO.TCB
 import LIO.DCLabel
 import LIO.DCLabel.Instances ()
 
@@ -133,12 +133,15 @@ tests = [
 
 -- | Default clearance
 defClr :: DCLabel
-defClr = dcLabel (toComponent ("A" :: String)) dcTrue
+defClr = ("A" :: String) %% True
 
 -- | Initial clearance is set to some user's principal
 doEvalDC :: DC a -> IO a
 doEvalDC act = evalLIO act $
-  LIOState { lioLabel = dcPub, lioClearance = defClr }
+  LIOState { lioLabel = dcPublic, lioClearance = defClr }
+
+unlabelTCB :: Labeled DCLabel a -> a
+unlabelTCB (LabeledTCB _ a) = a
 
 --
 -- Define test policy module
@@ -175,7 +178,7 @@ testPM1Principal = '_' : mkName (TestPM1TCB undefined)
 
 -- | TestPM1's privileges
 testPM1Priv :: DCPriv
-testPM1Priv = MintTCB . dcPrivDesc $ testPM1Principal
+testPM1Priv = PrivTCB . toCNF $ testPM1Principal
 
 -- | Only register TestPM1
 mkDBConfFile :: IO ()
@@ -189,6 +192,9 @@ mkDBConfFile = do
 mkName :: PolicyModule pm => pm -> TypeName
 mkName x = tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
   where tp = typeRepTyCon $ typeOf x
+
+constCatch :: a -> SomeException -> a
+constCatch a _ = a
 
 --
 -- withPolicy tests
@@ -206,7 +212,7 @@ test_withPolicyModuleP_ok = do
 test_withPolicyModuleP_fail :: Assertion
 test_withPolicyModuleP_fail = do
   mkDBConfFile
-  r <- paranoidDC $ withTestPM1Fake $ \_ ->  return ()
+  (r, _) <- tryDC $ withTestPM1Fake $ \_ ->  return ()
   case r of
     Left _ -> return ()
     Right _ -> assertFailure "withPolicyModule should fail with non-existant DB"
@@ -229,11 +235,11 @@ initTestPM1 act = do
       withClearanceP' testPM1Priv $ act
   where withClearanceP' priv io = do
           c <- liftLIO $ getClearance
-          let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
+          let lpriv = (%%) (privDesc priv) (privDesc priv) `lub` c
           liftLIO $ setClearanceP priv lpriv
           res <- io
           c' <- liftLIO $ getClearance 
-          liftLIO $ setClearanceP priv (partDowngradeP priv c' c)
+          liftLIO $ setClearanceP priv (downgradeP priv c' `lub` c)
           return res
 
 -- | Execute a monadic quickcheck action against policy module TestPM1
@@ -254,7 +260,7 @@ monadicPM1_fail g =
                                `liftM` m f
   where f = const . return . return .  property $ True
         initTestPM1' act = (initTestPM1 act)
-                            `catchTCB` (\_ -> return (property True))
+                            `catch` (constCatch $ return (property True))
 
 --
 -- Label database and collection-set
@@ -306,7 +312,7 @@ prop_createCollection_empty_ok = monadicPM1 $ \priv ->
     pre $ canFlowToP priv l lcol  && lcol `canFlowTo` c
     pre $ canFlowToP priv l ccol  && ccol `canFlowTo` c
     let policy = CollectionPolicy {
-                    documentLabelPolicy = const dcPub
+                    documentLabelPolicy = const dcPublic
                   , fieldLabelPolicies = Map.empty }
     run $ createCollectionP priv "somefuncollection" lcol ccol policy
     Q.assert True
@@ -320,7 +326,7 @@ prop_createCollection_empty_fail = monadicPM1_fail $ \priv ->
     pre . not $ (canFlowToP priv l lcol  && lcol `canFlowTo` c) && 
                 (canFlowToP priv l ccol  && ccol `canFlowTo` c)
     let policy = CollectionPolicy {
-                    documentLabelPolicy = const dcPub
+                    documentLabelPolicy = const dcPublic
                   , fieldLabelPolicies = Map.empty }
     run $ createCollectionP priv "somefuncollection" lcol ccol policy
     Q.assert False
@@ -347,8 +353,8 @@ typeCheckDoc_policies :: Map FieldName FieldPolicy
 typeCheckDoc_policies =
      Map.fromList [ ("s1", SearchableField)
                   , ("s2", SearchableField)
-                  , ("p1", FieldPolicy (const dcPub))
-                  , ("p2", FieldPolicy (const dcPub)) ]
+                  , ("p1", FieldPolicy (const dcPublic))
+                  , ("p2", FieldPolicy (const dcPublic)) ]
 
 -- | Check that all fields of 'typeCheckDoc_policies' exist in a
 -- document and are typed-correctly.
@@ -377,7 +383,7 @@ typeCheckDocument_all_named_exist_fail1 = monadicDC $ do
             , "x1" -: (4 :: Int), "p1" -: pl1, "p2" -: pl2] 
             `merge` doc2
   res <- run $ (typeCheckDocument typeCheckDoc_policies doc >> return False)
-                  `catchTCB` (const $ return True)
+                  `catch` (constCatch $ return True)
   Q.assert res
 
 -- | Check that all fields of 'typeCheckDoc_policies' exist in a
@@ -393,7 +399,7 @@ typeCheckDocument_all_named_exist_fail2 = monadicDC $ do
             , "x1" -: (4 :: Int), "p1" -: pl1, "p2" -: pl2]
             `merge` doc2
   res <- run $ (typeCheckDocument typeCheckDoc_policies doc >> return False)
-                  `catchTCB` (const $ return True)
+                  `catch` (constCatch $ return True)
   Q.assert res
 
 --
@@ -409,15 +415,15 @@ test_applyCollectionPolicyP_allPub = monadicDC $ do
   let doc = [ "s1" -: (1 :: Int), "s3" -: (3 :: Int), "s2" -: (2 :: Int)
             , "x1" -: (4 :: Int), "p1" -: pl1, "p2" -: pl2]
             `merge` doc2
-  ldoc <- run $ applyCollectionPolicyP noPriv col doc
-  Q.assert $ labelOf ldoc == dcPub
+  ldoc <- run $ applyCollectionPolicyP mempty col doc
+  Q.assert $ labelOf ldoc == dcPublic
   let doc' = unlabelTCB ldoc
-  Q.assert $ labelOfPL (at "p1" doc') == dcPub
-  Q.assert $ labelOfPL (at "p2" doc') == dcPub
+  Q.assert $ labelOfPL (at "p1" doc') == dcPublic
+  Q.assert $ labelOfPL (at "p2" doc') == dcPublic
   Q.assert . not $ any isPolicyLabeled $  exclude ["p1", "p2"] doc' 
-    where col = collectionTCB "myColl" dcPub dcPub cPolicy
+    where col = collectionTCB "myColl" dcPublic dcPublic cPolicy
           cPolicy = CollectionPolicy {
-              documentLabelPolicy = const dcPub 
+              documentLabelPolicy = const dcPublic 
             , fieldLabelPolicies  = typeCheckDoc_policies }
 
 -- | Apply all-public policies, field has higher integrity: fail
@@ -426,16 +432,16 @@ test_applyCollectionPolicyP_allPub_field_bottom_fail = monadicDC $ do
   doc2 <- removePolicyLabeled `liftM` pick arbitrary
   pl1 <- needPolicy `liftM` pick arbitrary
   pl2 <- hasPolicy `liftM` pick arbitrary
-  pre $ labelOfPL pl2 /= dcPub
+  pre $ labelOfPL pl2 /= dcPublic
   let doc = [ "s1" -: (1 :: Int), "s3" -: (3 :: Int), "s2" -: (2 :: Int)
             , "x1" -: (4 :: Int), "p1" -: pl1, "p2" -: pl2]
             `merge` doc2
-  res <- run $ (applyCollectionPolicyP noPriv col doc >> return False)
-                `catchTCB` (const $ return True)
+  res <- run $ (applyCollectionPolicyP mempty col doc >> return False)
+                `catch` (constCatch $ return True)
   Q.assert res
-    where col = collectionTCB "myColl" dcPub dcPub cPolicy
+    where col = collectionTCB "myColl" dcPublic dcPublic cPolicy
           cPolicy = CollectionPolicy {
-              documentLabelPolicy = const dcPub 
+              documentLabelPolicy = const dcPublic 
             , fieldLabelPolicies  = typeCheckDoc_policies }
 
 -- | Apply all-public policies, document policy is above clearance
@@ -444,14 +450,14 @@ test_applyCollectionPolicyP_allPub_bad_doc_policy_fail = monadicDC $ do
   doc2 <- removePolicyLabeled `liftM` pick arbitrary
   pl1 <- needPolicy `liftM` pick arbitrary
   pl2 <- hasPolicy `liftM` pick arbitrary
-  pre $ labelOfPL pl2 /= dcPub
+  pre $ labelOfPL pl2 /= dcPublic
   let doc = [ "s1" -: (1 :: Int), "s3" -: (3 :: Int), "s2" -: (2 :: Int)
             , "x1" -: (4 :: Int), "p1" -: pl1, "p2" -: pl2]
             `merge` doc2
-  res <- run $ (applyCollectionPolicyP noPriv col doc >> return False)
-                `catchTCB` (const $ return True)
+  res <- run $ (applyCollectionPolicyP mempty col doc >> return False)
+                `catch` (constCatch $ return True)
   Q.assert res
-    where col = collectionTCB "myColl" dcPub dcPub cPolicy
+    where col = collectionTCB "myColl" dcPublic dcPublic cPolicy
           cPolicy = CollectionPolicy {
               documentLabelPolicy = const defClr
             , fieldLabelPolicies  = typeCheckDoc_policies }
@@ -465,15 +471,15 @@ test_applyCollectionPolicyP_allPub_bad_field_policy_fail = monadicDC $ do
   let doc = [ "s1" -: (1 :: Int), "s3" -: (3 :: Int), "s2" -: (2 :: Int)
             , "x1" -: (4 :: Int), "p1" -: pl1, "p2" -: pl2]
             `merge` doc2
-  res <- run $ (applyCollectionPolicyP noPriv col doc >> return False)
-                `catchTCB` (const $ return True)
+  res <- run $ (applyCollectionPolicyP mempty col doc >> return False)
+                `catch` (constCatch $ return True)
   Q.assert res
-    where col = collectionTCB "myColl" dcPub dcPub cPolicy
+    where col = collectionTCB "myColl" dcPublic dcPublic cPolicy
           cPolicy = CollectionPolicy {
-              documentLabelPolicy = const dcPub
+              documentLabelPolicy = const dcPublic
             , fieldLabelPolicies  = Map.fromList [ ("s1", SearchableField)
                                   , ("s2", SearchableField)
-                                  , ("p1", FieldPolicy (const dcPub))
+                                  , ("p1", FieldPolicy (const dcPublic))
                                   , ("p2", FieldPolicy (const defClr)) ] }
 
 -- | Apply all-public policies
@@ -492,12 +498,12 @@ test_applyCollectionPolicyP_label_by_field = monadicDC $ do
   Q.assert $ labelOfPL (at "p2" doc') == lbl
   Q.assert . not $ any isPolicyLabeled $  exclude ["p1", "p2"] doc' 
   Q.assert True
-    where col = collectionTCB "myColl" dcPub lbl cPolicy
+    where col = collectionTCB "myColl" dcPublic lbl cPolicy
           fpol d  =  let n = at "s1" d :: String
-                     in dcLabel (n \/ ("A" :: String)) dcTrue
-          lbl     = dcLabel (prin \/ ("A" :: String)) dcTrue
+                     in (%%) (n \/ ("A" :: String)) cTrue
+          lbl     = (%%) (prin \/ ("A" :: String)) cTrue
           prin    = "w00t" :: String
-          priv    = MintTCB . dcPrivDesc $ prin
+          priv    = PrivTCB . toCNF $ prin
           cPolicy = CollectionPolicy {
               documentLabelPolicy = fpol
             , fieldLabelPolicies  = Map.fromList [ ("s1", SearchableField)
@@ -524,7 +530,7 @@ testPM2Principal = '_' : mkName (TestPM2TCB undefined)
 
 -- | TestPM2's privileges
 testPM2Priv :: DCPriv
-testPM2Priv = MintTCB . dcPrivDesc $ testPM2Principal
+testPM2Priv = PrivTCB . toCNF $ testPM2Principal
 
 -- | Empty registered policy module
 newtype TestPM2 = TestPM2TCB DCPriv deriving (Show, Typeable)
@@ -532,19 +538,19 @@ newtype TestPM2 = TestPM2TCB DCPriv deriving (Show, Typeable)
 instance PolicyModule TestPM2 where
   initPolicyModule p = do
     -- label db & collection-set
-    labelDatabaseP p dcPub lDB
+    labelDatabaseP p dcPublic lDB
     -- create public storage
-    createCollectionP p "public" dcPub dcPub cPubPolicy
+    createCollectionP p "public" dcPublic dcPublic cPubPolicy
     -- create collection with a policy-label for document and field
-    createCollectionP p "simple_pl" dcPub cCol cSimplePlPolicy
+    createCollectionP p "simple_pl" dcPublic cCol cSimplePlPolicy
     return $ TestPM2TCB p
         where this = privDesc p
-              cCol = dcLabel this dcTrue
-              lDB = dcLabel dcTrue (privDesc p)
-              cPubPolicy = CollectionPolicy { documentLabelPolicy = const dcPub
+              cCol = (%%) this cTrue
+              lDB = (%%) cTrue (privDesc p)
+              cPubPolicy = CollectionPolicy { documentLabelPolicy = const dcPublic
                                             , fieldLabelPolicies = Map.empty }
               fpol d  =  let n = at "s" d :: String
-                         in dcLabel (n \/ this) dcTrue
+                         in (%%) (n \/ this) cTrue
               cSimplePlPolicy = CollectionPolicy {
                   documentLabelPolicy = fpol
                 , fieldLabelPolicies = Map.fromList [ ("pl", FieldPolicy fpol)
@@ -592,7 +598,7 @@ test_basic_insert_fail = monadicDC $ do
   res <- run $ (withTestPM2 $ const $ do
     liftLIO $ getClearance >>= taint
     insert_ "public" (["my" -: (1::Int)] :: HsonDocument)
-    return False) `catchLIO` (\(_::SomeException) -> return True)
+    return False) `catch` (\(_::SomeException) -> return True)
   Q.assert res
 
 
@@ -618,7 +624,7 @@ test_basic_find_with_pl = monadicDC $ do
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
   Q.assert $ isJust mdoc
-  let priv = MintTCB . dcPrivDesc $ s
+  let priv = PrivTCB . toCNF $ s
   doc' <- run $ unlabelP priv $ fromJust mdoc
   Q.assert $ (sortDoc . exclude ["pl"] $ doc') ==
              (sortDoc . merge ["_id" -: _id] . exclude ["pl"] $ doc)
@@ -645,7 +651,7 @@ test_basic_save_with_pl = monadicDC $ do
   plv  <- pick arbitrary
   let pl  = needPolicy (plv :: BsonValue)
   let s = "A" :: String
-      priv = MintTCB . dcPrivDesc $ s
+      priv = PrivTCB . toCNF $ s
       doc1 = merge ["s" -: s , "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" doc1
   let doc2 = merge ["_id" -: _id, "x" -: ("f00ba12" :: String)] doc1
@@ -662,11 +668,11 @@ test_basic_save_with_pl = monadicDC $ do
 test_basic_labeled_insert :: Property
 test_basic_labeled_insert = monadicDC $ do
   doc <- (removePolicyLabeled . clean) `liftM` pick arbitrary
-  ldoc <- run $ label dcPub doc
+  ldoc <- run $ label dcPublic doc
   _id <- run $ withTestPM2 $ const $ do
                          insert "public" ldoc
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "public")
-  Q.assert $ isJust mdoc && labelOf (fromJust mdoc) == dcPub
+  Q.assert $ isJust mdoc && labelOf (fromJust mdoc) == dcPublic
   doc' <- run $ unlabel $ fromJust mdoc
   Q.assert $ sortDoc doc' == sortDoc (merge ["_id" -: _id] doc)
 
@@ -675,7 +681,7 @@ test_basic_labeled_insert_with_pl :: Property
 test_basic_labeled_insert_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   let s = "A" :: String
-      l = dcLabel (s \/ testPM2Principal) dcTrue
+      l = (%%) (s \/ testPM2Principal) cTrue
   plv <- pick arbitrary
   pl  <- run $ label l (plv :: BsonValue)
   let doc = merge ["s" -: s, "pl" -: pl] doc0
@@ -698,7 +704,7 @@ test_basic_labeled_insert_fail = monadicDC $ do
   ldoc <- run $ label clr doc
   res <- run $ (withTestPM2 $ const $ do
                          insert_ "public" ldoc
-                         return False) `catchLIO` (\(_::SomeException) -> return True)
+                         return False) `catch` (\(_::SomeException) -> return True)
   Q.assert res
 
 -- | Test labled insert containing a policy labeled value, fail
@@ -706,15 +712,15 @@ test_basic_labeled_insert_with_pl_fail :: Property
 test_basic_labeled_insert_with_pl_fail = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   let s = "A" :: String
-      lOfdoc = dcLabel (s \/ testPM2Principal) dcTrue
-      l = dcLabel (s \/ testPM2Principal \/ ("failureCause" :: String)) dcTrue
+      lOfdoc = (%%) (s \/ testPM2Principal) cTrue
+      l = (%%) (s \/ testPM2Principal \/ ("failureCause" :: String)) cTrue
   plv <- pick arbitrary
   pl  <- run $ label l (plv :: BsonValue)
   let doc = merge ["s" -: s, "pl" -: pl] doc0
   ldoc <- run $ label lOfdoc doc
   res <- run $ (withTestPM2 $ const $ do
                          insert_ "simple_pl" ldoc
-                         return False) `catchLIO` (\(_::SomeException) -> return True)
+                         return False) `catch` (\(_::SomeException) -> return True)
   Q.assert res
 
 -- | Test labeled save in all-public collection
@@ -722,12 +728,12 @@ test_basic_labeled_save :: Property
 test_basic_labeled_save = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
-  ldoc0 <- run $ label dcPub doc0
+  ldoc0 <- run $ label dcPublic doc0
   _id <- run $ withTestPM2 $ const $ insert "public" ldoc0
-  ldoc1 <- run $ label dcPub $ merge ["_id" -: _id] doc1
+  ldoc1 <- run $ label dcPublic $ merge ["_id" -: _id] doc1
   run $ withTestPM2 $ const $ save "public" ldoc1
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "public")
-  Q.assert $ isJust mdoc && labelOf (fromJust mdoc) == dcPub
+  Q.assert $ isJust mdoc && labelOf (fromJust mdoc) == dcPublic
   doc' <- run $ unlabel $ fromJust mdoc
   Q.assert $ sortDoc doc' == sortDoc (unlabelTCB ldoc1)
 
@@ -737,13 +743,13 @@ test_basic_labeled_save_with_pl = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   let s = "A" :: String
-      lOfdoc = dcLabel (s \/ testPM2Principal \/ ("B" :: String)) dcTrue
-      l = dcLabel (s \/ testPM2Principal) dcTrue
+      lOfdoc = (%%) (s \/ testPM2Principal \/ ("B" :: String)) cTrue
+      l = (%%) (s \/ testPM2Principal) cTrue
   plv <- pick arbitrary
   pl  <- run $ label l (plv :: BsonValue)
   ldoc0 <- run $ label lOfdoc $ merge ["s" -: s, "pl" -: pl] doc0
   _id <- run $ withTestPM2 $ const $ insert "simple_pl" ldoc0
-  ldoc1 <- run $ label dcPub $ merge ["_id" -: _id,"s" -: s, "pl" -: pl] doc1
+  ldoc1 <- run $ label dcPublic $ merge ["_id" -: _id,"s" -: s, "pl" -: pl] doc1
   run $ withTestPM2 $ const $ save "simple_pl" ldoc1
   mdoc <- run $ withTestPM2 $ const $ findOne (select ["_id" -: _id] "simple_pl")
   Q.assert $ isJust mdoc
@@ -759,11 +765,11 @@ test_basic_labeled_save_fail :: Property
 test_basic_labeled_save_fail = monadicDC $ do
   doc0 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
   doc1 <- (removePolicyLabeled . clean) `liftM` pick arbitrary
-  ldoc0 <- run $ label dcPub doc0
+  ldoc0 <- run $ label dcPublic doc0
   _id <- run $ withTestPM2 $ const $ insert "public" ldoc0
   clr <- run $ getClearance
   ldoc1 <- run $ label clr $ merge ["_id" -: _id] doc1
   res <- run $ (withTestPM2 $ const $ do
                   save "public" ldoc1
-                  return False) `catchLIO` (\(_::SomeException) -> return True)
+                  return False) `catch` (constCatch $ return True)
   Q.assert res

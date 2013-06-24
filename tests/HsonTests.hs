@@ -10,7 +10,7 @@ import Data.Text (Text)
 import Test.Framework (Test, testGroup)
 import Test.Framework.Providers.QuickCheck2 (testProperty)
 
-import LIO.Labeled.TCB
+import LIO.TCB
 import Hails.Data.Hson
 import Hails.Data.Hson.TCB
 import Hails.Data.Hson.Instances ()
@@ -147,9 +147,9 @@ testToFromDocuments d =
     where
           veq v1@(HsonField _ (HsonValue _))
               v2@(HsonField _ (HsonValue _)) = v1 == v2
-          veq (HsonField n1 (HsonLabeled (HasPolicyTCB v1)))
+          veq (HsonField n1 (HsonLabeled (HasPolicyTCB (LabeledTCB _ v1))))
               (HsonField n2 (HsonLabeled (NeedPolicyTCB v2))) =
-                n1 == n2 && (unlabelTCB v1) == v2
+                n1 == n2 && v1 == v2
           veq _  _ = False
           needsPolicy (HsonField _ (HsonLabeled (NeedPolicyTCB _))) = True
           needsPolicy _ = False
