@@ -11,9 +11,7 @@ An app may then relabel a labeled value by using 'labelRewrite'.
 module Hails.PolicyModule.Groups ( Groups(..)
                                  , labelRewrite ) where
 
-import           Data.Maybe
 import           Data.Monoid
-import qualified Data.List as List
 import qualified Data.Set as Set
 import qualified Data.Map as Map
 
@@ -76,9 +74,10 @@ labelRewrite pm lx = do
                                        else mempty
           -- Modify label by expanding principals according to the map
           expandPrincipals pMap origPrincipals =
-            let cFoldF disj accm = (Set.foldr dFoldF cFalse $ dToSet disj) /\ accm
-                dFoldF :: Principal -> CNF -> CNF
-                dFoldF principal accm = (dFromList $ pMap Map.! principal) \/ accm
+            let cFoldF disj accm =
+                  (Set.foldr dFoldF cFalse $ dToSet disj) /\ accm
+                dFoldF princ accm =
+                  (dFromList $ pMap Map.! princ) \/ accm
             in Set.foldr cFoldF cTrue $ cToSet origPrincipals
           -- Label components
           s = dcSecrecy $ labelOf lx

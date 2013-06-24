@@ -77,6 +77,7 @@ module Hails.PolicyModule.DSL (
   -- * Label components (or roles)
   , readers, secrecy
   , writers, integrity
+  , unrestricted
   , admins
   , (==>), (<==)
   -- * Creating databases label policies
@@ -744,3 +745,6 @@ instance Exception PolicySpecificiationError
 fromRight :: Either String b -> b
 fromRight (Right x) = x
 fromRight (Left e)  = throw . PolicyRuntimeError $ e
+
+unrestricted :: CNF
+unrestricted = cTrue
