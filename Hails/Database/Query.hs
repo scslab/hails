@@ -54,6 +54,7 @@ module Hails.Database.Query (
 
 import           Prelude hiding (lookup)
 import           Data.Maybe
+import           Data.Monoid
 import           Data.List (sortBy)
 import qualified Data.List as List
 import           Data.Map (Map)
@@ -73,6 +74,7 @@ import           Database.MongoDB.Query ( QueryOption(..)
                                         , BatchSize)
 
 import           LIO
+import           LIO.Error
 import           LIO.DCLabel
 import           LIO.TCB
 
@@ -201,7 +203,7 @@ class InsertLike doc where
   insert :: CollectionName
          -> doc
          -> DBAction ObjectId
-  insert = insertP noPriv
+  insert = insertP mempty
 
   -- | Same as 'insert' except it does not return @_id@
   insert_ :: CollectionName
@@ -232,7 +234,7 @@ class InsertLike doc where
   save :: CollectionName
        -> doc
        -> DBAction ()
-  save = saveP noPriv
+  save = saveP mempty
 
   -- | Same as 'save', but uses privileges when applying the
   -- policies and performing label comparisons.
@@ -310,10 +312,8 @@ instance InsertLike LabeledHsonDocument where
           -- Okay, save document:
           saveIt ldoc
      where guardWriteP' lnew lold = 
-             unless (canFlowToP priv lnew lold) $ throwLIO $ 
-               VMonitorFailure {
-                 monitorFailure = CanFlowToViolation
-               , monitorMessage = "New document label doesn't flow to the old" }
+             unless (canFlowToP priv lnew lold) $ labelErrorP
+              "New document label doesn't flow to the old" priv [lnew, lold]
            saveIt (LabeledTCB _ doc) =
              let bsonDoc = hsonDocToDataBsonDocTCB doc
              in execMongoActionTCB $ Mongo.save cName bsonDoc
@@ -396,7 +396,7 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
 -- 'order', or 'hint' are /ignored/ (as opposed to throwing an
 -- exception).
 find :: Query -> DBAction Cursor
-find = findP noPriv
+find = findP mempty
 
 -- | Same as 'find', but uses privileges when reading from the
 -- collection and database.
@@ -437,7 +437,7 @@ findP priv query = do
 -- The returned document is labeled according to the underlying
 -- 'Collection' policy.
 next :: Cursor -> DBAction (Maybe LabeledHsonDocument)
-next = nextP noPriv
+next = nextP mempty
 
 -- | Same as 'next', but usess privileges when raising the current label.
 nextP :: DCPriv -> Cursor -> DBAction (Maybe LabeledHsonDocument)
@@ -461,7 +461,7 @@ nextP p cur = do
 -- | Fetch the first document satisfying query, or 'Nothing' if not
 -- documents matched the query.
 findOne :: Query -> DBAction (Maybe LabeledHsonDocument)
-findOne = findOneP noPriv
+findOne = findOneP mempty
 
 -- | Same as 'findOne', but uses privileges when performing label
 -- comparisons.
@@ -477,7 +477,7 @@ findOneP p q = findP p q >>= nextP p
 -- existing documents. That is, the current label must flow
 -- to the label of each document that matches the selection.
 delete :: Selection ->  DBAction ()
-delete = deleteP noPriv
+delete = deleteP mempty
 
 -- | Same as 'delete', but uses privileges.
 deleteP :: DCPriv -> Selection ->  DBAction ()
@@ -587,7 +587,7 @@ withCollection priv isWrite cName act = do
 -- Additionally, these labels must flow to the label of the collection
 -- clearance. (Of course, in both cases privileges are used to allow for
 -- more permissive flows.)
-applyCollectionPolicyP :: MonadDC m
+applyCollectionPolicyP :: MonadLIO DCLabel m
                        => DCPriv        -- ^ Privileges
                        -> Collection    -- ^ Collection and policies
                        -> HsonDocument  -- ^ Document to apply policies to

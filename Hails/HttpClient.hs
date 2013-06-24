@@ -1,6 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE FlexibleInstances,
-             MultiParamTypeClasses #-}
+             MultiParamTypeClasses,
+             FlexibleContexts #-}
 {- |
 
 Exports basic HTTP client functions inside the 'DC' Monad.
@@ -95,6 +96,7 @@ module Hails.HttpClient (
 
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.Conduit as C
+import           Data.Monoid
                               
 import           Control.Failure
 import           Control.Exception
@@ -128,10 +130,11 @@ type Request = C.Request (C.ResourceT IO)
 -- | Perform a simple HTTP(S) request.
 simpleHttp :: Request  -- ^ Request
            -> DC Response
-simpleHttp = simpleHttpP noPriv
+simpleHttp = simpleHttpP noPrivs
 
 -- | Same as 'simpleHttp', but uses privileges.
-simpleHttpP :: DCPriv      -- ^ Privilege
+simpleHttpP :: PrivDesc DCLabel p
+            => Priv p      -- ^ Privilege
             -> Request     -- ^ Request
             -> DC Response
 simpleHttpP p req' = do
@@ -157,7 +160,7 @@ simpleGetHttpP p url = do
 
 -- | Simple HTTP GET request.
 simpleGetHttp :: String -> DC Response
-simpleGetHttp = simpleGetHttpP noPriv
+simpleGetHttp = simpleGetHttpP mempty
 
 -- | Simple HTTP HEAD request.
 simpleHeadHttpP :: DCPriv     -- ^ Privilege
@@ -169,7 +172,7 @@ simpleHeadHttpP p url = do
 
 -- | Simple HTTP HEAD request.
 simpleHeadHttp :: String -> DC Response
-simpleHeadHttp = simpleHeadHttpP noPriv
+simpleHeadHttp = simpleHeadHttpP mempty
 
 
 --
@@ -177,7 +180,7 @@ simpleHeadHttp = simpleHeadHttpP noPriv
 --
 
 -- | Check that current label can flow to label of request.
-guardWriteURLP :: DCPriv -> Request -> DC ()
+guardWriteURLP :: PrivDesc DCLabel p => Priv p -> Request -> DC ()
 guardWriteURLP p req = do
   let (lr, lw) = labelOfReq req
   guardAllocP p lr
@@ -203,9 +206,9 @@ guardWriteURLP p req = do
 -- absolute URL makes senes.
 labelOfReq :: Request -> (DCLabel, DCLabel)
 labelOfReq req =
-  let scheme = if secure req then "https://" else "http://"
-      prin = concat [scheme, S8.unpack (host req), ':' : show (port req)]
-  in (dcLabel (toComponent prin) dcTrue, dcLabel dcTrue (toComponent prin))
+  let scheme = if secure req then (S8.pack "https://") else (S8.pack "http://")
+      prin = principalBS $ S8.concat [scheme, host req, S8.pack ":", S8.pack $ show (port req)]
+  in (prin %% True, True %% prin)
 
 -- | Convert a URL into a 'Request'.
 --

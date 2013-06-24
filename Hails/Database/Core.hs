@@ -29,6 +29,7 @@ module Hails.Database.Core (
   , Pipe, AccessMode(..), master, slaveOk
   ) where
 
+import           Data.Monoid
 import           Control.Monad
 import           Control.Monad.Trans.State
 
@@ -66,7 +67,7 @@ evalDBAction a s = fst `liftM` runDBAction a s
 -- label on collections which can be projected given a 'Database'
 -- value.
 getDatabase :: DBAction Database
-getDatabase = getDatabaseP noPriv
+getDatabase = getDatabaseP mempty
 
 -- | Same as 'getDatabase', but uses privileges when raising the
 -- current label.

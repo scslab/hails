@@ -55,11 +55,11 @@ module Hails.PolicyModule (
 
 
 import           Data.Maybe
+import           Data.Monoid
 import qualified Data.List as List
 import           Data.Map (Map)
 import qualified Data.Map as Map
 import           Data.Typeable
-import qualified Data.ByteString.Char8 as S8
 import qualified Data.Text as T
 import qualified Data.Bson as Bson
 
@@ -206,7 +206,7 @@ to set them using a single function 'labelDatabaseP'.
 -- database label. The latter requirement  suggests that every policy
 -- module use 'setDatabaseLabelP' when first changing the label.
 setDatabaseLabel :: DCLabel -> PMAction ()
-setDatabaseLabel = setDatabaseLabelP noPriv
+setDatabaseLabel = setDatabaseLabelP mempty
 
 -- | Same as 'setDatabaseLabel', but uses privileges when performing
 -- label comparisons. If a policy module wishes to allow other policy
@@ -235,7 +235,7 @@ setDatabaseLabelP p l = liftDB $ do
 -- the label of the database which protects the label of the
 -- colleciton set. In most cases code should use 'setCollectionSetLabelP'.
 setCollectionSetLabel :: DCLabel -> PMAction ()
-setCollectionSetLabel = setCollectionSetLabelP noPriv
+setCollectionSetLabel = setCollectionSetLabelP mempty
 
 -- | Same as 'setCollectionSetLabel', but uses the supplied privileges
 -- when performing label comparisons.
@@ -324,7 +324,7 @@ createCollection :: CollectionName  -- ^ Collection name
                  -> DCLabel         -- ^ Collection clearance
                  -> CollectionPolicy-- ^ Collection policy
                  -> PMAction ()
-createCollection = createCollectionP noPriv
+createCollection = createCollectionP mempty
 
 -- | Same as 'createCollection', but uses privileges when performing
 -- IFC checks.
@@ -406,7 +406,7 @@ availablePolicyModules = unsafePerformIO $ do
   ls   <- lines `liftM` readFile conf
   Map.fromList `liftM` mapM xfmLine ls
     where xfmLine l = do (tn, dn) <- readIO l
-                         return (tn,(Principal (S8.pack $ '_':tn), dn))
+                         return (tn,(principal ('_':tn), dn))
 
 -- | This function is the used to execute database queries on policy
 -- module databases. The function firstly invokes the policy module,
@@ -432,7 +432,7 @@ withPolicyModule act = do
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
       pipe <- ioTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
-      let priv = PrivTCB (toComponent pmOwner)
+      let priv = PrivTCB (toCNF pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
       (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
@@ -444,14 +444,14 @@ withPolicyModule act = do
         pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
         withClearanceP' priv io = do
           c <- getClearance
-          let lpriv = dcLabel (privDesc priv) (privDesc priv) `lub` c
+          let lpriv = (priv %%  priv) `lub` c
           -- XXX: does this actually work? Used to be bracketP
           bracket
                    -- Raise clearance:
                    (setClearanceP priv lpriv)
                    -- Lower clearance:
                    (const $ do c' <- getClearance 
-                               setClearanceP priv (partDowngradeP priv c' c))
+                               setClearanceP priv (downgradeP priv c' `lub` c))
                    -- Execute policy module entry point, in between:
                    (const io)
 

@@ -16,6 +16,7 @@ module HailsRock.MP ( HailsRockModule
 import Prelude hiding (lookup)
 
 import Data.Maybe (listToMaybe)
+import Data.Monoid (mempty)
 import Data.Typeable
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.Text as T
@@ -31,8 +32,6 @@ import Hails.Database.Structured
 import Hails.PolicyModule
 import Hails.PolicyModule.DSL
 import Hails.Web
-
-import LIO.TCB
 
 -- | A game contains can be public or contain a single opponent
 data Game = Game { gameId   :: Maybe ObjectId
@@ -80,7 +79,7 @@ instance DCRecord Game where
   recordCollection _ = "games"
 
 instance DCLabeledRecord HailsRockModule Game where
-  endorseInstance _ = HailsRockModuleTCB noPriv
+  endorseInstance _ = HailsRockModuleTCB mempty
 
 instance DCRecord Play where
   fromDocument doc = do
@@ -103,7 +102,7 @@ instance DCRecord Play where
   recordCollection _ = "plays"
 
 instance DCLabeledRecord HailsRockModule Play where
-  endorseInstance _ = HailsRockModuleTCB noPriv
+  endorseInstance _ = HailsRockModuleTCB mempty
 
 --
 --
