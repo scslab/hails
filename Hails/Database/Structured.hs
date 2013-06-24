@@ -21,7 +21,7 @@ module Hails.Database.Structured ( DCRecord(..)
                                  , toLabeledDocumentP, fromLabeledDocumentP
                                  ) where
 
-import           Data.Monoid (mappend)
+import           Data.Monoid (mappend, mempty)
 import           Control.Monad (liftM)
 
 import           LIO
@@ -70,13 +70,13 @@ class DCRecord a where
   --
 
   --
-  findBy = findByP noPriv
+  findBy = findByP mempty
   --
-  findWhere = findWhereP noPriv
+  findWhere = findWhereP mempty
   --
-  insertRecord = insertRecordP noPriv
+  insertRecord = insertRecordP mempty
   --
-  saveRecord = saveRecordP noPriv
+  saveRecord = saveRecordP mempty
   --
   insertRecordP p r = liftDB $ do
     insertP p (recordCollection r) $ toDocument r
@@ -113,7 +113,7 @@ class DCRecord a where
 -- | Find all records that satisfy the query and can be read, subject
 -- to the current clearance.
 findAll :: (DCRecord a, MonadDB m) => Query -> m [a]
-findAll = findAllP noPriv
+findAll = findAllP mempty
 
 -- | Same as 'findAll', but uses privileges.
 findAllP :: (DCRecord a, MonadDB m)
@@ -164,9 +164,9 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   --
 
   --
-  insertLabeledRecord lrec = insertLabeledRecordP noPriv lrec
+  insertLabeledRecord lrec = insertLabeledRecordP mempty lrec
   --
-  saveLabeledRecord lrec = saveLabeledRecordP noPriv lrec
+  saveLabeledRecord lrec = saveLabeledRecordP mempty lrec
   --
   insertLabeledRecordP p lrec = liftDB $ do
     let cName = recordCollection (forceType lrec)
@@ -183,7 +183,7 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
 toLabeledDocument :: (MonadDB m, DCLabeledRecord pm a)
                   => DCLabeled a
                   -> m (DCLabeled Document)
-toLabeledDocument = toLabeledDocumentP noPriv
+toLabeledDocument = toLabeledDocumentP mempty
 
 -- | Uses the policy modules\'s privileges to convert a labeled record
 -- to a labeled document, if the policy module created an instance of
@@ -197,23 +197,23 @@ toLabeledDocumentP p' lr = liftDB $ do
   liftLIO $ do
     -- Fail if not endorsed:
     pmPriv <- (evaluate . endorseInstance $ lr) >> return pmPriv'
-                      `catch` (\(_ :: SomeException) -> return noPriv)
+                      `catch` (\(_ :: SomeException) -> return mempty)
     let p = p' `mappend` pmPriv
     scopeClearance $ do
       -- raise clearance:
       clr <- getClearance
-      setClearanceP p $ clr `lub` (p %% unrestricted)
+      setClearanceP p $ clr `lub` (p %% True)
       --
       r <- unlabelP p lr
       lcur <- getLabel
-      let lres = partDowngradeP p lcur (labelOf lr)
+      let lres = downgradeP p lcur `lub` (labelOf lr)
       labelP p lres $ toDocument r
 
 -- | Convert labeled document to labeled record
 fromLabeledDocument :: forall m pm a. (MonadDB m, DCLabeledRecord pm a)
                     => DCLabeled Document
                     -> m (DCLabeled a)
-fromLabeledDocument = fromLabeledDocumentP noPriv
+fromLabeledDocument = fromLabeledDocumentP mempty
 
 -- | Uses the policy modules\'s privileges to convert a labeled document
 -- to a labeled record, if the policy module created an instance of
@@ -226,16 +226,16 @@ fromLabeledDocumentP p' ldoc = liftDB $ do
   pmPriv' <- dbActionPriv `liftM` getActionStateTCB
   -- Fail if not endorsed:
   pmPriv <- liftLIO $ (evaluate . endorseInstance $ fake) >> return pmPriv'
-                      `catch` (\(_ :: SomeException) -> return noPriv)
+                      `catch` (\(_ :: SomeException) -> return mempty)
   let p = p' `mappend` pmPriv
   liftLIO $ scopeClearance $ do
     -- raise clearance:
     clr <- getClearance
-    setClearanceP p $ clr `lub` (p %% unrestricted)
+    setClearanceP p $ clr `lub` (p %% True)
     -- get at the document
     doc <- liftLIO $ unlabelP p ldoc
     lcur <- liftLIO $ getLabel
-    let lres = partDowngradeP p lcur (labelOf ldoc)
+    let lres = downgradeP p lcur `lub` (labelOf ldoc)
     rec <- fromDocument doc
     labelP p lres rec
     where fake :: DCLabeled a

@@ -110,7 +110,6 @@ import           Data.Conduit.Binary (sourceLbs)
 import           LIO
 import           LIO.DCLabel
 import           LIO.TCB
-import           LIO.TCB.DCLabel
 
 import           Network.Wai.Parse ( FileInfo(..)
                                    , sinkRequestBody
@@ -324,14 +323,13 @@ hsonFieldToBsonField (HsonField n _) =
 labeledRequestToHson :: MonadLIO DCLabel m
                      => DCLabeled Request -> m (DCLabeled HsonDocument)
 labeledRequestToHson lreq = liftLIO $ do
-  req <- unlabelP allPrivTCB lreq
-  let origLabel = labelOf lreq
+  let (LabeledTCB origLabel req) = lreq
       btype     = fromMaybe UrlEncoded $ getRequestBodyType req
   (ps, fs) <- liftLIO . ioTCB $ runResourceT $
                 sourceLbs (requestBody req) $$ sinkRequestBody lbsBackEnd btype
   let psDoc     = map convertPS ps
       fsDoc     = map convertFS fs
-  labelP allPrivTCB origLabel $ arrayify $ psDoc ++ fsDoc
+  return $ LabeledTCB origLabel $ arrayify $ psDoc ++ fsDoc
   where convertPS (k,v) = HsonField
                            (T.pack . S8.unpack $ k)
                            (toHsonValue . S8.unpack $ v)
@@ -643,7 +641,7 @@ instance HsonVal (DCLabeled BsonValue) where
 --
 
 -- | Create a fresh ObjectId.
-genObjectId :: MonadDC m => m ObjectId
+genObjectId :: MonadLIO DCLabel m => m ObjectId
 genObjectId = liftLIO $ ioTCB Bson.genObjectId
 
 --

@@ -12,7 +12,9 @@ module Hails.PolicyModule.Groups ( Groups(..)
                                  , labelRewrite ) where
 
 import           Data.Maybe
+import           Data.Monoid
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Data.Map as Map
 
 import           Control.Monad
@@ -53,13 +55,14 @@ labelRewrite :: forall unused_pm a. Groups unused_pm
 labelRewrite pm lx = do
   -- Make sure that 'groupsInstanceEndorse' is not bottom
   _ <- liftLIO $ evaluate (groupsInstanceEndorse :: unused_pm)
-  -- Get underlying privileges if they corresponds to the named (by
-  -- the first argument) policy module
   pmPriv <- getPMPriv
+
   -- Build map from principals to list of princpals
-  pmap <- forM principals $ \p -> groups pm pmPriv p >>= \ps -> return (p, ps)
+  pMap <- Set.fold (\p act -> act >>= \m -> do
+            ps <- groups pm pmPriv p
+            return (Map.insert p ps m)) (return Map.empty) principals
   -- Apply map to all principals in the label
-  let lnew = dcLabel (mk pmap s) (mk pmap i)
+  let lnew = (expandPrincipals pMap s) %% (expandPrincipals pMap i)
   -- Relabel labeled value
   liftLIO $ relabelLabeledP pmPriv lnew lx
     where getPMPriv = do
@@ -67,22 +70,21 @@ labelRewrite pm lx = do
             -- Make sure that the underlying policy module
             -- and one named in the first parameter are the same
             case Map.lookup (policyModuleTypeName pm) availablePolicyModules of
-              Nothing -> return noPriv
-              Just (p,_) -> return $ if toComponent p == privDesc pmPriv
+              Nothing -> return mempty
+              Just (p,_) -> return $ if toCNF p == privDesc pmPriv
                                        then pmPriv
-                                       else noPriv
+                                       else mempty
           -- Modify label by expanding principals according to the map
-          mk pmap lc =
-            let f = map (concatMap (\x -> fromJust $ List.lookup x pmap))
-            in if lc == dcFalse
-                 then lc
-                 else fromList . f . toList $ lc
+          expandPrincipals pMap origPrincipals =
+            let cFoldF disj accm = (Set.foldr dFoldF cFalse $ dToSet disj) /\ accm
+                dFoldF :: Principal -> CNF -> CNF
+                dFoldF principal accm = (dFromList $ pMap Map.! principal) \/ accm
+            in Set.foldr cFoldF cTrue $ cToSet origPrincipals
           -- Label components
           s = dcSecrecy $ labelOf lx
           i = dcIntegrity $ labelOf lx
           -- All unique principals in the labe
-          principals = List.nub $ getPrincipals s ++ getPrincipals i
+          principals = getPrincipals s <> getPrincipals i
           -- Get principals form component
-          getPrincipals lc = if lc == dcFalse
-                              then []
-                              else List.nub . concat . toList $ lc
+          getPrincipals = mconcat . (map dToSet) . Set.elems . cToSet
+

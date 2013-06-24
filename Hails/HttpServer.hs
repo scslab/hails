@@ -31,10 +31,12 @@ module Hails.HttpServer (
   ) where
 
 import qualified Data.List as List
+import qualified Data.Set as Set
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
 import           Data.Conduit
-import           Data.Conduit.List
+import           Data.Conduit.List hiding (head)
+import           Data.Monoid
 
 import           Control.Monad (liftM)
 import           Control.Monad.IO.Class (liftIO)
@@ -50,7 +52,6 @@ import           Network.Wai.Middleware.MethodOverridePost
 import           LIO
 import           LIO.TCB
 import           LIO.DCLabel
-import           LIO.TCB.DCLabel
 
 import           Hails.HttpServer.Types
 
@@ -103,7 +104,7 @@ browserLabelGuard hailsApp conf req = do
 
 -- | Adds the header @Content-Security-Policy@ to the response, if the
 -- label of the computation does not flow to the public label,
--- 'dcPub'.  The @default-src@ directive is set to the secrecy
+-- 'dcPublic'.  The @default-src@ directive is set to the secrecy
 -- component of the response label (if it is a disjunction
 -- of principals). Currently, @'self'@ is always added to the
 -- whitelist. An example may be:
@@ -111,22 +112,25 @@ browserLabelGuard hailsApp conf req = do
 -- > Content-Security-Policy: default-src 'self' http://google.com:80 https://a.lvh.me:3000;
 --
 guardSensitiveResp :: Middleware
-guardSensitiveResp happ p req = do
-  response <- (flip removeResponseHeader) csp `liftM` happ p req
+guardSensitiveResp app config req = do
+  response <- (flip removeResponseHeader) csp `liftM` app config req
   resultLabel <- getLabel
-  return $ if resultLabel `canFlowTo` dcPub
+  return $ if resultLabel `canFlowTo` dcPublic
     then response
-    else addResponseHeader response $ (csp, S8.pack $
-           "default-src "++ mkClientLabel resultLabel ++ ";")
+    else addResponseHeader response $
+          ( csp
+          , "default-src " <> headerVal resultLabel <> ";")
       where csp = "Content-Security-Policy"
-            mkClientLabel l = 
-              let s  = dcSecrecy l
-                  cs = List.filter isURI $ 
-                       List.map (S8.unpack . principalName) $ 
-                       List.head $ toList s
-              in if s == dcFalse || length (toList s) > 1
+            headerVal l =
+              let secrecy     = dcSecrecy l
+                  secrecySet  = cToSet secrecy
+                  uriList     = Set.filter (isURI . S8.unpack) $ 
+                                Set.map principalName $ 
+                                dToSet $ head $ Set.elems secrecySet
+              in if secrecy == cFalse || Set.size secrecySet > 1
                    then "\'none\'" -- false/conjunction
-                   else unwords $ ["\'self\'", "\'unsafe-inline\'"] ++ cs
+                   else S8.unwords $
+                          "\'self\'":"\'unsafe-inline\'":(Set.toList uriList)
 
 -- | Remove anything from the response that could cause inadvertant
 -- declasification. Currently this only removes the @Set-Cookie@
@@ -193,7 +197,7 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
   -- Extract browser/request configuration
   let conf = getRequestConf hailsRequest
   (result, dcState) <- liftIO $ tryDCDef conf $ do
-    lreq <- labelP allPrivTCB (requestLabel conf) hailsRequest
+    let lreq = LabeledTCB (requestLabel conf) hailsRequest
     app conf lreq
   case result of
     Right response -> return $ hailsToWaiResponse response
@@ -210,7 +214,7 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
           resp403 = W.responseLBS status403 [] "" 
           resp500 = W.responseLBS status500 [] ""
           tryDCDef conf act = tryDC $ do
-            putLIOStateTCB $ LIOState { lioLabel = dcPub
+            putLIOStateTCB $ LIOState { lioLabel = dcPublic
                                      , lioClearance = browserLabel conf}
             act
 
@@ -224,12 +228,12 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
 getRequestConf :: Request -> RequestConfig
 getRequestConf req =
   let headers = requestHeaders req
-      userName = (toComponent . Principal) `fmap` lookup "x-hails-user" headers
-      appName  = '@' : (S8.unpack . S8.takeWhile (/= '.') $ serverName req)
-      appPriv = PrivTCB $ toComponent appName
+      muserName = principalBS `fmap` lookup "x-hails-user" headers
+      appName  = "@" `S8.append` (S8.takeWhile (/= '.') $ serverName req)
+      appPriv = PrivTCB $ toCNF $ principalBS appName
   in RequestConfig
-      { browserLabel = maybe dcPub (\un -> dcLabel un unrestricted) userName
-      , requestLabel = maybe dcPub (\un -> dcLabel unrestricted un) userName
+      { browserLabel = maybe dcPublic (\userName -> userName %% True) muserName
+      , requestLabel = maybe dcPublic (\userName -> True %% userName) muserName
       , appPrivilege = appPriv }
 
 

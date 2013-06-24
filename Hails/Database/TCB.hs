@@ -237,7 +237,7 @@ makeDBActionStateTCB priv dbName pipe mode =
     where db = DatabaseTCB { databaseName  = dbName 
                            , databaseLabel = l
                            , databaseCollections = LabeledTCB l Set.empty }
-          l = dcLabel prin prin
+          l = prin %% prin
           prin = privDesc priv
 
 -- | Set the label of the underlying database to the supplied label,

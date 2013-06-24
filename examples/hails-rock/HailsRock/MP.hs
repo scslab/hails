@@ -32,8 +32,6 @@ import Hails.PolicyModule
 import Hails.PolicyModule.DSL
 import Hails.Web
 
-import LIO.TCB
-
 -- | A game contains can be public or contain a single opponent
 data Game = Game { gameId   :: Maybe ObjectId
                  , creator  :: UserName

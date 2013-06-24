@@ -146,10 +146,10 @@ infixl 5 ==>, <==
 class MonadState s m => Role r s m where
   -- | @r ==> c@ effectively states that role @r@ (i.e., 'readers',
   -- 'writers', 'admins' must imply label component @c@).
-  (==>) :: (ToComponent c) => r -> c -> m ()
+  (==>) :: (ToCNF c) => r -> c -> m ()
   -- | Inverse implication. Purely provided for readability. The
   -- direction is not relevant to the internal representation.
-  (<==) :: (ToComponent c) => r -> c -> m ()
+  (<==) :: (ToCNF c) => r -> c -> m ()
   (<==) = (==>)
 
 
@@ -164,11 +164,11 @@ class MonadState s m => Role r s m where
 -- >   writers ==> "Alice"
 -- >   admins  ==> "Alice"
 --
-data DBExp = DBExp Component Component Component
+data DBExp = DBExp CNF CNF CNF
   deriving Show
 
 -- | Database expression solely contains a list of components.
-type DBExpS = Map String Component
+type DBExpS = Map String CNF
 
 -- | Database expression composition monad
 newtype DBExpM a = DBExpM (ErrorT String (State DBExpS) a)
@@ -179,21 +179,21 @@ instance Role Readers DBExpS DBExpM where
     s <- get 
     case Map.lookup (show readers) s of
       Just _ -> fail "Database readers already specified."
-      Nothing -> put $ Map.insert (show readers) (toComponent c) s
+      Nothing -> put $ Map.insert (show readers) (toCNF c) s
 
 instance Role Writers DBExpS DBExpM where 
   _ ==> c = DBExpM $ do
     s <- get 
     case Map.lookup (show writers) s of
       Just _ -> fail "Database writers already specified."
-      Nothing -> put $ Map.insert (show writers) (toComponent c) s
+      Nothing -> put $ Map.insert (show writers) (toCNF c) s
 
 instance Role Admins DBExpS DBExpM where 
   _ ==> c = DBExpM $ do
     s <- get 
     case Map.lookup (show admins) s of
       Just _ -> fail "Database admins already specified."
-      Nothing -> put $ Map.insert (show admins) (toComponent c) s
+      Nothing -> put $ Map.insert (show admins) (toCNF c) s
 
 
 -- | Create a database lebeling policy The policy must set the label
@@ -239,11 +239,11 @@ database (DBExpM e) = do
 -- >   readers ==> "Alice" \/ "Bob"
 -- >   writers ==> "Alice"
 --
-data ColAccExp = ColAccExp Component Component
+data ColAccExp = ColAccExp CNF CNF
   deriving Show
 
 -- | Access expression solely contains a list of components.
-type ColAccExpS = Map String Component
+type ColAccExpS = Map String CNF
 
 -- | Access expression composition monad
 newtype ColAccExpM a =
@@ -257,7 +257,7 @@ instance Role Readers ColAccExpS ColAccExpM where
     case Map.lookup (show readers) s of
       Just _ -> fail $ "Collection " ++ show cName
                           ++ " access readers already specified."
-      Nothing -> put $ Map.insert (show readers) (toComponent c) s
+      Nothing -> put $ Map.insert (show readers) (toCNF c) s
 
 instance Role Writers ColAccExpS ColAccExpM where 
   _ ==> c = ColAccExpM $ do
@@ -266,7 +266,7 @@ instance Role Writers ColAccExpS ColAccExpM where
     case Map.lookup (show writers) s of
       Just _ -> fail $ "Collection " ++ show cName
                           ++ " access writers already specified."
-      Nothing -> put $ Map.insert (show writers) (toComponent c) s
+      Nothing -> put $ Map.insert (show writers) (toCNF c) s
 
 
 --------------------------------------------------------------
@@ -277,11 +277,11 @@ instance Role Writers ColAccExpS ColAccExpM where
 -- >   readers ==> "Alice" \/ "Bob"
 -- >   writers ==> "Alice"
 --
-data ColClrExp = ColClrExp Component Component
+data ColClrExp = ColClrExp CNF CNF
   deriving Show
 
 -- | Clress expression solely contains a list of components.
-type ColClrExpS = Map String Component
+type ColClrExpS = Map String CNF
 
 -- | Database expression composition monad
 newtype ColClrExpM a =
@@ -295,7 +295,7 @@ instance Role Readers ColClrExpS ColClrExpM where
     case Map.lookup (show readers) s of
       Just _ -> fail $ "Collection " ++ show cName
                           ++ " clearance readers already specified."
-      Nothing -> lift . put $ Map.insert (show readers) (toComponent c) s
+      Nothing -> lift . put $ Map.insert (show readers) (toCNF c) s
 
 instance Role Writers ColClrExpS ColClrExpM where 
   _ ==> c = ColClrExpM $ do
@@ -304,7 +304,7 @@ instance Role Writers ColClrExpS ColClrExpM where
     case Map.lookup (show writers) s of
       Just _ -> fail $ "Collection " ++ show cName
                           ++ " clearance writers already specified."
-      Nothing -> put $ Map.insert (show writers) (toComponent c) s
+      Nothing -> put $ Map.insert (show writers) (toCNF c) s
 
 
 
@@ -320,10 +320,10 @@ data ColDocExp = ColDocExp (HsonDocument -> LabelExp)
 instance Show ColDocExp where show _ = "ColDocExp {- function -}"
 
 -- | A Label expression has two components.
-data LabelExp = LabelExp Component Component
+data LabelExp = LabelExp CNF CNF
 
 -- | Document expression solely contains a list of components.
-type ColDocExpS = Map String Component
+type ColDocExpS = Map String CNF
 
 -- | Document expression composition monad
 newtype ColDocExpM a =
@@ -337,7 +337,7 @@ instance Role Readers ColDocExpS ColDocExpM where
     case Map.lookup (show readers) s of
       Just _ -> fail $ "Collection " ++ show cName
                           ++ " document readers already specified."
-      Nothing -> lift . put $ Map.insert (show readers) (toComponent c) s
+      Nothing -> lift . put $ Map.insert (show readers) (toCNF c) s
 
 instance Role Writers ColDocExpS ColDocExpM where 
   _ ==> c = ColDocExpM $ do
@@ -346,7 +346,7 @@ instance Role Writers ColDocExpS ColDocExpM where
     case Map.lookup (show writers) s of
       Just _ -> fail $ "Collection " ++ show cName
                           ++ " document writers already specified."
-      Nothing -> put $ Map.insert (show writers) (toComponent c) s
+      Nothing -> put $ Map.insert (show writers) (toCNF c) s
 
 
 
@@ -367,7 +367,7 @@ instance Show ColFieldExp where
   show (ColLabFieldExp _) = "ColLabFieldExp {- function -}"
 
 -- | Labeled field expression solely contains a list of components.
-type ColLabFieldExpS = Map String Component
+type ColLabFieldExpS = Map String CNF
 
 -- | Labeled field expression composition monad.
 newtype ColLabFieldExpM a =
@@ -381,7 +381,7 @@ instance Role Readers ColLabFieldExpS ColLabFieldExpM where
     case Map.lookup (show readers) s of
       Just _ -> fail $ "Collection " ++ show cName ++ " field " ++ show fName
                           ++ " readers already specified."
-      Nothing -> lift . put $ Map.insert (show readers) (toComponent c) s
+      Nothing -> lift . put $ Map.insert (show readers) (toCNF c) s
 
 instance Role Writers ColLabFieldExpS ColLabFieldExpM where 
   _ ==> c = ColLabFieldExpM $ do
@@ -390,7 +390,7 @@ instance Role Writers ColLabFieldExpS ColLabFieldExpM where
     case Map.lookup (show writers) s of
       Just _ -> fail $ "Collection " ++ show cName ++ " field " ++ show fName
                           ++ " writers already specified."
-      Nothing -> put $ Map.insert (show writers) (toComponent c) s
+      Nothing -> put $ Map.insert (show writers) (toCNF c) s
 
 -- | Field expression composition monad.
 newtype ColFieldExpM a =
@@ -710,12 +710,12 @@ setPolicy priv pol =
           void $ forM cs execPolicyCol
         --
         execPolicyDB (DBExp r w a) = do
-          setDatabaseLabelP priv (dcLabel r w)
-          setCollectionSetLabelP priv (dcLabel r a)
+          setDatabaseLabelP priv (r %% w)
+          setCollectionSetLabelP priv (r %% a)
         --
         execPolicyCol (ColExp n (ColAccExp lr lw) (ColClrExp cr cw) doc fs) =
           let cps = mkColPol doc fs
-          in createCollectionP priv n (dcLabel lr lw) (dcLabel cr cw) cps
+          in createCollectionP priv n (lr %% lw) (cr %% cw) cps
         --
         mkColPol (ColDocExp fdocE) cs = 
           let fdoc = unDataPolicy fdocE
@@ -724,7 +724,7 @@ setPolicy priv pol =
         --
         unDataPolicy fpolE = \doc -> 
           let (LabelExp s i) = fpolE doc
-          in dcLabel s i
+          in s %% i
         --
         unFieldExp ColFieldSearchable = SearchableField
         unFieldExp (ColLabFieldExp f) = FieldPolicy (unDataPolicy f)
