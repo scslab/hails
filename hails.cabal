@@ -94,13 +94,9 @@ Library
    ,containers
    ,bytestring
    ,text >= 0.11.3.0
-   ,parsec
-   ,binary
    ,time
-   ,lio
+   ,lio >= 0.11.0.0
    ,base64-bytestring
-   ,bson
-   ,mongoDB
    ,network
    ,conduit
    ,resourcet
@@ -112,36 +108,15 @@ Library
    ,authenticate
    ,cookie
    ,blaze-builder
-   ,failure
    ,SHA
 
   GHC-options: -Wall -fno-warn-orphans
 
   Exposed-modules:
-    Hails.Data.Hson
-    Hails.Data.Hson.TCB
-    Hails.Database
-    Hails.Database.Core
-    Hails.Database.TCB
-    Hails.Database.Query
-    Hails.Database.Query.TCB
-    Hails.Database.Structured
     Hails.HttpServer
     Hails.HttpServer.Auth
     Hails.HttpServer.Types
-    Hails.PolicyModule
-    Hails.PolicyModule.DSL
-    Hails.PolicyModule.Groups
-    Hails.PolicyModule.TCB
-    Hails.HttpClient
     Hails.Version
-    Hails.Web
-    Hails.Web.User
-    Hails.Web.Controller
-    Hails.Web.Frank
-    Hails.Web.REST
-    Hails.Web.Responses
-    Hails.Web.Router
   Other-modules:
     Paths_hails
 
@@ -154,32 +129,28 @@ Executable hails
    ,mtl
    ,containers
    ,bytestring
-   ,text
-   ,parsec
-   ,binary
+   ,text >= 0.11.3.0
    ,time
-   ,lio
+   ,lio >= 0.11.0.0
    ,base64-bytestring
-   ,bson
-   ,mongoDB
    ,network
    ,conduit
    ,resourcet
    ,http-conduit
    ,wai
-   ,wai-extra
    ,wai-app-static
-   ,warp
+   ,wai-extra
    ,http-types
    ,authenticate
    ,cookie
    ,blaze-builder
+   ,SHA
    ,directory
    ,filepath
    ,unix
    ,ghc-paths
-   ,SHA
    ,hails
+   ,warp
 
 test-suite tests
   type: exitcode-stdio-1.0
