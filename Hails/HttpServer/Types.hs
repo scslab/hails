@@ -1,5 +1,5 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable #-}
 module Hails.HttpServer.Types (
   -- * Requests
     Request(..)
@@ -16,6 +16,7 @@ module Hails.HttpServer.Types (
 
 import qualified Data.List as List
 import           Data.Text (Text)
+import           Data.Typeable
 import qualified Data.ByteString as S
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy as L
@@ -68,7 +69,7 @@ data Request = Request {
   ,  requestBody    :: L.ByteString
   -- | Time request was received.
   ,  requestTime    :: UTCTime
-  } deriving Show
+  } deriving (Show, Typeable)
 
 -- | Get the request body type (copied from @wai-extra@).
 getRequestBodyType :: Request -> Maybe RequestBodyType
@@ -115,7 +116,7 @@ data Response = Response {
   , respHeaders :: ResponseHeaders 
   -- | Response body
   , respBody :: L.ByteString
-  } deriving Show
+  } deriving (Show, Typeable)
 
 -- | Add/replace a 'Header' to the 'Response'
 addResponseHeader :: Response -> Header -> Response
@@ -140,7 +141,7 @@ data RequestConfig = RequestConfig {
   , requestLabel :: DCLabel
   -- | A privilege minted for the app.
   , appPrivilege :: DCPriv
-  } deriving Show
+  } deriving (Show, Typeable)
 
 -- | Base Hails type implemented by untrusted applications.
 type Application = RequestConfig -> DCLabeled Request -> DC Response

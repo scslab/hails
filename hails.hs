@@ -1,6 +1,7 @@
-{-# LANGUAGE ScopedTypeVariables, CPP #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 module Main (main) where
+import           Control.Exception
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
 
@@ -11,6 +12,7 @@ import           Data.Maybe
 import           Data.Version
 import           Control.Monad
 
+import           LIO.DCLabel
 import           Hails.HttpServer
 import           Hails.HttpServer.Auth
 import           Hails.Version
@@ -28,11 +30,8 @@ import           System.Directory
 import           System.Exit
 
 
-import           GHC
-import           GHC.Paths
-import           DynFlags
-import           Unsafe.Coerce
-
+import           Language.Haskell.Interpreter
+import           Language.Haskell.Interpreter.Extension
 
 
 about :: String -> String
@@ -93,7 +92,8 @@ main = do
          _ | isJust (optExternal opts)     -> external
          -- dev mode:
          _                               -> devBasicAuth
-  app <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
+  dcApp <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
+  app <- evalDC dcApp
   runSettings (defaultSettings { settingsPort = port }) $
     logMiddleware $ execHailsApplication authMiddleware app
 
@@ -103,35 +103,24 @@ main = do
 loadApp :: Bool             -- -XSafe ?
         -> Maybe FilePath   -- -package-db
         -> String           -- Application name
-        -> IO Application
-loadApp safe mpkgDb appName = runGhc (Just libdir) $ do
-  dflags0 <- getSessionDynFlags
-  let dflags1 = if safe
-                  then dopt_set (dflags0 { safeHaskell = Sf_Safe })
-                                Opt_PackageTrust
-                  else dflags0
-      dflags2 = case mpkgDb of
-#if MIN_VERSION_base(4,6,0)
-                  Just pkgDb ->
-                    dflags1 { extraPkgConfs = (PkgConfFile pkgDb:)}
-#else
-                  Just pkgConf ->
-                    dopt_unset (dflags1 { extraPkgConfs =
-                                           pkgConf : extraPkgConfs dflags1 })
-                                        Opt_ReadUserPackageConf
-#endif
-                  _ -> dflags1
-  void $ setSessionDynFlags dflags2
-  target <- guessTarget appName Nothing
-  addTarget target
-  r <- load LoadAllTargets
-  case r of
-    Failed -> fail "Compilation failed."
-    Succeeded -> do
-      setContext [IIDecl $ simpleImportDecl (mkModuleName appName)]
-      value <- compileExpr (appName ++ ".server") 
-      return . unsafeCoerce $ value
-
+        -> IO (DC Application)
+loadApp safe mpkgDb appName = do
+  case mpkgDb of
+    Just pkgDb -> setEnv "GHC_PACKAGE_PATH" pkgDb True
+    Nothing -> return ()
+  eapp <- runInterpreter $ do
+    when safe $
+      set [languageExtensions := [asExtension "Safe"]]
+    loadModules [appName]
+    setImports  ["LIO", "LIO.DCLabel", "Hails.HttpServer", appName]
+    entryFunType <- typeOf "server"
+    if entryFunType == "DC Application" then
+      interpret "server" (undefined :: DC Application)
+      else
+      interpret "P.return server" (undefined :: DC Application)
+  case eapp of
+    Left err -> throwIO err
+    Right app -> return app
 
 --
 -- Parsing options

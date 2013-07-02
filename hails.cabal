@@ -179,6 +179,7 @@ Executable hails
    ,unix
    ,ghc-paths
    ,SHA
+   ,hint
    ,hails
 
 test-suite tests
