@@ -9,16 +9,11 @@ module SimplePolicyModule (
 
 import Data.Typeable
 
-import Control.Monad
-
 import LIO
 import LIO.DCLabel
-import Hails.Data.Hson
 import Hails.Database
 import Hails.PolicyModule
 import Hails.PolicyModule.DSL
-
-import System.Posix.Env (setEnv)
 
 data StorePolicyModule = StorePolicyModuleTCB DCPriv
   deriving Typeable
