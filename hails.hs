@@ -12,6 +12,7 @@ import           Data.Maybe
 import           Data.Version
 import           Control.Monad
 
+import           LIO
 import           LIO.DCLabel
 import           Hails.HttpServer
 import           Hails.HttpServer.Auth
@@ -93,7 +94,7 @@ main = do
          -- dev mode:
          _                               -> devBasicAuth
   dcApp <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
-  app <- evalDC dcApp
+  app <- evalDC $ setClearance dcPublic >> dcApp
   runSettings (defaultSettings { settingsPort = port }) $
     logMiddleware $ execHailsApplication authMiddleware app
 
