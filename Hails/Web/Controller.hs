@@ -14,6 +14,8 @@ This module exports a definition of a 'Controller', which is simply a
 module Hails.Web.Controller
   ( Controller, ControllerState(..)
   , request
+  , requestConfig
+  , appPriv
   , requestHeader 
   , body
   , queryParam
@@ -37,7 +39,8 @@ import           Hails.Web.Responses
 
 data ControllerState = ControllerState
                         { csRequest :: DCLabeled Request
-                        , csPathParams :: Query }
+                        , csPathParams :: Query
+                        , csReqConfig :: RequestConfig }
 
 -- | A controller is simply a reader monad atop 'DC' with the 'Labeled'
 -- 'Request' as the environment.
@@ -47,12 +50,18 @@ instance MonadLIO DCLabel Controller where
   liftLIO = lift
 
 instance Routeable (Controller Response) where
-  runRoute controller _ eq _ req = fmap Just $
-    runReaderT controller $ ControllerState req eq
+  runRoute controller _ eq conf req = fmap Just $
+    runReaderT controller $ ControllerState req eq conf
 
 -- | Get the underlying request.
 request :: Controller (DCLabeled Request)
 request = fmap csRequest ask
+
+requestConfig :: Controller RequestConfig
+requestConfig = fmap csReqConfig ask
+
+appPriv :: Controller DCPriv
+appPriv = fmap appPrivilege requestConfig
 
 -- | Get the underlying request.
 pathParams :: Controller [(S8.ByteString, Maybe S8.ByteString)]
