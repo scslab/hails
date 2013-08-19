@@ -113,12 +113,12 @@ loadApp safe mpkgDb appName = do
     when safe $
       set [languageExtensions := [asExtension "Safe"]]
     loadModules [appName]
-    setImports  ["LIO", "LIO.DCLabel", "Hails.HttpServer", appName]
+    setImports  ["Prelude", "LIO", "LIO.DCLabel", "Hails.HttpServer", appName]
     entryFunType <- typeOf "server"
     if entryFunType == "DC Application" then
       interpret "server" (undefined :: DC Application)
       else
-      interpret "P.return server" (undefined :: DC Application)
+      interpret "return server" (undefined :: DC Application)
   case eapp of
     Left err -> throwIO err
     Right app -> return app
