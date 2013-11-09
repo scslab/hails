@@ -59,12 +59,15 @@ import qualified Data.ByteString.Lazy as L
 import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.Binary.Put as Binary
 import qualified Data.Binary.Get as Binary
+import Control.Applicative
 
 import           LIO.Labeled
 import           LIO.TCB
 
 import System.IO.Unsafe
 import LIO.RCLabel
+import LIO.SafeCopy
+import Hails.Copy
 
 -- | Strict ByeString
 type S8 = S8.ByteString
@@ -79,8 +82,13 @@ type S8 = S8.ByteString
 -- | A top-level document containing 'HsonField's.
 type HsonDocument = [HsonField]
 
+trHsonDocument :: Transfer HsonDocument
+trHsonDocument = trList 200 trHsonField
+
 -- | A (possibly top-)level document containing 'BsonField's.
 type BsonDocument = [BsonField]
+
+trBsonDocument = trList 500 trBsonField
 
 --
 -- Fields
@@ -93,9 +101,14 @@ type FieldName = Text
 data BsonField = BsonField !FieldName BsonValue
   deriving (Typeable, Eq, Ord)
 
+trBsonField = Transfer $ \(BsonField a b) -> BsonField <$> transfer trText a <*> transfer trBsonValue b
+
 -- | A field containing a named 'HsonValue'
 data HsonField = HsonField !FieldName HsonValue
   deriving (Typeable, Eq, Ord)
+
+trHsonField :: Transfer HsonField
+trHsonField = Transfer $ \(HsonField n v) -> HsonField <$> transfer trText n <*> transfer trHsonValue v
 
 --
 -- Values
@@ -129,6 +142,23 @@ data BsonValue = BsonFloat Double
                -- ^ 64-bit integer
                deriving (Typeable, Eq, Ord)
 
+trBsonValue :: Transfer BsonValue
+trBsonValue = Transfer f
+    where f (BsonFloat a) = BsonFloat <$> transfer trPrim a
+          f (BsonString a) = BsonString <$> transfer trText a
+          f (BsonDoc a) = BsonDoc <$> transfer trBsonDocument a
+          f (BsonArray a) = BsonArray <$> transfer (trList 500 trBsonValue) a
+          f (BsonBlob a) = BsonBlob <$> transfer trBinary a
+          f (BsonObjId a) = BsonObjId <$> transfer trObjectId a
+          f (BsonBool a) = BsonBool <$> transfer trPrim a
+          f (BsonUTC a) = BsonUTC <$> transfer trUTCTime a
+          f BsonNull = return BsonNull
+          f (BsonInt32 a) = BsonInt32 <$> transfer trPrim a
+          f (BsonInt64 a) = BsonInt64 <$> transfer trPrim a
+
+trBinary :: Transfer Binary
+trBinary = Transfer $ \(Binary b) -> Binary <$> transfer trS8ByteString b
+
 -- | An @HsonValue@ is a top-level value that may either be a
 -- 'BsonValue' or a policy labeled value. The separation of values
 -- into 'BsonValue' and 'HsonValue' is solely due to the restriction
@@ -140,6 +170,11 @@ data HsonValue = HsonValue BsonValue
                  -- ^ Policy labeled value
                  deriving (Typeable, Eq, Ord)
 
+trHsonValue :: Transfer HsonValue
+trHsonValue = Transfer f
+    where f (HsonValue b) = HsonValue <$> transfer trBsonValue b
+          f (HsonLabeled l) = HsonLabeled <$> transfer trPolicyLabeled l
+
 -- | A @PolicyLabeled@ value can be either an unlabeled value for which
 -- the policy needs to be applied (@NeedPolicyTCB@), or an already
 -- labeled value (@HasPolicyTCB@). @PolicyLabeled@ is a partially-opaque
@@ -150,6 +185,11 @@ data PolicyLabeled = NeedPolicyTCB BsonValue
                    | HasPolicyTCB (DCLabeled BsonValue)
                      -- ^ Policy applied
                    deriving (Typeable)
+
+trPolicyLabeled :: Transfer PolicyLabeled
+trPolicyLabeled = Transfer f
+    where f (NeedPolicyTCB b) = NeedPolicyTCB <$> transfer trBsonValue b
+          f x = copy x -- NB: fall through!!!! XXX maybe not enough
 
 instance Eq PolicyLabeled   where (==) _ _ = True
 instance Ord PolicyLabeled  where (<=) _ _ = False

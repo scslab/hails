@@ -1,6 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {-# LANGUAGE ConstraintKinds,
              FlexibleContexts,
+             ViewPatterns,
              DeriveDataTypeable,
              FlexibleInstances,
              ScopedTypeVariables,
@@ -83,6 +84,8 @@ import           Hails.Data.Hson.TCB
 import           Hails.Database.Core
 import           Hails.Database.TCB
 import           Hails.Database.Query.TCB
+
+import LIO.RCLabel
 
 --
 -- Query
@@ -253,7 +256,7 @@ instance InsertLike HsonDocument where
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection,
       -- apply policies:
-      (LabeledTCB _ ndoc) <- applyCollectionPolicyP priv col doc
+      (_, ndoc) <- unlabelTCB `fmap` applyCollectionPolicyP priv col doc
       -- No IFC violation, perform insert:
       let bsonDoc = hsonDocToDataBsonDocTCB ndoc
       _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
@@ -273,7 +276,7 @@ instance InsertLike HsonDocument where
           maybe (return ()) (liftLIO . guardWriteP priv . labelOf) mdoc
           -- Okay, save document:
           saveIt ldoc
-      where saveIt (LabeledTCB _ nd) =
+      where saveIt (unlabelTCB -> (_, nd)) =
               let bsonDoc = hsonDocToDataBsonDocTCB nd
               in execMongoActionTCB $ Mongo.save cName bsonDoc
 
@@ -286,7 +289,7 @@ instance InsertLike LabeledHsonDocument where
   -- have created.
   insertP priv cName ldoc' = do
     guardInsertOrSaveLabeledHsonDocument priv cName ldoc' $
-      \(LabeledTCB _ doc) ->
+      \(unlabelTCB -> (_, doc)) ->
       -- No IFC violation, perform insert:
       let bsonDoc = hsonDocToDataBsonDocTCB doc
       in _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
@@ -301,7 +304,7 @@ instance InsertLike LabeledHsonDocument where
   -- document it could otherwise not have created.
   saveP priv cName ldoc' = do
     guardInsertOrSaveLabeledHsonDocument priv cName ldoc' $ \ldoc ->
-      let (LabeledTCB ld doc)   = ldoc
+      let (unlabelTCB -> (ld, doc))   = ldoc
           _id_n = Text.pack "_id"
       in case lookup _id_n doc of
         Nothing -> saveIt ldoc
@@ -314,7 +317,7 @@ instance InsertLike LabeledHsonDocument where
      where guardWriteP' lnew lold = 
              unless (canFlowToP priv lnew lold) $ labelErrorP
               "New document label doesn't flow to the old" priv [lnew, lold]
-           saveIt (LabeledTCB _ doc) =
+           saveIt (unlabelTCB -> (_, doc)) =
              let bsonDoc = hsonDocToDataBsonDocTCB doc
              in execMongoActionTCB $ Mongo.save cName bsonDoc
 
@@ -351,7 +354,7 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
       -- Apply policies to the unlabeled document,
       -- asserts that labeled values are below collection clearance:
       dbPriv <- dbActionPriv `liftM` getActionStateTCB
-      (LabeledTCB ltcb docTCB) <- applyCollectionPolicyP dbPriv col doc
+      (unlabelTCB -> (ltcb, docTCB)) <- applyCollectionPolicyP dbPriv col doc
       -- Check that all the fields are the same (i.e., if there was a
       -- unlabeled PolicyLabeled value an this will fail):
       let same = compareDoc doc docTCB

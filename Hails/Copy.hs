@@ -11,6 +11,7 @@ import qualified Data.CaseInsensitive
 import Network.Socket
 import Data.Time.Clock
 import Data.Time.Calendar
+import Data.Bson
 
 import Control.Exception
 import Control.Applicative
@@ -23,6 +24,9 @@ tr = transfer
 
 trByteString :: Transfer Data.ByteString.ByteString
 trByteString = Transfer $ \bs -> evaluate (Data.ByteString.copy bs)
+
+trS8ByteString :: Transfer Data.ByteString.Char8.ByteString
+trS8ByteString = Transfer $ \bs -> evaluate (Data.ByteString.Char8.copy bs)
 
 trLByteString :: Transfer Data.ByteString.Lazy.ByteString
 trLByteString = Transfer $ \bs -> evaluate (Data.ByteString.Lazy.copy bs)
@@ -62,3 +66,6 @@ trDiffTime = Transfer $ \dt -> evaluate (picosecondsToDiffTime (truncate (toRati
 
 trHttpVersion :: Transfer Network.HTTP.Types.HttpVersion
 trHttpVersion = Transfer $ \(Network.HTTP.Types.HttpVersion a b) -> Network.HTTP.Types.HttpVersion <$> transfer trPrim a <*> transfer trPrim b
+
+trObjectId :: Transfer ObjectId
+trObjectId = Transfer $ \(Oid a b) -> Oid <$> transfer trPrim a <*> transfer trPrim b
