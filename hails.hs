@@ -15,9 +15,12 @@ import Network.Wai.Middleware.RequestLogger
 
 import qualified Data.ByteString.Lazy.Char8 as L8
 
+import           LIO
+
 server :: Application
-server _ _ = return $
-  Response ok200 [] (L8.pack "w00t")
+server _ lreq = do
+  req <- unlabel lreq
+  return $ Response ok200 [] (L8.pack "w00t")
 
 main :: IO ()
 main = do
