@@ -114,6 +114,7 @@ Library
    ,blaze-builder
    ,failure
    ,SHA
+   ,case-insensitive
 
   GHC-options: -Wall -fno-warn-orphans
 
@@ -142,6 +143,7 @@ Library
     Hails.Web.REST
     Hails.Web.Responses
     Hails.Web.Router
+    Hails.Copy
   Other-modules:
     Paths_hails
 

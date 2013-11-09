@@ -61,6 +61,7 @@ import qualified Data.Binary.Put as Binary
 import qualified Data.Binary.Get as Binary
 
 import           LIO.DCLabel
+import           LIO.Labeled
 import           LIO.TCB
 
 -- | Strict ByeString

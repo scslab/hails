@@ -1,8 +1,8 @@
 {-# LANGUAGE Trustworthy #-}
-{-# LANGUAGE OverloadedStrings, DeriveDataTypeable #-}
+{-# LANGUAGE OverloadedStrings, DeriveDataTypeable, RecordWildCards #-}
 module Hails.HttpServer.Types (
   -- * Requests
-    Request(..)
+    Request(..), trRequest
   , getRequestBodyType, RequestBodyType(..)
   , addRequestHeader, removeRequestHeader
   -- * Responses
@@ -28,6 +28,11 @@ import           Network.Wai.Parse (RequestBodyType(..))
 import           Data.Time (UTCTime)
 
 import           LIO.DCLabel
+import           LIO.Labeled
+
+import Hails.Copy
+import LIO.SafeCopy
+import Control.Applicative
 
 --
 -- Request
@@ -70,6 +75,23 @@ data Request = Request {
   -- | Time request was received.
   ,  requestTime    :: UTCTime
   } deriving (Show, Typeable)
+
+trRequest :: Transfer Request
+trRequest = Transfer $ \(Request {..}) ->
+        Request
+    <$> transfer trByteString requestMethod
+    <*> transfer trHttpVersion httpVersion
+    <*> transfer trByteString rawPathInfo
+    <*> transfer trByteString rawQueryString
+    <*> transfer trByteString serverName
+    <*> transfer trPrim serverPort
+    <*> transfer (trList 100 (trPair (trCIByteString trByteString) trByteString)) requestHeaders
+    <*> transfer trPrim isSecure
+    <*> transfer trSockAddr remoteHost
+    <*> transfer (trList 400 trText) pathInfo
+    <*> transfer (trList 400 (trPair trByteString (trMaybe trByteString))) queryString
+    <*> transfer trLByteString requestBody
+    <*> transfer trUTCTime requestTime
 
 -- | Get the request body type (copied from @wai-extra@).
 getRequestBodyType :: Request -> Maybe RequestBodyType
