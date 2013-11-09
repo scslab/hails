@@ -58,6 +58,10 @@ import           Hails.HttpServer.Types
 import           System.IO
 import           Data.Time (getCurrentTime)
 
+import LIO.RCLabel
+import LIO.RCRef
+import LIO.SafeCopy
+
 -- | Convert a WAI 'W.Request' to a Hails 'Request' by consuming the
 -- body into a 'L.ByteString'. The 'requestTime' is set to the
 -- current time at the time this action is executed (which is when
@@ -196,8 +200,12 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
   hailsRequest <- waiToHailsReq req0
   -- Extract browser/request configuration
   let conf = getRequestConf hailsRequest
+  v <- liftIO $ do
+    _ <- privInit (dcIntegrity (requestLabel conf))
+    rc <- principalRC arena
+    mkRCRefFromCNF (dcIntegrity (requestLabel conf)) =<< withRC1 rc hailsRequest (transfer trRequest)
   (result, dcState) <- liftIO $ tryDCDef conf $ do
-    let lreq = LabeledTCB (requestLabel conf) hailsRequest
+    let lreq = LabeledTCB (requestLabel conf) v
     app conf lreq
   case result of
     Right response -> return $ hailsToWaiResponse response
@@ -223,6 +231,9 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
 -- Helper
 --
 
+arena :: Principal
+arena = principalBS "#ARENA"
+
 -- | Get the browser label (secrecy of the user), request label (integrity of
 -- the user), and application privilege (minted with the app's cannonical name)
 getRequestConf :: Request -> RequestConfig
@@ -232,8 +243,8 @@ getRequestConf req =
       appName  = "@" `S8.append` (S8.takeWhile (/= '.') $ serverName req)
       appPriv = PrivTCB $ toCNF $ principalBS appName
   in RequestConfig
-      { browserLabel = maybe dcPublic (\userName -> userName %% True) muserName
-      , requestLabel = maybe dcPublic (\userName -> True %% userName) muserName
+      { browserLabel = maybe (True %% arena) (\userName -> userName %% arena) muserName
+      , requestLabel = maybe (True %% arena) (\userName -> True %% (arena /\ userName)) muserName
       , appPrivilege = appPriv }
 
 
