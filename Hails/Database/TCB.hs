@@ -66,6 +66,8 @@ import           LIO.DCLabel
 
 import           Hails.Data.Hson
 
+import LIO.RCLabel
+
 --
 -- Collections
 --
@@ -236,7 +238,7 @@ makeDBActionStateTCB priv dbName pipe mode =
                    , dbActionPriv = priv }
     where db = DatabaseTCB { databaseName  = dbName 
                            , databaseLabel = l
-                           , databaseCollections = LabeledTCB l Set.empty }
+                           , databaseCollections = labeledTCB l Set.empty }
           l = prin %% prin
           prin = privDesc priv
 
@@ -263,8 +265,8 @@ associateCollectionTCB col = updateActionStateTCB $ \s ->
  let db = dbActionDB s
  in s { dbActionDB = doUpdate db }
   where doUpdate db = 
-          let (LabeledTCB l cs) = databaseCollections db
-          in  db { databaseCollections = LabeledTCB l $
+          let (l, cs) = unlabelTCB (databaseCollections db)
+          in  db { databaseCollections = labeledTCB l $
                                          Set.insert col cs }
 
 -- | Lift a mongoDB action into the 'DBAction' monad. This function

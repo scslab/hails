@@ -60,9 +60,11 @@ import qualified Data.ByteString.Lazy.Char8 as L8
 import qualified Data.Binary.Put as Binary
 import qualified Data.Binary.Get as Binary
 
-import           LIO.DCLabel
 import           LIO.Labeled
 import           LIO.TCB
+
+import System.IO.Unsafe
+import LIO.RCLabel
 
 -- | Strict ByeString
 type S8 = S8.ByteString
@@ -175,7 +177,7 @@ hsonToDataBsonTCB (HsonValue b) = bsonToDataBsonTCB b
 hsonToDataBsonTCB (HsonLabeled (HasPolicyTCB (LabeledTCB _ lv))) =
   toUserDef . hsonDocToDataBsonDocTCB $ 
      [ HsonField __hails_HsonLabeled_value $
-            HsonValue lv ]
+            HsonValue (unsafePerformIO (maybe (error "was dead") return =<< readMultiRCRef lv)) ]
     where toUserDef = Bson.UserDef
                     . Bson.UserDefined
                     . strictify

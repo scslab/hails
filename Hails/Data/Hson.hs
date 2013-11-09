@@ -118,6 +118,8 @@ import           Network.Wai.Parse ( FileInfo(..)
 import           Hails.Data.Hson.TCB
 import           Hails.HttpServer.Types
 
+import LIO.RCLabel
+
 infix 0 =:, -:
 
 
@@ -323,13 +325,16 @@ hsonFieldToBsonField (HsonField n _) =
 labeledRequestToHson :: MonadLIO DCLabel m
                      => DCLabeled Request -> m (DCLabeled HsonDocument)
 labeledRequestToHson lreq = liftLIO $ do
-  let (LabeledTCB origLabel req) = lreq
-      btype     = fromMaybe UrlEncoded $ getRequestBodyType req
+  let (LabeledTCB origLabel wrapped_req) = lreq
+  -- This is probably not quite right
+  state <- getLIOStateTCB
+  (origLabel, req) <- multiExtract state (dcIntegrity origLabel) wrapped_req
+  let btype     = fromMaybe UrlEncoded $ getRequestBodyType req
   (ps, fs) <- liftLIO . ioTCB $ runResourceT $
                 sourceLbs (requestBody req) $$ sinkRequestBody lbsBackEnd btype
   let psDoc     = map convertPS ps
       fsDoc     = map convertFS fs
-  return $ LabeledTCB origLabel $ arrayify $ psDoc ++ fsDoc
+  LabeledTCB origLabel `fmap` multiAlloc origLabel (arrayify $ psDoc ++ fsDoc)
   where convertPS (k,v) = HsonField
                            (T.pack . S8.unpack $ k)
                            (toHsonValue . S8.unpack $ v)
