@@ -61,6 +61,7 @@ import           Data.Time (getCurrentTime)
 import LIO.RCLabel
 import LIO.RCRef
 import LIO.SafeCopy
+import Debug.Trace
 
 -- | Convert a WAI 'W.Request' to a Hails 'Request' by consuming the
 -- body into a 'L.ByteString'. The 'requestTime' is set to the
@@ -102,6 +103,7 @@ browserLabelGuard :: Middleware
 browserLabelGuard hailsApp conf req = do
   response <- hailsApp conf req
   resultLabel <- getLabel
+  trace (show resultLabel ++ " --> " ++ show (browserLabel conf) ++ "\n") $ do
   return $ if resultLabel `canFlowTo` (browserLabel conf)
              then response
              else Response status403 [] ""
@@ -243,7 +245,7 @@ getRequestConf req =
       appName  = "@" `S8.append` (S8.takeWhile (/= '.') $ serverName req)
       appPriv = PrivTCB $ toCNF $ principalBS appName
   in RequestConfig
-      { browserLabel = maybe (True %% arena) (\userName -> userName %% arena) muserName
+      { browserLabel = maybe (True %% True) (\userName -> userName %% True) muserName
       , requestLabel = maybe (True %% arena) (\userName -> True %% (arena /\ userName)) muserName
       , appPrivilege = appPriv }
 

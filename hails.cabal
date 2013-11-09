@@ -181,6 +181,7 @@ Executable hails
    ,unix
    ,ghc-paths
    ,SHA
+   ,case-insensitive
    -- ,hint
    ,hails
 

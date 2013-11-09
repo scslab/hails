@@ -24,6 +24,8 @@ import           Hails.Database
 import           Hails.Database.TCB (dbActionPriv, getActionStateTCB)
 import           Hails.PolicyModule
 
+import LIO.SafeCopy
+
 
 class PolicyModule pm => Groups pm where
   -- | Typically, the action should expand a principal such as @#group@ to
@@ -47,10 +49,11 @@ class PolicyModule pm => Groups pm where
 labelRewrite :: forall unused_pm a. Groups unused_pm
              => unused_pm
              -- ^ Policy module
+             -> Transfer a
              -> DCLabeled a
              -- ^ Label
              -> DBAction (DCLabeled a)
-labelRewrite pm lx = do
+labelRewrite pm t lx = do
   -- Make sure that 'groupsInstanceEndorse' is not bottom
   _ <- liftLIO $ evaluate (groupsInstanceEndorse :: unused_pm)
   pmPriv <- getPMPriv
@@ -62,7 +65,7 @@ labelRewrite pm lx = do
   -- Apply map to all principals in the label
   let lnew = (expandPrincipals pMap s) %% (expandPrincipals pMap i)
   -- Relabel labeled value
-  liftLIO $ relabelLabeledP pmPriv lnew lx
+  liftLIO $ relabelLabeledP pmPriv lnew t lx
     where getPMPriv = do
             pmPriv <- dbActionPriv `liftM` getActionStateTCB
             -- Make sure that the underlying policy module

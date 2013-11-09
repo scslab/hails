@@ -32,11 +32,15 @@ for the safe external API.
 module Hails.Data.Hson.TCB (
   -- * Documents
     HsonDocument, BsonDocument
+  , trHsonDocument, trBsonDocument
   -- * Fields
   , FieldName, HsonField(..), BsonField(..)
+  , trHsonField, trBsonField
   -- * Values
   , HsonValue(..), BsonValue(..)
   , PolicyLabeled(..), ObjectId(..), Binary(..), S8
+  , trHsonValue, trBsonValue
+  , trPolicyLabeled, trObjectId, trBinary
   -- * Marshall to/from "Data.Bson"
   , hsonDocToDataBsonDocTCB 
   , dataBsonDocToHsonDocTCB 

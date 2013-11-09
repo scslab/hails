@@ -28,10 +28,13 @@ import           LIO
 import           LIO.DCLabel
                  
 import           Hails.Data.Hson
+import           Hails.Data.Hson.TCB
 import           Hails.PolicyModule
 import           Hails.Database.Core
 import           Hails.Database.Query
 import           Hails.Database.TCB
+
+import LIO.SafeCopy
 
 -- | Class for converting from \"structured\" records to documents
 -- (and vice versa). Minimal definition consists of 'toDocument',
@@ -87,12 +90,12 @@ class DCRecord a where
   findByP p cName k v = 
     findWhereP p (select [k -: v] cName)
   --
-  findWhereP p query  = liftDB $ do
+  findWhereP p query = liftDB $ do
     mldoc <- findOneP p query
     c <- liftLIO $ getClearance
     case mldoc of
       Just ldoc | canFlowToP p (labelOf ldoc) c ->
-                    fromDocument `liftM` (liftLIO $ unlabelP p ldoc)
+                    fromDocument `liftM` (liftLIO $ unlabelP p trHsonDocument ldoc)
       _ -> return Nothing
 --   --
 --   deleteByP p policy colName k v = 
@@ -127,7 +130,7 @@ findAllP p query = liftDB $ do
             Just ldoc -> do
               c <- liftLIO getClearance
               if canFlowTo (labelOf ldoc) c
-                then do md <- fromDocument `liftM` (liftLIO $ unlabelP p ldoc)
+                then do md <- fromDocument `liftM` (liftLIO $ unlabelP p trHsonDocument ldoc)
                         cursorToRecords cur $ maybe docs (:docs) md
                  else cursorToRecords cur docs
             _ -> return $ reverse docs
@@ -150,6 +153,8 @@ class (PolicyModule pm, DCRecord a) => DCLabeledRecord pm a | a -> pm where
   insertLabeledRecordP :: MonadDB m => DCPriv -> DCLabeled a -> m ObjectId
   -- | Same as 'saveLabeledRecord', but using explicit privileges.
   saveLabeledRecordP :: MonadDB m => DCPriv -> DCLabeled a -> m ()
+
+  transferRecord :: Transfer a
 
   -- | Endorse the implementation of this instance. Note that this is
   -- reduced to WHNF to catch invalid instances that use 'undefined'.
@@ -204,10 +209,10 @@ toLabeledDocumentP p' lr = liftDB $ do
       clr <- getClearance
       setClearanceP p $ clr `lub` (p %% True)
       --
-      r <- unlabelP p lr
+      r <- unlabelP p transferRecord lr
       lcur <- getLabel
       let lres = downgradeP p lcur `lub` (labelOf lr)
-      labelP p lres $ toDocument r
+      labelP p lres trHsonDocument $ toDocument r
 
 -- | Convert labeled document to labeled record
 fromLabeledDocument :: forall m pm a. (MonadDB m, DCLabeledRecord pm a)
@@ -233,11 +238,11 @@ fromLabeledDocumentP p' ldoc = liftDB $ do
     clr <- getClearance
     setClearanceP p $ clr `lub` (p %% True)
     -- get at the document
-    doc <- liftLIO $ unlabelP p ldoc
+    doc <- liftLIO $ unlabelP p trHsonDocument ldoc
     lcur <- liftLIO $ getLabel
     let lres = downgradeP p lcur `lub` (labelOf ldoc)
     rec <- fromDocument doc
-    labelP p lres rec
+    labelP p lres transferRecord rec
     where fake :: DCLabeled a
           fake = undefined
 

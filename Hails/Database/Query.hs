@@ -349,7 +349,7 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection
       -- Document is labeled, remove label:
-      let (LabeledTCB ld doc) = ldoc
+      let (unlabelTCB -> (ld, doc)) = ldoc
       -- Check that labels are same as if we had applied them
       -- Apply policies to the unlabeled document,
       -- asserts that labeled values are below collection clearance:
@@ -365,7 +365,7 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
         unless (canFlowToP priv ld ltcb) $
           throwLIO PolicyViolation
       -- Perform action on policy-labeled document:
-      act $ LabeledTCB ltcb docTCB
+      act $ labeledTCB ltcb docTCB
   where compareDoc d1' d2' = 
           let d1 = sortDoc d1'
               d2 = sortDoc d2'
@@ -455,11 +455,11 @@ nextP p cur = do
       let doc0 = dataBsonDocToHsonDocTCB mongoDoc
       dbPriv <- dbActionPriv `liftM` getActionStateTCB
       ldoc <- applyCollectionPolicyP dbPriv (curCollection cur) doc0
-      let (LabeledTCB l doc) = ldoc
+      let (unlabelTCB -> (l, doc)) = ldoc
           proj = case curProject cur of
                   [] -> id
                   xs -> include xs
-      return . Just . LabeledTCB l . proj $ doc
+      return . Just . labeledTCB l . proj $ doc
 
 -- | Fetch the first document satisfying query, or 'Nothing' if not
 -- documents matched the query.
@@ -487,7 +487,7 @@ deleteP :: DCPriv -> Selection ->  DBAction ()
 deleteP p sel = do
   let qry = select (selectionSelector sel) (selectionCollection sel)
   cur <- findP p qry
-  forAll cur $ \(LabeledTCB l ld) -> do
+  forAll cur $ \(unlabelTCB -> (l, ld)) -> do
     -- Can write to the document?
     liftLIO $ guardWriteP p l
     -- Delete only _this_ document, avoid TOCTTOU
@@ -547,7 +547,8 @@ withCollection priv isWrite cName act = do
     -- If this is a write: check that we can write to database:
     when isWrite $ guardWriteP priv (databaseLabel db)
     -- Check that we can read collection names associated with DB:
-    cs <- unlabelP priv $ databaseCollections db
+    -- XXX TODO fix me
+    cs <- error "not implemented" -- unlabelP priv $ databaseCollections db
     -- Lookup collection name in the collection set associated with DB:
     col0 <- maybe (throwLIO UnknownCollection) return $ getCol cs
     -- If this is a write: check that we can write to collection:
@@ -610,7 +611,7 @@ applyCollectionPolicyP p col doc0 = liftLIO $ do
               l = fieldPolicy doc1
           case pl of
             (NeedPolicyTCB bv) -> do
-              lbv <- labelP p l bv `onException` throwLIO PolicyViolation
+              lbv <- labelP p l trBsonValue bv `onException` throwLIO PolicyViolation
               return (n -: hasPolicy lbv)
             (HasPolicyTCB lbv) -> do
               unless (labelOf lbv == l) $ throwLIO PolicyViolation
@@ -618,7 +619,7 @@ applyCollectionPolicyP p col doc0 = liftLIO $ do
     -- Apply document policy:
     clnow <- getClearance
     withClearanceP p (docPolicy doc2 `lub` clnow) $
-      labelP p (docPolicy doc2) doc2
+      labelP p (docPolicy doc2) trHsonDocument doc2
   where docPolicy     = documentLabelPolicy . colPolicy $ col
         fieldPolicies = fieldLabelPolicies  . colPolicy $ col
 
