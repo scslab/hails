@@ -32,7 +32,6 @@ module Hails.HttpServer.Auth
 import           Control.Monad.IO.Class (liftIO)
 import           Blaze.ByteString.Builder (toByteString)
 import           Control.Monad
-import           Control.Monad.Trans.Resource
 import           Data.Time.Clock
 import           Data.ByteString.Base64
 import           Data.Text (Text)
@@ -47,6 +46,7 @@ import           Data.Digest.Pure.SHA
 import           Network.HTTP.Conduit (withManager)
 import           Network.HTTP.Types
 import           Network.Wai
+import           Network.Socket
 import           Web.Authenticate.BrowserId
 import           Web.Authenticate.OpenId
 import           Web.Cookie
@@ -186,7 +186,7 @@ openIdAuth openIdUrl app0 req0 = do
 -- | Executes the app and if the app 'Response' has header
 -- @X-Hails-Login@ and the user is not logged in, respond with an
 -- authentication response (Basic Auth, redirect, etc.)
-requireLoginMiddleware :: ResourceT IO Response -> Middleware
+requireLoginMiddleware :: IO Response -> Middleware
 requireLoginMiddleware loginResp app0 req = do
   appResp <- app0 req
   if hasLogin appResp && notLoggedIn
@@ -195,12 +195,6 @@ requireLoginMiddleware loginResp app0 req = do
   where hasLogin r = "X-Hails-Login" `isIn` responseHeaders r
         notLoggedIn = not $ "X-Hails-User" `isIn` requestHeaders req
         isIn n xs = isJust $ lookup n xs
-
--- | Get the hreaders from a response.
-responseHeaders :: Response -> ResponseHeaders
-responseHeaders (ResponseFile _ hdrs _ _) = hdrs
-responseHeaders (ResponseBuilder _ hdrs _) = hdrs
-responseHeaders (ResponseSource _ hdrs _) = hdrs
 
 --
 -- Helpers
@@ -225,10 +219,17 @@ requestToUri :: Request -> S8.ByteString -> S8.ByteString
 requestToUri req path = S8.concat $
   [ "http"
   , if isSecure req then "s://" else "://"
-  , serverName req
-  , if serverPort req `notElem` [80, 443] then portBS else ""
+  , serverName
+  , if serverPort `notElem` [80, 443] then portBS else ""
   , path ]
-  where portBS = S8.pack $ ":" ++ show (serverPort req)
+  where portBS = S8.pack $ ":" ++ show serverPort
+        serverName = case lookup "Host" $ requestHeaders req of
+          Just h -> h
+          _      -> error "requestToUri: missing Host header"
+        serverPort = case remoteHost req of
+          SockAddrInet no _ -> no
+          SockAddrInet6 no _ _ _ -> no
+          _ -> error "requestToUri: invalid socket type"
 
 
 -- Cookie authentication

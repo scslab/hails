@@ -104,7 +104,7 @@ import           Data.Typeable
 import           Data.Functor.Identity (runIdentity)
 import qualified Data.Bson as Bson
 
-import           Data.Conduit (runResourceT, ($$))
+import           Data.Conduit (($$))
 import           Data.Conduit.Binary (sourceLbs)
 
 import           LIO
@@ -325,7 +325,7 @@ labeledRequestToHson :: MonadLIO DCLabel m
 labeledRequestToHson lreq = liftLIO $ do
   let (LabeledTCB origLabel req) = lreq
       btype     = fromMaybe UrlEncoded $ getRequestBodyType req
-  (ps, fs) <- liftLIO . ioTCB $ runResourceT $
+  (ps, fs) <- liftLIO . ioTCB $ 
                 sourceLbs (requestBody req) $$ sinkRequestBody lbsBackEnd btype
   let psDoc     = map convertPS ps
       fsDoc     = map convertFS fs

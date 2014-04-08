@@ -49,11 +49,6 @@ data Request = Request {
   -- Backends are free to provide alternative values as necessary. This value
   -- should not be used to construct URLs.
   ,  serverName     :: S.ByteString
-  -- | The listening port that the server received this request on. It is
-  -- possible for a server to listen on a non-numeric port (i.e., Unix named
-  -- socket), in which case this value will be arbitrary. Like 'serverName',
-  -- this value should not be used in URL construction.
-  ,  serverPort     :: Int
   -- | The request headers.
   ,  requestHeaders :: RequestHeaders
   -- | Was this request made over an SSL connection?

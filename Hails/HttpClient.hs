@@ -95,7 +95,6 @@ module Hails.HttpClient (
   ) where
 
 import qualified Data.ByteString.Char8 as S8
-import qualified Data.Conduit as C
 import           Data.Monoid
                               
 import           Control.Failure
@@ -108,7 +107,7 @@ import           Network.HTTP.Conduit (
                    , requestBody, rawBody
                    , redirectCount
                    , checkStatus, decompress
-                   , proxy, socksProxy
+                   , proxy
                    , applyBasicAuth
                    , HttpException(..)
                    )
@@ -121,7 +120,7 @@ import           LIO.DCLabel
 
 
 -- | Reques type, wrapper for the conduit 'C.Request'.
-type Request = C.Request (C.ResourceT IO)
+type Request = C.Request
 
 --
 -- Basic functions
@@ -138,7 +137,7 @@ simpleHttpP :: PrivDesc DCLabel p
             -> Request     -- ^ Request
             -> DC Response
 simpleHttpP p req' = do
-  let req = req' { proxy = Nothing, socksProxy = Nothing }
+  let req = req' { proxy = Nothing }
   guardWriteURLP p req
   resp <- ioTCB $ C.withManager $ C.httpLbs req
   return $ Response { respStatus  = C.responseStatus resp

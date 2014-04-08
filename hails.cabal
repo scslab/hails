@@ -1,5 +1,5 @@
 Name:           hails
-Version:        0.11.0.0
+Version:        0.11.1.0
 build-type:     Simple
 License:        GPL-2
 License-File:   LICENSE
@@ -83,17 +83,17 @@ Extra-source-files:
 
 Source-repository head
   Type:     git
-  Location: ssh://git@github.com/scslab/hails.git
+  Location: git://github.com/scslab/hails.git
 
 
 Library
   Build-Depends:
-    base              >= 4.5     && < 5.0
+    base < 6
    ,transformers
    ,mtl
    ,containers
    ,bytestring
-   ,text >= 0.11.3.0
+   ,text
    ,parsec
    ,binary
    ,time
@@ -105,7 +105,7 @@ Library
    ,conduit
    ,resourcet
    ,http-conduit
-   ,wai
+   ,wai >= 2.1
    ,wai-app-static
    ,wai-extra
    ,http-types
@@ -149,7 +149,7 @@ Executable hails
   Main-is: hails.hs
   ghc-options: -package ghc -Wall -fno-warn-orphans
   Build-Depends:
-    base              >= 4.5     && < 5.0
+    base < 6
    ,transformers
    ,mtl
    ,containers
@@ -166,7 +166,7 @@ Executable hails
    ,conduit
    ,resourcet
    ,http-conduit
-   ,wai
+   ,wai >= 2.1
    ,wai-extra
    ,wai-app-static
    ,warp

@@ -95,7 +95,7 @@ main = do
          _                               -> devBasicAuth
   dcApp <- loadApp (optSafe opts) (optPkgConf opts) (fromJust $ optName opts)
   app <- evalDC $ setClearance dcPublic >> dcApp
-  runSettings (defaultSettings { settingsPort = port }) $
+  runSettings (setPort port defaultSettings) $
     logMiddleware $ execHailsApplication authMiddleware app
 
 

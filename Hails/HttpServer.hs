@@ -62,7 +62,7 @@ import           Data.Time (getCurrentTime)
 -- body into a 'L.ByteString'. The 'requestTime' is set to the
 -- current time at the time this action is executed (which is when
 -- the app is invoked).
-waiToHailsReq :: W.Request -> ResourceT IO Request
+waiToHailsReq :: W.Request -> IO Request
 waiToHailsReq req = do
   curTime <- liftIO getCurrentTime
   body <- fmap L.fromChunks $ W.requestBody req $$ consume
@@ -70,15 +70,17 @@ waiToHailsReq req = do
                    , httpVersion = W.httpVersion req
                    , rawPathInfo = W.rawPathInfo req
                    , rawQueryString = W.rawQueryString req
-                   , serverName = W.serverName req
-                   , serverPort = W.serverPort req
                    , requestHeaders = W.requestHeaders req
                    , isSecure = W.isSecure req
                    , remoteHost = W.remoteHost req
+                   , serverName = sN
                    , pathInfo = W.pathInfo req
                    , queryString = W.queryString req
                    , requestBody = body 
                    , requestTime = curTime }
+  where sN = case lookup "Host" $ W.requestHeaders req of
+          Just h -> h
+          _      -> error "requestToUri: missing Host header"
 
 -- | Remove any unsafe headers, in this case only @X-Hails-User@.
 sanitizeReqMiddleware :: W.Middleware
