@@ -1,5 +1,5 @@
 Name:           hails
-Version:        0.11.1.0
+Version:        0.11.1.1
 build-type:     Simple
 License:        GPL-2
 License-File:   LICENSE
@@ -97,14 +97,15 @@ Library
    ,parsec
    ,binary
    ,time
-   ,lio
+   ,lio >= 0.11
    ,base64-bytestring
    ,bson
    ,mongoDB
    ,network
+   ,http-conduit >= 2.1.0
    ,conduit
    ,resourcet
-   ,http-conduit
+   ,exceptions
    ,wai >= 2.1
    ,wai-app-static
    ,wai-extra
@@ -158,14 +159,15 @@ Executable hails
    ,parsec
    ,binary
    ,time
-   ,lio
+   ,lio >= 0.11
    ,base64-bytestring
    ,bson
    ,mongoDB
    ,network
+   ,http-conduit >= 2.1.0
    ,conduit
    ,resourcet
-   ,http-conduit
+   ,exceptions
    ,wai >= 2.1
    ,wai-extra
    ,wai-app-static

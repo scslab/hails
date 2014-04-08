@@ -97,8 +97,7 @@ module Hails.HttpClient (
 import qualified Data.ByteString.Char8 as S8
 import           Data.Monoid
                               
-import           Control.Failure
-import           Control.Exception
+import           Control.Monad.Catch
 
 import qualified Network.HTTP.Conduit as C
 import           Network.HTTP.Conduit (
@@ -217,5 +216,5 @@ labelOfReq req =
 parseUrl :: String -> DC Request
 parseUrl = C.parseUrl
 
-instance Exception e => Failure e (LIO DCLabel) where
-  failure = throwLIO
+instance MonadThrow (LIO DCLabel) where
+  throwM = throwLIO
