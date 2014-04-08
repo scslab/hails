@@ -35,10 +35,9 @@ instance PolicyModule StorePolicyModule where
         document $ \_ -> do
           readers ==> unrestricted
           writers ==> unrestricted
-        field "key" key
+        field "coord" key
     return $ StorePolicyModuleTCB priv
       where this = privDesc priv
 
 withStorePolicyModule :: DBAction a -> DC a
 withStorePolicyModule act = withPolicyModule (\(_ :: StorePolicyModule) -> act)
-
