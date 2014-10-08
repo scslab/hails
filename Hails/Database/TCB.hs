@@ -276,11 +276,7 @@ execMongoActionTCB act = do
   let pipe = dbActionPipe s
       mode = dbActionMode s
       db   = databaseName . dbActionDB $ s
-  liftLIO $ ioTCB $ do
-    res <- Mongo.access pipe mode db act
-    case res of
-      Left err -> throwIO $ ExecFailure err
-      Right v  -> return v
+  liftLIO $ ioTCB $ Mongo.access pipe mode db act
 
 
 --

@@ -5,6 +5,7 @@ import           Control.Exception
 import qualified Data.ByteString.Char8 as S8
 import qualified Data.ByteString.Lazy.Char8 as L8
 
+import           Prelude
 import qualified Data.Text as T
 import           Data.List (isPrefixOf, isSuffixOf)
 import qualified Data.List as List
@@ -21,7 +22,6 @@ import           Hails.Version
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Middleware.RequestLogger
 
-import           System.Posix.Env (setEnv)
 import           System.Environment
 import           System.Console.GetOpt hiding (Option)
 import qualified System.Console.GetOpt as GetOpt
@@ -77,7 +77,7 @@ main = do
              cleanOpts opts'
   maybe (return ()) (optsToFile opts) $ optOutFile opts
   putStrLn $ "Working environment:\n\n" ++ optsToEnvStr opts
-  forM_ (optsToEnv opts) $ \(k,v) -> setEnv k v True
+  forM_ (optsToEnv opts) $ \(k,v) -> setEnv k v
   let port = fromJust $ optPort opts
       hmac_key = L8.pack . fromJust $ optHmacKey opts
       persona = personaAuth hmac_key $ T.pack . fromJust . optPersonaAud $ opts
@@ -107,20 +107,24 @@ loadApp :: Bool             -- -XSafe ?
         -> IO (DC Application)
 loadApp safe mpkgDb appName = do
   case mpkgDb of
-    Just pkgDb -> setEnv "GHC_PACKAGE_PATH" pkgDb True
+    Just pkgDb -> setEnv "GHC_PACKAGE_PATH" pkgDb
     Nothing -> return ()
   eapp <- runInterpreter $ do
+    loadModules [appName]
     when safe $
       set [languageExtensions := [asExtension "Safe"]]
-    loadModules [appName]
-    setImports  ["Prelude", "LIO", "LIO.DCLabel", "Hails.HttpServer", appName]
+    setTopLevelModules [appName]
+    setImports  ["Prelude", "LIO", "LIO.DCLabel", "Hails.HttpServer"]
     entryFunType <- typeOf "server"
     if entryFunType == "DC Application" then
       interpret "server" (undefined :: DC Application)
       else
       interpret "return server" (undefined :: DC Application)
   case eapp of
-    Left err -> throwIO err
+    Left err -> case err of
+      WontCompile es -> do putStrLn (unlines $ map errMsg es) 
+                           throwIO (userError "Compilation error")
+      _ -> throwIO err
     Right app -> return app
 
 --
@@ -397,7 +401,7 @@ envFromFile file = do
     let (key',val') = S8.span (/='=') line
         val = safeTail val'
     in case S8.words key' of
-         [key] -> setEnv (S8.unpack key) (S8.unpack val) True
+         [key] -> setEnv (S8.unpack key) (S8.unpack val)
          _ -> do hPutStrLn stderr $ "Invalid environment line: " ++
                                     show (S8.unpack line)
                  exitFailure

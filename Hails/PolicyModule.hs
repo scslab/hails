@@ -431,7 +431,7 @@ withPolicyModule act = do
                                List.lookup "HAILS_MONGODB_SERVER" env
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
-      pipe <- ioTCB $ Mongo.runIOE $ Mongo.connect (Mongo.host hostName)
+      pipe <- ioTCB $ Mongo.connect (Mongo.host hostName)
       let priv = PrivTCB (toCNF pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
