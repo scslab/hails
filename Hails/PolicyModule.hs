@@ -30,7 +30,7 @@ module's underlying database.
 module Hails.PolicyModule (
  -- * Creating policy modules
    PolicyModule(..)
- , PMAction
+ , PMAction, withPMContext, withPMClearanceP
  -- ** Database and collection-set
  -- $db
  , labelDatabaseP
@@ -46,7 +46,7 @@ module Hails.PolicyModule (
  , searchableFields
  -- * Using policy module databases
  -- $withPM
- , withPolicyModule 
+ , withPolicyModule
  -- * Internal
  , TypeName
  , policyModuleTypeName
@@ -71,6 +71,7 @@ import           Database.MongoDB (GetLastError)
 import           LIO
 import           LIO.TCB
 import           LIO.DCLabel
+import           LIO.Error
 import           Hails.Data.Hson
 import           Hails.Database.Core
 import           Hails.Database.TCB
@@ -113,10 +114,10 @@ import           System.IO.Unsafe
 -- >  import LIO.DCLabel
 -- >  import Data.Typeable
 -- >  import Hails.PolicyModule
--- >  
+-- >
 -- >  -- | Handle to policy module, not exporting @MyPolicyModuleTCB@
 -- >  data MyPolicyModule = MyPolicyModuleTCB DCPriv deriving Typeable
--- >  
+-- >
 -- >  instance PolicyModule MyPolicyModule where
 -- >    initPolicyModule priv = do
 -- >          -- Get the policy module principal:
@@ -165,7 +166,7 @@ import           System.IO.Unsafe
 class Typeable pm => PolicyModule pm where
   -- | Entry point for policy module. Before executing the entry function,
   -- the current clearance is \"raised\" to the greatest lower bound of the
-  -- current clearance and the label @\<\"Policy module principal\", |True\>@, 
+  -- current clearance and the label @\<\"Policy module principal\", |True\>@,
   -- as to allow the policy module to read data labeled with its principal.
   initPolicyModule :: DCPriv -> PMAction pm
 
@@ -210,14 +211,14 @@ setDatabaseLabel = setDatabaseLabelP mempty
 
 -- | Same as 'setDatabaseLabel', but uses privileges when performing
 -- label comparisons. If a policy module wishes to allow other policy
--- modules or apps to access the underlying databse it must use 
+-- modules or apps to access the underlying databse it must use
 -- @setDatabaseLabelP@ to \"downgrade\" the database label, which by
 -- default only allows the policy module itself to access any of the
 -- contents (including collection-set).
 setDatabaseLabelP :: DCPriv    -- ^ Set of privileges
                   -> DCLabel   -- ^ New database label
                   -> PMAction ()
-setDatabaseLabelP p l = liftDB $ do
+setDatabaseLabelP p l = withPMContext "setDatabaseLabelP" $ liftDB $ do
   liftLIO $ guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
   liftLIO $ guardWriteP p (databaseLabel db)
@@ -242,7 +243,7 @@ setCollectionSetLabel = setCollectionSetLabelP mempty
 setCollectionSetLabelP :: DCPriv      -- ^ Set of privileges
                        -> DCLabel     -- ^ New collections label
                        -> PMAction ()
-setCollectionSetLabelP p l = liftDB $ do
+setCollectionSetLabelP p l =  withPMContext "setCollectionSetLabelP " $liftDB $ do
   liftLIO $ guardAllocP p l
   db  <-  dbActionDB `liftM` getActionStateTCB
   liftLIO $ guardWriteP p (databaseLabel db)
@@ -257,7 +258,7 @@ labelDatabaseP :: DCPriv    -- ^ Policy module privilges
                -> DCLabel   -- ^ Database label
                -> DCLabel   -- ^ Collections label
                -> PMAction ()
-labelDatabaseP p ldb lcol = do
+labelDatabaseP p ldb lcol = withPMContext "labelDatabaseP" $ do
   setDatabaseLabelP p ldb
   setCollectionSetLabelP p lcol
 
@@ -270,7 +271,7 @@ labelDatabaseP p ldb lcol = do
 As noted above a database consists of a set of collections. Each Hails
 collection is a MongoDB collection with a set of labels and policies.
 The main database \"work units\" are 'HsDocument's, which are stored
-and retrieved from collections (see "Hails.Database"). 
+and retrieved from collections (see "Hails.Database").
 
 Each collection has:
 
@@ -312,7 +313,7 @@ policy module may use 'createCollection' to create collections.
 --    collection-set protected by the database label. The guard 'taint' is
 --    used to guarantee this and raise the current label (to the
 --    join of the current label and database label) appropriately.
--- 
+--
 -- 3. The computation must be able to modify the database collection-set.
 --    The guard 'guardWrite' is used to guarantee that the current label
 --    is essentially equal to the collection-set label.
@@ -334,7 +335,7 @@ createCollectionP :: DCPriv           -- ^ Privileges
                   -> DCLabel          -- ^ Collection clearance
                   -> CollectionPolicy -- ^ Collection policy
                   -> PMAction ()
-createCollectionP p n l c pol = liftDB $ do
+createCollectionP p n l c pol = withPMContext "createCollectionP" $ liftDB $ do
   db <- dbActionDB `liftM` getActionStateTCB
   liftLIO $ do
     taintP p $ databaseLabel db
@@ -390,7 +391,7 @@ type TypeName = String
 -- to a policy module. The format of a line is as follows
 --
 -- > ("<Policy module package>:<Fully qualified module>.<Policy module type>", "<Policy module database name>")
--- 
+--
 -- Example of valid line is:
 --
 -- > ("my-policy-0.1.2.3:My.Policy.MyPolicyModule", "my_db")
@@ -422,9 +423,9 @@ availablePolicyModules = unsafePerformIO $ do
 -- passed in additional privileges by encapsulating them in @pm@ (see
 -- 'PolicyModule').
 withPolicyModule :: forall a pm. PolicyModule pm => (pm -> DBAction a) -> DC a
-withPolicyModule act = do
+withPolicyModule act = withContext "withPolicyModule" $ do
   case Map.lookup tn availablePolicyModules of
-    Nothing -> throwLIO UnknownPolicyModule 
+    Nothing -> throwLIO UnknownPolicyModule
     Just (pmOwner, dbName) -> do
       env <- ioTCB $ getEnvironment
       let hostName = fromMaybe "localhost" $
@@ -435,32 +436,39 @@ withPolicyModule act = do
       let priv = PrivTCB (toCNF pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
-      (policy, s1) <- withClearanceP' priv $ runDBAction (pmAct priv) s0
+      (policy, s1) <- withPMClearanceP priv $ runDBAction (pmAct priv) s0
       let s2 = s1 { dbActionDB = dbActionDB s1 }
       res <- evalDBAction (act policy) s2
       ioTCB $ Mongo.close pipe
       return res
   where tn = policyModuleTypeName (undefined :: pm)
         pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
-        withClearanceP' priv io = do
-          c <- getClearance
-          let lpriv = (priv %%  priv) `lub` c
-          -- XXX: does this actually work? Used to be bracketP
-          bracket
-                   -- Raise clearance:
-                   (setClearanceP priv lpriv)
-                   -- Lower clearance:
-                   (const $ do c' <- getClearance 
-                               setClearanceP priv (downgradeP priv c' `lub` c))
-                   -- Execute policy module entry point, in between:
-                   (const io)
+
+withPMClearanceP :: DCPriv -> DC a -> DC a
+withPMClearanceP priv io = do
+  c <- getClearance
+  let lpriv = (priv %%  priv) `lub` c
+  -- XXX: does this actually work? Used to be bracketP
+  bracket
+           -- Raise clearance:
+           (setClearanceP priv lpriv)
+           -- Lower clearance:
+           (const $ do c' <- getClearance
+                       setClearanceP priv (downgradeP priv c' `lub` c))
+           -- Execute policy module entry point, in between:
+           (const io)
+
+
+-- | Execute a database action with a "stack" context.
+withPMContext :: String -> PMAction a -> PMAction a
+withPMContext ctx (PMActionTCB act) = PMActionTCB  $ withDBContext ctx act
 
 -- | Get the name of a policy module.
 policyModuleTypeName :: PolicyModule pm => pm -> TypeName
 policyModuleTypeName x =
    tyConPackage tp ++ ":" ++ tyConModule tp ++ "." ++ tyConName tp
       where tp = typeRepTyCon $ typeOf x
-  
+
 --
 -- Parser for getLastError
 --
@@ -477,7 +485,7 @@ policyModuleTypeName x =
 --  > fsync | journal | writes=<N>
 --
 -- separated by \',\', and @N@ is an integer.
--- Example: 
+-- Example:
 --
 -- > HAILS_MONGODB_MODE = "slaveOk"
 -- > HAILS_MONGODB_MODE = "confirmWrites: writes=3, journal"
@@ -489,7 +497,7 @@ parseMode "unconfirmedWrites" = UnconfirmedWrites
 parseMode xs = case parse wParser "" xs of
                  Right le -> ConfirmWrites le
                  Left _ -> master
-  where wParser = do _ <- string "confirmWrites" 
+  where wParser = do _ <- string "confirmWrites"
                      spaces
                      _ <- char ':'
                      spaces
@@ -499,7 +507,7 @@ gle_opts :: Stream s m Char => ParsecT s u m GetLastError
 gle_opts = do opt_first <- gle_opt
               opt_rest  <- gle_opts'
               return $ opt_first ++ opt_rest
-    where gle_opt = gle_opt_fsync <|> gle_opt_journal <|> gle_opt_write   
+    where gle_opt = gle_opt_fsync <|> gle_opt_journal <|> gle_opt_write
           gle_opts' :: Stream s m Char => ParsecT s u m GetLastError
           gle_opts' = (spaces >> char ',' >> spaces >> gle_opts) <|> (return [])
 

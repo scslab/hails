@@ -1,7 +1,6 @@
 {-# LANGUAGE Unsafe #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving,
-             MultiParamTypeClasses,
-             TypeFamilies #-}
+             MultiParamTypeClasses #-}
 
 {- |
 

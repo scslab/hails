@@ -130,9 +130,9 @@ guardSensitiveResp app config req = do
                                 Set.map principalName $ 
                                 dToSet $ head $ Set.elems secrecySet
               in if secrecy == cFalse || Set.size secrecySet > 1
-                   then "\'none\'" -- false/conjunction
+                   then "'self','unsafe-inline'" -- Be more flexible than 'none'
                    else S8.unwords $
-                          "\'self\'":"\'unsafe-inline\'":(Set.toList uriList)
+                          "'self'":"'unsafe-inline'":(Set.toList uriList)
 
 -- | Remove anything from the response that could cause inadvertant
 -- declasification. Currently this only removes the @Set-Cookie@

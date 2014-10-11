@@ -50,7 +50,7 @@ labelRewrite :: forall unused_pm a. Groups unused_pm
              -> DCLabeled a
              -- ^ Label
              -> DBAction (DCLabeled a)
-labelRewrite pm lx = do
+labelRewrite pm lx = withDBContext "labelRewrite" $ do
   -- Make sure that 'groupsInstanceEndorse' is not bottom
   _ <- liftLIO $ evaluate (groupsInstanceEndorse :: unused_pm)
   pmPriv <- getPMPriv
@@ -62,7 +62,7 @@ labelRewrite pm lx = do
   -- Apply map to all principals in the label
   let lnew = (expandPrincipals pMap s) %% (expandPrincipals pMap i)
   -- Relabel labeled value
-  liftLIO $ relabelLabeledP pmPriv lnew lx
+  liftLIO $ withPMClearanceP pmPriv $ relabelLabeledP pmPriv lnew lx
     where getPMPriv = do
             pmPriv <- dbActionPriv `liftM` getActionStateTCB
             -- Make sure that the underlying policy module

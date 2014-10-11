@@ -19,9 +19,10 @@ module Hails.Database.Core (
   , DatabaseName
   , Database, databaseName, databaseLabel, databaseCollections
   -- * Labeled documents
-  , LabeledHsonDocument 
+  , LabeledHsonDocument
   -- * Hails DB monad
   , DBAction, DBActionState
+  , withDBContext
   , MonadDB(..)
   , runDBAction, evalDBAction
   , getDatabase, getDatabaseP
@@ -35,6 +36,7 @@ import           Control.Monad.Trans.State
 
 import           LIO
 import           LIO.DCLabel
+import           LIO.Error
 
 import           Hails.Data.Hson
 import           Hails.Database.TCB
@@ -61,6 +63,13 @@ runDBAction = runStateT . unDBAction
 evalDBAction :: DBAction a -> DBActionState -> DC a
 evalDBAction a s = fst `liftM` runDBAction a s
 
+
+-- | Execute a database action with a "stack" context.
+withDBContext :: String -> DBAction a -> DBAction a
+withDBContext ctx (DBActionTCB act) =
+   DBActionTCB  . StateT $ \s ->
+    withContext ctx $ runStateT act s
+
 -- | Get the underlying database. Must be able to read from the
 -- database as enforced by applying 'taint' to the database label.
 -- This is required because the database label protects the
@@ -72,7 +81,7 @@ getDatabase = getDatabaseP mempty
 -- | Same as 'getDatabase', but uses privileges when raising the
 -- current label.
 getDatabaseP :: DCPriv -> DBAction Database
-getDatabaseP p = do
+getDatabaseP p = withDBContext "getDatabaseP" $ do
   db <- dbActionDB `liftM` getActionStateTCB
   liftLIO $ taintP p (databaseLabel db)
   return db

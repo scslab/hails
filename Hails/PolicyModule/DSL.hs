@@ -98,6 +98,7 @@ import           Data.Traversable (forM)
 import           Data.Typeable
 import qualified Data.Map as Map
 import qualified Data.Text as T
+import           Control.Applicative
 import           Control.Monad hiding (forM)
 import           Control.Monad.Trans
 import           Control.Monad.Trans.Reader hiding (ask)
@@ -173,7 +174,7 @@ type DBExpS = Map String CNF
 
 -- | Database expression composition monad
 newtype DBExpM a = DBExpM (ErrorT String (State DBExpS) a)
-  deriving (Monad, MonadState DBExpS)
+  deriving (Monad, MonadState DBExpS, Functor, Applicative)
 
 instance Role Readers DBExpS DBExpM where 
   _ ==> c = DBExpM $ do
@@ -249,7 +250,7 @@ type ColAccExpS = Map String CNF
 -- | Access expression composition monad
 newtype ColAccExpM a =
   ColAccExpM (ErrorT String (StateT ColAccExpS (Reader CollectionName)) a)
-  deriving (Monad, MonadState ColAccExpS, MonadReader CollectionName)
+  deriving (Monad, MonadState ColAccExpS, MonadReader CollectionName, Functor, Applicative)
 
 instance Role Readers ColAccExpS ColAccExpM where 
   _ ==> c = ColAccExpM $ do
@@ -287,7 +288,7 @@ type ColClrExpS = Map String CNF
 -- | Database expression composition monad
 newtype ColClrExpM a =
   ColClrExpM (ErrorT String (StateT ColClrExpS (Reader CollectionName)) a)
-  deriving (Monad, MonadState ColClrExpS, MonadReader CollectionName)
+  deriving (Monad, MonadState ColClrExpS, MonadReader CollectionName, Functor, Applicative)
 
 instance Role Readers ColClrExpS ColClrExpM where 
   _ ==> c = ColClrExpM $ do
@@ -329,7 +330,7 @@ type ColDocExpS = Map String CNF
 -- | Document expression composition monad
 newtype ColDocExpM a =
   ColDocExpM (ErrorT String (StateT ColDocExpS (Reader CollectionName)) a)
-  deriving (Monad, MonadState ColDocExpS, MonadReader CollectionName)
+  deriving (Monad, MonadState ColDocExpS, MonadReader CollectionName, Functor, Applicative)
 
 instance Role Readers ColDocExpS ColDocExpM where 
   _ ==> c = ColDocExpM $ do
@@ -373,7 +374,7 @@ type ColLabFieldExpS = Map String CNF
 -- | Labeled field expression composition monad.
 newtype ColLabFieldExpM a =
   ColLabFieldExpM (ErrorT String (StateT ColLabFieldExpS (Reader (FieldName, CollectionName))) a)
-  deriving (Monad, MonadState ColLabFieldExpS, MonadReader (FieldName, CollectionName))
+  deriving (Monad, MonadState ColLabFieldExpS, MonadReader (FieldName, CollectionName), Functor, Applicative)
 
 instance Role Readers ColLabFieldExpS ColLabFieldExpM where 
   _ ==> c = ColLabFieldExpM $ do
@@ -396,7 +397,7 @@ instance Role Writers ColLabFieldExpS ColLabFieldExpM where
 -- | Field expression composition monad.
 newtype ColFieldExpM a =
   ColFieldExpM (ErrorT String (StateT (Maybe ColFieldExp) (Reader (FieldName, CollectionName))) a)
-  deriving (Monad, MonadState (Maybe ColFieldExp), MonadReader (FieldName, CollectionName))
+  deriving (Monad, MonadState (Maybe ColFieldExp), MonadReader (FieldName, CollectionName), Functor, Applicative)
 
 -- | Set the underlying field to be a searchable key.
 --
@@ -480,7 +481,7 @@ type ColExpS = Map String ColExpT
 -- | Database expression composition monad
 newtype ColExpM a =
   ColExpM (ErrorT String (StateT ColExpS (Reader CollectionName)) a)
-  deriving (Monad, MonadState ColExpS, MonadReader CollectionName)
+  deriving (Monad, MonadState ColExpS, MonadReader CollectionName, Functor, Applicative)
 
 
 --------------------------------------------------------------
@@ -500,7 +501,7 @@ type PolicyExpS = Map String PolicyExpT
 
 -- | Policy expression composition monad
 newtype PolicyExpM a = PolicyExpM (ErrorT String (State PolicyExpS) a)
-  deriving (Monad, MonadState PolicyExpS)
+  deriving (Monad, MonadState PolicyExpS, Functor, Applicative)
 
 
 --------------------------------------------------------------

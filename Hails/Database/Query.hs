@@ -16,7 +16,7 @@ to such fields) and projections are carried out by this library and
 not the database. The later is a result of allowing policy modules to
 express a labeling policy as a function of a document -- hence we
 cannot determine at compile time if a field is used in a policy and
-thus must be included in the projection. 
+thus must be included in the projection.
 
 -}
 
@@ -126,7 +126,7 @@ data Query = Query { options :: [QueryOption]
                    -- MongoDB default.
                    , hint :: [FieldName]
                    -- ^ Force mongoDB to use this index, default @[]@,
-                   -- no hint.  
+                   -- no hint.
                    -- Non-'SearchableField's ignored.
                    }
 
@@ -171,7 +171,7 @@ instance Select Query where
                      , limit     = 0
                      , sort      = []
                      , batchSize = 0
-                     , hint      = [] 
+                     , hint      = []
                      }
 --
 -- Write
@@ -190,11 +190,11 @@ class InsertLike doc where
   -- collection in the database, and thus must be able to read the
   -- database collection map as verified by applying 'taint' to the
   -- collections label.
-  -- 
+  --
   -- When inserting an unlabeled document, all policies must  be
   -- succesfully applied using 'applyCollectionPolicyP' and the document
   -- must be \"well-typed\" (see 'applyCollectionPolicyP').
-  -- 
+  --
   -- When inserting an already-labeled document, the labels on fields
   -- and the document itself are compared against the policy-generated
   -- labels. Note that this approach allows an untrusted piece of code
@@ -228,7 +228,7 @@ class InsertLike doc where
   -- | Update a document according to its @_id@ value. The IFC requirements
   -- subsume those of 'insert'. Specifically, in addition to being able
   -- to apply all the policies and requiring that the current label flow
-  -- to the label of the collection and database, @save@ requires that 
+  -- to the label of the collection and database, @save@ requires that
   -- the current label flow to the label of the existing database
   -- record (i.e, the existing document can be overwritten).
   save :: CollectionName
@@ -249,7 +249,7 @@ class InsertLike doc where
         -> DBAction ()
 
 instance InsertLike HsonDocument where
-  insertP priv cName doc = do
+  insertP priv cName doc = withDBContext "insertP" $
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection,
       -- apply policies:
@@ -259,7 +259,7 @@ instance InsertLike HsonDocument where
       _id `liftM` (execMongoActionTCB $ Mongo.insert cName bsonDoc)
     where _id i = let HsonValue (BsonObjId i') = dataBsonValueToHsonValueTCB i
                   in i'
-  saveP priv cName doc = do
+  saveP priv cName doc =  withDBContext "saveP" $do
     withCollection priv True cName $ \col -> do
       -- Already checked that we can write to DB and collection,
       -- apply policies:
@@ -311,7 +311,7 @@ instance InsertLike LabeledHsonDocument where
           maybe (return ()) (liftLIO . guardWriteP' ld . labelOf) mdoc
           -- Okay, save document:
           saveIt ldoc
-     where guardWriteP' lnew lold = 
+     where guardWriteP' lnew lold =
              unless (canFlowToP priv lnew lold) $ labelErrorP
               "New document label doesn't flow to the old" priv [lnew, lold]
            saveIt (LabeledTCB _ doc) =
@@ -363,10 +363,10 @@ guardInsertOrSaveLabeledHsonDocument priv cName ldoc act = do
           throwLIO PolicyViolation
       -- Perform action on policy-labeled document:
       act $ LabeledTCB ltcb docTCB
-  where compareDoc d1' d2' = 
+  where compareDoc d1' d2' =
           let d1 = sortDoc d1'
               d2 = sortDoc d2'
-          in map fieldName d1 == map fieldName d2 
+          in map fieldName d1 == map fieldName d2
           && (and $ zipWith compareField d1 d2)
         compareField (HsonField n1 (HsonValue v1))
                      (HsonField n2 (HsonValue v2)) =
@@ -401,7 +401,7 @@ find = findP mempty
 -- | Same as 'find', but uses privileges when reading from the
 -- collection and database.
 findP :: DCPriv -> Query -> DBAction Cursor
-findP priv query = do
+findP priv query = withDBContext "findP" $ do
   let cName = selectionCollection . selection $ query
   dbLabel <- (databaseLabel . dbActionDB) `liftM` getActionStateTCB
   withCollection priv False cName $ \col -> do
@@ -441,7 +441,7 @@ next = nextP mempty
 
 -- | Same as 'next', but usess privileges when raising the current label.
 nextP :: DCPriv -> Cursor -> DBAction (Maybe LabeledHsonDocument)
-nextP p cur = do
+nextP p cur = withDBContext "nextP" $  do
   -- Raise current label, can read from DB+collection:
   liftLIO $ taintP p $ curLabel cur
   -- Read the document:
@@ -466,7 +466,7 @@ findOne = findOneP mempty
 -- | Same as 'findOne', but uses privileges when performing label
 -- comparisons.
 findOneP :: DCPriv -> Query -> DBAction (Maybe LabeledHsonDocument)
-findOneP p q = findP p q >>= nextP p
+findOneP p q = withDBContext "findOneP" $ findP p q >>= nextP p
 
 --
 -- Delete
@@ -481,7 +481,7 @@ delete = deleteP mempty
 
 -- | Same as 'delete', but uses privileges.
 deleteP :: DCPriv -> Selection ->  DBAction ()
-deleteP p sel = do
+deleteP p sel = withDBContext "deleteP" $ do
   let qry = select (selectionSelector sel) (selectionCollection sel)
   cur <- findP p qry
   forAll cur $ \(LabeledTCB l ld) -> do
@@ -495,12 +495,12 @@ deleteP p sel = do
   where forAll cur act = do
           mldoc <- nextP p cur
           maybe (return ()) (\ld -> act ld >> forAll cur act) mldoc
-    
+
 
 
 --
 -- Helpers
--- 
+--
 
 -- | Convert a query to queries used by "Database.Mongo"
 queryToMongoQueryTCB :: Query -> Mongo.Query
@@ -538,20 +538,21 @@ withCollection :: DCPriv
                -> CollectionName
                -> (Collection -> DBAction a)
                -> DBAction a
-withCollection priv isWrite cName act = do
-  db <- getDatabaseP priv
-  col <- liftLIO $ do
-    -- If this is a write: check that we can write to database:
-    when isWrite $ guardWriteP priv (databaseLabel db)
-    -- Check that we can read collection names associated with DB:
-    cs <- unlabelP priv $ databaseCollections db
-    -- Lookup collection name in the collection set associated with DB:
-    col0 <- maybe (throwLIO UnknownCollection) return $ getCol cs
-    -- If this is a write: check that we can write to collection:
-    when isWrite $ guardWriteP priv (colLabel col0)
-    return col0
-  -- Execute action on collection:
-  act col
+withCollection priv isWrite cName act =
+  withDBContext ("withCollection:" ++ Text.unpack cName) $ do
+    db <- getDatabaseP priv
+    col <- liftLIO $ do
+      -- If this is a write: check that we can write to database:
+      when isWrite $ guardWriteP priv (databaseLabel db)
+      -- Check that we can read collection names associated with DB:
+      cs <- unlabelP priv $ databaseCollections db
+      -- Lookup collection name in the collection set associated with DB:
+      col0 <- maybe (throwLIO UnknownCollection) return $ getCol cs
+      -- If this is a write: check that we can write to collection:
+      when isWrite $ guardWriteP priv (colLabel col0)
+      return col0
+    -- Execute action on collection:
+    act col
     where getCol = listToMaybe . Set.toList . Set.filter ((==cName) . colName)
 
 --
@@ -592,7 +593,7 @@ applyCollectionPolicyP :: MonadLIO DCLabel m
                        -> Collection    -- ^ Collection and policies
                        -> HsonDocument  -- ^ Document to apply policies to
                        -> m (LabeledHsonDocument)
-applyCollectionPolicyP p col doc0 = liftLIO $ do
+applyCollectionPolicyP p col doc0 = liftLIO $ withContext "applyCollectionPolicyP" $ do
   let doc1 = List.nubBy (\f1 f2 -> fieldName f1 == fieldName f2) doc0
   typeCheckDocument fieldPolicies doc1
   c <- getClearance
@@ -625,7 +626,7 @@ applyCollectionPolicyP p col doc0 = liftLIO $ do
 -- policy labeled, and all searchable/policy-labeled fields named in
 -- the collection policy are present in the document (except for @_id@).
 typeCheckDocument :: Map FieldName FieldPolicy -> HsonDocument -> DC ()
-typeCheckDocument ps doc = do
+typeCheckDocument ps doc = withContext "typeCheckDocument" $ do
   -- Check that every policy-named value exists and is well-typed
   void $ T.for psList $ \(k,v) -> do
     case look k doc of

@@ -54,6 +54,7 @@ their documentation as well.
 module Hails.Database (
   -- * Hails database monad
     DBAction, MonadDB(..)
+  , withDBContext
   , withPolicyModule
   , getDatabase, getDatabaseP
   -- ** Exception thrown by failed database actions
@@ -70,7 +71,7 @@ module Hails.Database (
   , PolicyError(..)
   -- ** Documents
   , module Hails.Data.Hson
-  , LabeledHsonDocument 
+  , LabeledHsonDocument
   -- * Database queries
   -- ** Write (insert/save)
   , InsertLike(..)
