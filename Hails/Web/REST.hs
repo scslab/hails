@@ -96,9 +96,9 @@ instance Routeable RESTControllerState where
 
     routeMethod POST $ routeTop $ restCreate controller
 
-    routeMethod PUT $ restUpdate controller
+    routeMethod DELETE $ routeVar "id" $ restDelete controller
 
-    routeMethod DELETE $ restDelete controller
+    routeMethod PUT $ routeVar "id" $ restUpdate controller
 
 -- | Monad used to encode a REST controller incrementally.
 type RESTControllerM a = StateT RESTControllerState DC a

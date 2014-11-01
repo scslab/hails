@@ -28,6 +28,8 @@ module Hails.Web.Router
   ) where
 
 import           Prelude hiding (pi)
+import           Control.Monad
+import           Control.Applicative
 
 import           LIO
 import           LIO.DCLabel
@@ -144,6 +146,13 @@ instance Monad RouteM where
       case resA of
         Nothing -> rtB pi eq conf req
         Just _ -> return resA) valB
+
+instance Functor RouteM where
+  fmap f x = pure f <*> x
+
+instance Applicative RouteM where
+  pure = return
+  (<*>) = ap
 
 instance Monoid Route where
   mempty = mroute $ const . const . const . const $ return Nothing
