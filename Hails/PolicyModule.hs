@@ -449,7 +449,7 @@ withPolicyModule act = withContext "withPolicyModule" $ do
       (policy, s1) <- withPMClearanceP priv $ runDBAction (pmAct priv) s0
       let s2 = s1 { dbActionDB = dbActionDB s1 }
       res <- evalDBAction (act policy) s2
-      ioTCB $ Mongo.close pipe
+      --ioTCB $ Mongo.close pipe -- XXX: leaking pipes
       return res
   where tn = policyModuleTypeName (undefined :: pm)
         pmAct priv = unPMActionTCB $ initPolicyModule priv :: DBAction pm
