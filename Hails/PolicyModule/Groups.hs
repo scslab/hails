@@ -69,7 +69,7 @@ labelRewrite pm lx = withDBContext "labelRewrite" $ do
             -- and one named in the first parameter are the same
             case Map.lookup (policyModuleTypeName pm) availablePolicyModules of
               Nothing -> return mempty
-              Just (p,_) -> return $ if toCNF p == privDesc pmPriv
+              Just (p,_,_) -> return $ if toCNF p == privDesc pmPriv
                                        then pmPriv
                                        else mempty
           -- Modify label by expanding principals according to the map

@@ -76,11 +76,13 @@ import           Hails.Data.Hson
 import           Hails.Database.Core
 import           Hails.Database.TCB
 import           Hails.PolicyModule.TCB
+import           Control.Concurrent.MVar
 
 import           Text.Parsec hiding (label)
 
 import           System.Environment
 import           System.IO.Unsafe
+import qualified Control.Exception as IO
 
 -- | A policy module is specified as an instance of the @PolicyModule@
 -- class. The role of this class is to define an entry point for
@@ -400,14 +402,15 @@ type TypeName = String
 -- suffix. In the above, the principal assigned by Hails is:
 --
 -- > "_my-policy-0.1.2.3:My.Policy.MyPolicyModule"
-availablePolicyModules :: Map TypeName (Principal, DatabaseName)
+availablePolicyModules :: Map TypeName (Principal, DatabaseName, MVar (Maybe Pipe))
 {-# NOINLINE availablePolicyModules #-}
 availablePolicyModules = unsafePerformIO $ do
   conf <- getEnv "DATABASE_CONFIG_FILE"
   ls   <- lines `liftM` readFile conf
   Map.fromList `liftM` mapM xfmLine ls
     where xfmLine l = do (tn, dn) <- readIO l
-                         return (tn,(principal ('_':tn), dn))
+                         ref <- newMVar Nothing
+                         return (tn,(principal ('_':tn), dn, ref))
 
 -- | This function is the used to execute database queries on policy
 -- module databases. The function firstly invokes the policy module,
@@ -426,13 +429,20 @@ withPolicyModule :: forall a pm. PolicyModule pm => (pm -> DBAction a) -> DC a
 withPolicyModule act = withContext "withPolicyModule" $ do
   case Map.lookup tn availablePolicyModules of
     Nothing -> throwLIO UnknownPolicyModule
-    Just (pmOwner, dbName) -> do
+    Just (pmOwner, dbName, pipeVar) -> do
       env <- ioTCB $ getEnvironment
       let hostName = fromMaybe "localhost" $
                                List.lookup "HAILS_MONGODB_SERVER" env
           mode     = maybe master parseMode $
                                   List.lookup "HAILS_MONGODB_MODE" env
-      pipe <- ioTCB $ Mongo.connect (Mongo.host hostName)
+      pipe <- ioTCB $ do
+         mpipe <- takeMVar pipeVar
+         case mpipe of
+          Just p -> putMVar pipeVar mpipe >> return p
+          _ -> do p <- Mongo.connect (Mongo.host hostName)
+                      `IO.onException` putMVar pipeVar mpipe
+                  putMVar pipeVar (Just p)
+                  return p
       let priv = PrivTCB (toCNF pmOwner)
           s0 = makeDBActionStateTCB priv dbName pipe mode
       -- Execute policy module entry function with raised clearance:
