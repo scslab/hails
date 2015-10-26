@@ -112,8 +112,8 @@ import           LIO.DCLabel
 import           LIO.TCB
 
 import           Network.Wai.Parse ( FileInfo(..)
-                                   , sinkRequestBody
-                                   , lbsBackEnd)
+                                   , lbsBackEnd
+                                   , sinkRequestBody )
 
 import           Hails.Data.Hson.TCB
 import           Hails.HttpServer.Types
@@ -325,8 +325,11 @@ labeledRequestToHson :: MonadLIO DCLabel m
 labeledRequestToHson lreq = liftLIO $ do
   let (LabeledTCB origLabel req) = lreq
       btype     = fromMaybe UrlEncoded $ getRequestBodyType req
-  (ps, fs) <- liftLIO . ioTCB $ 
-                sourceLbs (requestBody req) $$ sinkRequestBody lbsBackEnd btype
+  (ps, fs) <- case getRequestBodyType req of
+                Nothing -> return ([], [])
+                Just rbt -> liftLIO . ioTCB $
+                  let body = return . L.toStrict . requestBody $ req
+                  in sinkRequestBody lbsBackEnd rbt body
   let psDoc     = map convertPS ps
       fsDoc     = map convertFS fs
   return $ LabeledTCB origLabel $ arrayify $ psDoc ++ fsDoc

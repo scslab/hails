@@ -1,5 +1,5 @@
 Name:           hails
-Version:        0.11.2.1
+Version:        0.12.0.0
 build-type:     Simple
 License:        MIT
 License-File:   LICENSE
@@ -102,12 +102,13 @@ Library
    ,bson
    ,mongoDB
    ,network
+   ,network-uri
    ,http-conduit >= 2.1.0
    ,conduit
    ,conduit-extra
    ,resourcet
    ,exceptions
-   ,wai >= 2.1 && < 3.0
+   ,wai >= 3.0
    ,wai-app-static
    ,wai-extra
    ,http-types
@@ -165,12 +166,13 @@ Executable hails
    ,bson
    ,mongoDB
    ,network
+   ,network-uri
    ,http-conduit >= 2.1.0
    ,conduit
    ,conduit-extra
    ,resourcet
    ,exceptions
-   ,wai >= 2.1 && < 3.0
+   ,wai >= 3.0
    ,wai-extra
    ,wai-app-static
    ,warp

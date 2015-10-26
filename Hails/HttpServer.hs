@@ -65,7 +65,7 @@ import           Data.Time (getCurrentTime)
 waiToHailsReq :: W.Request -> IO Request
 waiToHailsReq req = do
   curTime <- liftIO getCurrentTime
-  body <- fmap L.fromChunks $ W.requestBody req $$ consume
+  body <- fmap L.fromStrict $ W.requestBody req
   return $ Request { requestMethod = W.requestMethod req
                    , httpVersion = W.httpVersion req
                    , rawPathInfo = W.rawPathInfo req
@@ -76,7 +76,7 @@ waiToHailsReq req = do
                    , serverName = sN
                    , pathInfo = W.pathInfo req
                    , queryString = W.queryString req
-                   , requestBody = body 
+                   , requestBody = body
                    , requestTime = curTime }
   where sN = case lookup "Host" $ W.requestHeaders req of
           Just h -> h
@@ -159,7 +159,10 @@ secureApplication = browserLabelGuard  -- Return 403, if user should not read
 
 -- | Catch all exceptions thrown by middleware and return 500.
 catchAllExceptions :: W.Middleware
-catchAllExceptions app req = app req `catchError` (const $ return resp500)
+catchAllExceptions app req responder = app req $ \resp ->
+      responder resp
+        `catchError`
+          (const $ responder $ resp500)
     where resp500 = W.responseLBS status500 [] "App threw an exception"
 
 --
@@ -189,10 +192,11 @@ execHailsApplication authMiddleware app =
 -- Note: this function assumes that the request has already been sanitized.
 -- In most cases, you want to use 'execHailsApplication'.
 hailsApplicationToWai :: Application -> W.Application
-hailsApplicationToWai app0 req0 | isStatic req0 =
+hailsApplicationToWai app0 req0 respond
+        | isStatic req0 =
   -- Is static request, serve files:
-  W.staticApp (W.defaultWebAppSettings "./") req0
-                                | otherwise = do
+  W.staticApp (W.defaultWebAppSettings "./") req0 respond
+        | otherwise = do
   -- Not static request, serve dynamic content:
   -- Convert request to Hails request
   hailsRequest <- waiToHailsReq req0
@@ -202,10 +206,10 @@ hailsApplicationToWai app0 req0 | isStatic req0 =
     let lreq = LabeledTCB (requestLabel conf) hailsRequest
     app conf lreq
   case result of
-    Right response -> return $ hailsToWaiResponse response
+    Right response -> respond $ hailsToWaiResponse response
     Left err -> do
       liftIO $ hPutStrLn stderr $ "App threw exception: " ++ show err
-      return $
+      respond $
         if lioLabel dcState `canFlowTo` (browserLabel conf) then
           resp500
           else resp403
