@@ -80,8 +80,8 @@ main = do
   forM_ (optsToEnv opts) $ \(k,v) -> setEnv k v
   let port = fromJust $ optPort opts
       hmac_key = L8.pack . fromJust $ optHmacKey opts
-      persona = undefined --personaAuth hmac_key $ T.pack . fromJust . optPersonaAud $ opts
-      openid  = undefined --openIdAuth  $ T.pack . fromJust . optOpenID $ opts
+      persona = personaAuth hmac_key $ T.pack . fromJust . optPersonaAud $ opts
+      openid  = openIdAuth  $ T.pack . fromJust . optOpenID $ opts
       external  = externalAuth  hmac_key
                                 (fromJust $ optExternal $ opts)
       logMiddleware  = if optDev opts then logStdoutDev  else logStdout
