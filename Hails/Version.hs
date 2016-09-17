@@ -1,7 +1,7 @@
 {-# LANGUAGE Trustworthy #-}
 {- | 
 
-This module solely exports the versoin of hails.
+This module solely exports the version of hails.
 
 -}
 
